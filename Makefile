@@ -24,14 +24,26 @@ CLIENT_BIN = $(BIN_DIR)/leop-client
 # Source files (lägg till fler när de skapas)
 SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.cpp)
+TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 
 # Object files
 SERVER_OBJS = $(SERVER_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 CLIENT_OBJS = $(CLIENT_SRCS:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
+TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+
+# Test binary
+TEST_BIN = $(BIN_DIR)/test_runner
 
 # Default target
 .PHONY: all
-all: directories $(SERVER_BIN) $(CLIENT_BIN)
+all: directories server client
+
+# Individual targets for CI
+.PHONY: server
+server: directories $(SERVER_BIN)
+
+.PHONY: client
+client: directories $(CLIENT_BIN)
 
 # Create necessary directories
 .PHONY: directories
@@ -40,6 +52,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/server
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/common
+	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
 	@mkdir -p config
@@ -94,12 +107,18 @@ coverage: CXXFLAGS += --coverage -O0
 coverage: LDFLAGS += --coverage
 coverage: clean all
 
-# Run tests (när testerna är implementerade)
+# Build test binary
+$(TEST_BIN): $(TEST_OBJS)
+	@echo "Linking test runner..."
+	$(CC) $(LDFLAGS) -o $@ $^
+	@echo "Test runner built successfully: $@"
+
+# Run tests
 .PHONY: test
-test: all
+test: directories $(TEST_BIN)
 	@echo "Running tests..."
-	@# Lägg till test commands här
-	@echo "No tests implemented yet"
+	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
+	@echo "All tests passed!"
 
 # Memory leak check with Valgrind
 .PHONY: valgrind-server
