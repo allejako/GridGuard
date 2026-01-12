@@ -15,31 +15,31 @@ Detta dokument innehåller en prioriterad lista över funktioner och uppgifter f
 ## Vecka 1: Projektintroduktion och Planering
 
 ### Setup och Infrastruktur
-- [ ] 🔴 Skapa Git-repository
-- [ ] 🔴 Sätt upp projektstruktur (mappar och filer)
-- [ ] 🔴 Skapa grundläggande Makefile
-- [ ] 🔴 Sätt upp .gitignore
-- [ ] 🟡 Skapa utvecklingsmiljö-guide
-- [ ] 🟡 Sätt upp CI/CD pipeline (GitHub Actions)
+- [x] 🔴 Skapa Git-repository
+- [x] 🔴 Sätt upp projektstruktur (mappar och filer)
+- [x] 🔴 Skapa grundläggande Makefile
+- [x] 🔴 Sätt upp .gitignore
+- [x] 🟡 Skapa utvecklingsmiljö-guide
+- [x] 🟡 Sätt upp CI/CD pipeline (GitHub Actions)
 
 ### Dokumentation
-- [ ] 🔴 README.md med projektöversikt
-- [ ] 🔴 ARCHITECTURE.md med systemdesign
-- [ ] 🔴 Välj unikt produktnamn
-- [ ] 🟡 CONTRIBUTING.md med teamriktlinjer
-- [ ] 🟡 API-dokumentation (skelett)
+- [x] 🔴 README.md med projektöversikt
+- [x] 🔴 ARCHITECTURE.md med systemdesign
+- [x] 🔴 Välj unikt produktnamn
+- [x] 🟡 CONTRIBUTING.md med teamriktlinjer
+- [x] 🟡 API-dokumentation (skelett)
 - [ ] 🟢 Skapa projektwiki
 
 ### Planering
-- [ ] 🔴 Identifiera roller och ansvarsområden
-- [ ] 🔴 Skapa detaljerad backlog
+- [x] 🔴 Identifiera roller och ansvarsområden
+- [x] 🔴 Skapa detaljerad backlog
 - [ ] 🔴 Planera sprintar för vecka 2-12
-- [ ] 🟡 Risklista och mitigation-strategier
-- [ ] 🟡 Definiera "Definition of Done"
+- [x] 🟡 Risklista och mitigation-strategier
+- [x] 🟡 Definiera "Definition of Done"
 
 ### Presentation (Checkpoint tisdag)
 - [ ] 🔴 Förbered offert/lösningsförslag
-- [ ] 🔴 Skapa arkitekturdiagram
+- [x] 🔴 Skapa arkitekturdiagram
 - [ ] 🔴 Planera demo av projektsetup
 
 ---

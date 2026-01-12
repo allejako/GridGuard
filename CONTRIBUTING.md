@@ -36,10 +36,10 @@
 
 | Roll | Ansvar | Person |
 |------|--------|--------|
-| **Product Owner** | Prioriterar backlog, beslutar om scope | [Namn] |
-| **Tech Lead** | Arkitekturbeslut, code reviews | [Namn] |
-| **Scrum Master** | Faciliterar möten, tar bort blockeringar | [Namn] |
-| **Developer** | Implementation, testning, dokumentation | Alla |
+| **Product Owner** | Prioriterar backlog, beslutar om scope | [Käcker] |
+| **Tech Lead** | Arkitekturbeslut, code reviews | [Alexander] |
+| **Scrum Master** | Faciliterar möten, tar bort blockeringar | [Gustaf] |
+| **Developer** | Implementation, testning, dokumentation | Alla | Kevin Powell
 
 **OBS:** Rollerna är flexibla och kan rotera!
 
@@ -183,13 +183,15 @@ double solar_irradiance = 0.0;
 #define MAX_BUFFER_SIZE 1024
 
 // Structs: PascalCase
-typedef struct {
+typedef struct 
+{
     int id;
     char name[64];
 } WeatherStation;
 
 // Enums: PascalCase för typ, UPPER_CASE för värden
-typedef enum {
+typedef enum 
+{
     STATUS_OK,
     STATUS_ERROR,
     STATUS_TIMEOUT
