@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+bin/
+*.o
+*.d
+*.so
+*.a
+
+# Logs
+logs/
+*.log
+
+# Profiling and coverage
+gmon.out
+*.gcda
+*.gcno
+*.gcov
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Config files with secrets (keep .example files)
+config/*.conf
+!config/*.conf.example
+
+# OS files
+.DS_Store
+Thumbs.db
