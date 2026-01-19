@@ -47,17 +47,17 @@ Detta dokument innehåller en prioriterad lista över funktioner och uppgifter f
 ## Vecka 2: Serverarkitektur och Processhantering
 
 ### Server-grundstruktur
-- [ ] 🔴 Implementera main.c med event loop
+- [/] 🔴 Implementera main.c med event loop
 - [ ] 🔴 Kommandoradsargument parsing (port, config)
 - [ ] 🔴 Grundläggande loggningssystem
 - [ ] 🔴 Konfigurationsfil-läsare
 - [ ] 🟡 PID-fil för processhantering
 
 ### Processhantering
-- [ ] 🔴 Fork-baserad child process hantering
-- [ ] 🔴 Signalhantering (SIGINT, SIGTERM, SIGCHLD)
-- [ ] 🔴 Korrekt wait()/waitpid() implementation
-- [ ] 🟡 Graciös nedstängning av alla processer
+- [x] 🔴 Fork-baserad child process hantering
+- [/] 🔴 Signalhantering (SIGINT, SIGTERM, SIGCHLD)
+- [/] 🔴 Korrekt wait()/waitpid() implementation
+- [x] 🟡 Graciös nedstängning av alla processer
 - [ ] 🟢 ⭐ Demonisering av server
 
 ### Felhantering
@@ -66,8 +66,8 @@ Detta dokument innehåller en prioriterad lista över funktioner och uppgifter f
 - [ ] 🟡 Watchdog för hängande processer
 
 ### Tester
-- [ ] 🔴 Test: Server kan startas och stoppas
-- [ ] 🔴 Test: Signalhantering fungerar
+- [x] 🔴 Test: Server kan startas och stoppas
+- [x] 🔴 Test: Signalhantering fungerar
 - [ ] 🟡 Test: Ingen zombieprocesser
 
 ---

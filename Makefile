@@ -15,6 +15,7 @@ BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
+TCP_DIR = $(SRC_DIR)/tcp
 TEST_DIR = $(SRC_DIR)/tests
 
 # Output binaries
@@ -22,13 +23,13 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c)
-CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.cpp)
+SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/*.c)
+CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.c) $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.c)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 
 # Object files
 SERVER_OBJS = $(SERVER_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
-CLIENT_OBJS = $(CLIENT_SRCS:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
+CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
 TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 # Test binary
@@ -52,6 +53,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/server
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/common
+	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
@@ -66,7 +68,7 @@ $(SERVER_BIN): $(SERVER_OBJS)
 # Build client
 $(CLIENT_BIN): $(CLIENT_OBJS)
 	@echo "Linking client..."
-	$(CXX) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^
 	@echo "Client built successfully: $@"
 
 # Compile C source files
@@ -119,6 +121,27 @@ test: directories $(TEST_BIN)
 	@echo "Running tests..."
 	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
 	@echo "All tests passed!"
+
+# Run server
+.PHONY: run-server
+run-server: server
+	@echo "Starting server..."
+	@$(SERVER_BIN)
+
+# Run client
+.PHONY: run-client
+run-client: client
+	@echo "Starting client..."
+	@$(CLIENT_BIN)
+
+# Run both (server in background, client in foreground)
+.PHONY: run
+run: all
+	@echo "Starting server in background..."
+	@$(SERVER_BIN) &
+	@sleep 1
+	@echo "Starting client..."
+	@$(CLIENT_BIN)
 
 # Memory leak check with Valgrind
 .PHONY: valgrind-server
