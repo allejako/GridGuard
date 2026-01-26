@@ -4,16 +4,16 @@
 #include <pthread.h>
 #include <stdbool.h>
 
+#include "../../config/config.h"
 #include "ThreadWorker.h"
-
-#define MAX_THREADS 20
-#define MAX_CLIENTS_PER_THREAD 50
 
 typedef struct
 {
-    ThreadWorker *workers;
+    ThreadWorker *threadWorkers;
     pthread_mutex_t mutex;
+    int numOfThreads;
     bool isRunning;
+    
 } ThreadPool;
 
 int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads);

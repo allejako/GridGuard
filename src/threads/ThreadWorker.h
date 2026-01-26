@@ -4,28 +4,38 @@
 #include <pthread.h>
 #include <stdbool.h>
 
+#include "../../config/config.h"
+
+// Client state machine states
 typedef enum {
-    CLIENT_STATE_IDLE,
-    CLIENT_STATE_AUTHENTICATING,
-    CLIENT_STATE_AUTHENTICATED,
-    CLIENT_STATE_PROCESSING,
-    CLIENT_STATE_DISCONNECTING
+    CLIENT_DISCONNECTED = 0,
+    CLIENT_CONNECTED,
+    CLIENT_AUTHENTICATING,
+    CLIENT_READY,
+    CLIENT_PROCESSING
 } ClientState;
 
-typedef struct
-{
+// Per-client data
+typedef struct {
+    int fd;
+    ClientState state;
+    char buffer[CLIENT_BUFFER_SIZE];
+    int bufferLen;
+} Client;
+
+// Worker thread structure
+typedef struct {
     int id;
-    int clientFds[20]; 
-    int clientCount; // Current number of clients
+    pthread_t thread;
+    Client clients[MAX_CLIENTS_PER_THREAD];
+    int clientCount;
     bool isRunning;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 } ThreadWorker;
 
-// Worker thread functions (called by ThreadPool)
-int ThreadWorker_Initiate(ThreadWorker *worker);
-int ThreadWorker_AddClient(ThreadWorker *worker, int client_fd);
-void *ThreadWorker_Run(void *arg);
+int ThreadWorker_Init(ThreadWorker *worker, int id);
+int ThreadWorker_AddClient(ThreadWorker *worker, int clientFd);
 void ThreadWorker_Shutdown(ThreadWorker *worker);
 
 #endif // _THREADWORKER_H_

@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-#include "../tcp/tcpserver.h"
+#include "../tcp/TCPServer.h"
 #include "../threads/ThreadPool.h"
 #include "ClientHandler.h"
 #include "SignalHandler.h"
@@ -17,11 +17,9 @@ int main()
 
     volatile sig_atomic_t *serverIsRunning = SignalHandler_Init();
 
-    // Initialize thread pool
+    // Initialization
     ThreadPool_Initiate(&threadPool, MAX_THREADS);
-
-    // Initialize TCP
-    TCPServer_Initiate(&server, "8080");
+    TCPServer_Initiate(&server, SERVER_PORT);
     SignalHandler_SetServerFd(server.listen_fd);
 
     while (*serverIsRunning)
@@ -35,10 +33,9 @@ int main()
             perror("accept");
             continue;
         }
-
         printf("Main: New connection, fd = %d\n", clientSocket);
 
-        // Pass client to thread pool
+        // Pass client fd to thread pool
         if (ThreadPool_AddClient(&threadPool, clientSocket) != 0)
         {
             printf("Main: Thread pool full, rejecting client\n");
