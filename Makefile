@@ -18,6 +18,7 @@ COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
 THREADS_DIR = $(SRC_DIR)/threads
 TEST_DIR = $(SRC_DIR)/tests
+LIBS_DIR = $(SRC_DIR)/libs
 
 # Output binaries
 SERVER_BIN = $(BIN_DIR)/leop-server
