@@ -6,15 +6,21 @@
 #include <sys/wait.h>
 
 #include "../tcp/tcpserver.h"
+#include "../threads/ThreadPool.h"
 #include "ClientHandler.h"
 #include "SignalHandler.h"
 
 int main()
 {
     TCPServer server;
+    ThreadPool threadPool;
+
     volatile sig_atomic_t *serverIsRunning = SignalHandler_Init();
 
-    // Initiate TCP
+    // Initialize thread pool
+    ThreadPool_Initiate(&threadPool, MAX_THREADS);
+
+    // Initialize TCP
     TCPServer_Initiate(&server, "8080");
     SignalHandler_SetServerFd(server.listen_fd);
 
@@ -22,24 +28,28 @@ int main()
     {
         printf("Main: Listening...\n");
         int clientSocket = TCPServer_Accept(&server);
-
         if (clientSocket < 0)
         {
             if (!*serverIsRunning)
                 break;
+            perror("accept");
             continue;
         }
 
-        // TODO: Pass clientSocket to thread pool
+        printf("Main: New connection, fd = %d\n", clientSocket);
+
+        // Pass client to thread pool
+        if (ThreadPool_AddClient(&threadPool, clientSocket) != 0)
+        {
+            printf("Main: Thread pool full, rejecting client\n");
+            close(clientSocket);
+        }
     }
 
     printf("Server shutting down..\n");
-    close(server.listen_fd);
 
-    // Wait for remaining child processes
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-    {
-    }
+    ThreadPool_Shutdown(&threadPool);
+    close(server.listen_fd);
 
     printf("Server exited cleanly\n");
     return 0;

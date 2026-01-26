@@ -16,6 +16,7 @@ SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
+THREADS_DIR = $(SRC_DIR)/threads
 TEST_DIR = $(SRC_DIR)/tests
 
 # Output binaries
@@ -23,7 +24,7 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/*.c)
+SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/*.c) $(wildcard $(THREADS_DIR)/*.c)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.c) $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.c)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 
@@ -54,6 +55,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/common
 	@mkdir -p $(BUILD_DIR)/tcp
+	@mkdir -p $(BUILD_DIR)/threads
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
