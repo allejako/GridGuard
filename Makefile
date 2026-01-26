@@ -4,8 +4,6 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g
-CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g
 LDFLAGS = -pthread
 
 # Directories
@@ -19,6 +17,13 @@ TCP_DIR = $(SRC_DIR)/tcp
 THREADS_DIR = $(SRC_DIR)/threads
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
+
+# Include paths for headers
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR)
+
+# Compiler flags
+CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
+CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 
 # Output binaries
 SERVER_BIN = $(BIN_DIR)/leop-server
