@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "TCPClient.h"
+#include "Logger.h"
 
 int TCPClient_Initiate(TCPClient *_Client, int fd)
 {
@@ -61,7 +62,7 @@ void TCPClient_Disconnect(TCPClient *_Client)
 {
     if (_Client->fd >= 0)
         close(_Client->fd);
-    printf("Client with fd %d disconnected\n", _Client->fd);
+    LOG_INFO("Client FD %d disconnected", _Client->fd);
     _Client->fd = -1;
 }
 

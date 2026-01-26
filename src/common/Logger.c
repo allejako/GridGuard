@@ -26,7 +26,7 @@ static const char *levelColors[] = {
 };
 static const char *colorReset = "\033[0m";
 
-int loggerInit(const char *logFilePath, LogLevel minLevel)
+int Logger_Initiate(const char *logFilePath, LogLevel minLevel)
 {
     currentLevel = minLevel;
     
@@ -40,7 +40,7 @@ int loggerInit(const char *logFilePath, LogLevel minLevel)
     
     return 0;
 }
-void loggerShutdown(void)
+void Logger_Shutdown(void)
 {
     if (logFile != NULL) {
         fclose(logFile);
@@ -48,17 +48,17 @@ void loggerShutdown(void)
     }
 }
 
-void loggerSetLevel(LogLevel level)
+void Logger_SetLevel(LogLevel level)
 {
     currentLevel = level;
 }
 
-LogLevel loggerGetLevel(void)
+LogLevel Logger_GetLevel(void)
 {
     return currentLevel;
 }
 
-void loggerLog(LogLevel level, const char *file, int line, const char *fmt, ...)
+void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...)
 {
     if (level < currentLevel) {
         return;

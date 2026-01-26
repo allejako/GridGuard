@@ -1,6 +1,6 @@
 
 
-#include "../tcp/tcpclient.h"
+#include "TCPClient.h"
 
 int main()
 {
@@ -10,7 +10,8 @@ int main()
 
     TCPClient_Connect(&client, "localhost", "8080");
 
-    TCPClient_Disconnect(&client);
+    // TCPClient_Disconnect(&client);
+    while(1) {};
 
     return 0;
 }

@@ -1,15 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "ThreadPool.h"
+#include "Logger.h"
 
 int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads)
 {
     if (numOfThreads > MAX_THREADS)
+    {
+        LOG_WARNING("Too many threads. Automatically reduced to max amount (%d)", MAX_THREADS);
         numOfThreads = MAX_THREADS;
+    }
 
     if ((threadPool->threadWorkers = malloc(sizeof(ThreadWorker) * numOfThreads)) == NULL)
     {
-        fprintf(stderr, "Error: Could not allocate memory for workers\n");
+        LOG_FATAL("Failed to allocate memory for thread workers");
         return -1;
     }
 
@@ -21,17 +25,15 @@ int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads)
     {
         if (ThreadWorker_Init(&threadPool->threadWorkers[i], i) != 0)
         {
-            fprintf(stderr, "Failed to initialize worker %d\n", i);
-            // Cleanup
+            LOG_FATAL("Failed to initialize thread workers");
             for (int j = 0; j < i; j++)
                 ThreadWorker_Shutdown(&threadPool->threadWorkers[j]);
             free(threadPool->threadWorkers);
-            return -1;
+            return EXIT_FAILURE;
         }
     }
 
-    printf("ThreadPool: %d workers ready (capacity: %d clients)\n",
-           numOfThreads, numOfThreads * MAX_CLIENTS_PER_THREAD);
+    LOG_INFO("ThreadPool: %d workers ready (capacity: %d clients)", numOfThreads, numOfThreads * MAX_CLIENTS_PER_THREAD);
     return 0;
 }
 
@@ -57,6 +59,7 @@ int ThreadPool_AddClient(ThreadPool *threadPool, int clientFd)
 
     if (target < 0 || minClients >= MAX_CLIENTS_PER_THREAD)
     {
+        LOG_WARNING("Thread is invalid or at maximum capacity");
         pthread_mutex_unlock(&threadPool->mutex);
         return -1;
     }
@@ -68,7 +71,7 @@ int ThreadPool_AddClient(ThreadPool *threadPool, int clientFd)
 
 int ThreadPool_Shutdown(ThreadPool *threadPool)
 {
-    printf("ThreadPool: Shutting down...\n");
+    LOG_INFO("ThreadPool: Shutting down...");
     threadPool->isRunning = false;
 
     for (int i = 0; i < threadPool->numOfThreads; i++)
@@ -77,6 +80,6 @@ int ThreadPool_Shutdown(ThreadPool *threadPool)
     pthread_mutex_destroy(&threadPool->mutex);
     free(threadPool->threadWorkers);
 
-    printf("ThreadPool: Shutdown complete\n");
+    LOG_INFO("Shutdown complete");
     return 0;
 }

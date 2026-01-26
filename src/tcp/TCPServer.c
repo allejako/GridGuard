@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include "TCPServer.h"
+#include "Logger.h"
 
 
 int TCPServer_Initiate(TCPServer* _Server, const char* _Port)
@@ -47,19 +48,19 @@ int TCPServer_Initiate(TCPServer* _Server, const char* _Port)
 
 int TCPServer_Accept(TCPServer* _Server)
 {
-    int socket_fd = accept(_Server->listen_fd, NULL, NULL);
-    if (socket_fd < 0)
+    int clientSocket = accept(_Server->listen_fd, NULL, NULL);
+    if (clientSocket < 0)
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-            return 0; // No new client
+        if (errno == EINTR)
+            return 0; // Interrupted by signal
 
-        perror("accept");
+        LOG_ERROR("Accept failed: %s", strerror(errno));
         return -1;
     }
     
-    printf("TCPServer: accepted connection fd = %d\n", socket_fd);
+    LOG_INFO("Client FD %d connected", clientSocket);
     
-    return socket_fd; // Return the client socket descriptor
+    return clientSocket;
 }
 
 void TCPServer_Dispose(TCPServer* _Server)

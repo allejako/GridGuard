@@ -4,9 +4,8 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "../../config/config.h"
+#include "Config.h"
 
-// Client state machine states
 typedef enum {
     CLIENT_DISCONNECTED = 0,
     CLIENT_CONNECTED,
@@ -15,7 +14,6 @@ typedef enum {
     CLIENT_PROCESSING
 } ClientState;
 
-// Per-client data
 typedef struct {
     int fd;
     ClientState state;
@@ -23,7 +21,6 @@ typedef struct {
     int bufferLen;
 } Client;
 
-// Worker thread structure
 typedef struct {
     int id;
     pthread_t thread;

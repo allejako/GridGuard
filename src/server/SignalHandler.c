@@ -3,18 +3,26 @@
 #include "SignalHandler.h"
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 
 static volatile sig_atomic_t keep_running = 1;
 static int server_fd = -1;
+
+// Signal-safe message writing
+static void SignalHandler_Write(const char *msg)
+{
+    write(STDOUT_FILENO, msg, strlen(msg));
+}
 
 static void SignalHandler_HandleSignal(int signum) 
 {
     if (signum == SIGINT || signum == SIGTERM) 
     {
-        printf("\nSignal %d received, shutting down server\n", signum);
+        SignalHandler_Write("\nSignal received, shutting down server...\n");
         keep_running = 0;
         if (server_fd >= 0) {
             close(server_fd);
+            server_fd = -1;
         }
     }
 }

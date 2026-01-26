@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include "ThreadWorker.h"
+#include "Logger.h"
 
 // ============== STATE MACHINE ==============
 static void Client_HandleState(Client *client)
@@ -38,10 +39,10 @@ static void Client_HandleState(Client *client)
 }
 
 // ============== WORKER THREAD LOOP ==============
-static void *ThreadWorker_Run(void *arg)
+static void *ThreadWorker_Work(void *arg)
 {
     ThreadWorker *worker = (ThreadWorker *)arg;
-    printf("Worker %d: Started\n", worker->id);
+    LOG_INFO("Worker %d: Started", worker->id);
 
     while (worker->isRunning)
     {
@@ -98,7 +99,7 @@ static void *ThreadWorker_Run(void *arg)
                 if (bytes <= 0)
                 {
                     // Disconnected
-                    printf("Worker %d: Client fd=%d disconnected\n", worker->id, client->fd);
+                    LOG_INFO("Worker %d: Client FD %d disconnected", worker->id, client->fd);
                     close(client->fd);
                     client->state = CLIENT_DISCONNECTED;
                     client->fd = -1;
@@ -127,7 +128,7 @@ static void *ThreadWorker_Run(void *arg)
     }
     pthread_mutex_unlock(&worker->mutex);
 
-    printf("Worker %d: Exiting\n", worker->id);
+    LOG_INFO("Worker %d: Exiting", worker->id);
     return NULL;
 }
 
@@ -149,9 +150,9 @@ int ThreadWorker_Init(ThreadWorker *worker, int id)
     pthread_mutex_init(&worker->mutex, NULL);
     pthread_cond_init(&worker->cond, NULL);
 
-    if (pthread_create(&worker->thread, NULL, ThreadWorker_Run, worker) != 0)
+    if (pthread_create(&worker->thread, NULL, ThreadWorker_Work, worker) != 0)
     {
-        perror("pthread_create");
+        LOG_ERROR("Failed creating thread %d", worker->id);
         return -1;
     }
 
@@ -172,7 +173,7 @@ int ThreadWorker_AddClient(ThreadWorker *worker, int clientFd)
             worker->clients[i].bufferLen = 0;
             worker->clientCount++;
 
-            printf("Worker %d: Added client fd=%d (slot %d, total %d)\n",
+            LOG_INFO("Worker %d: Added client FD %d (slot %d, total %d client(s))",
                    worker->id, clientFd, i, worker->clientCount);
 
             pthread_cond_signal(&worker->cond);
@@ -182,7 +183,7 @@ int ThreadWorker_AddClient(ThreadWorker *worker, int clientFd)
     }
 
     pthread_mutex_unlock(&worker->mutex);
-    return -1; // Full
+    return -1;
 }
 
 void ThreadWorker_Shutdown(ThreadWorker *worker)

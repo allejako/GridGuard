@@ -5,49 +5,77 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-#include "../tcp/TCPServer.h"
-#include "../threads/ThreadPool.h"
+#include "TCPServer.h"
+#include "ThreadPool.h"
 #include "ClientHandler.h"
 #include "SignalHandler.h"
+#include "Logger.h"
 
 int main()
 {
+    // =============== Initialization ===============
+
     TCPServer server;
     ThreadPool threadPool;
-
     volatile sig_atomic_t *serverIsRunning = SignalHandler_Init();
 
-    // Initialization
-    ThreadPool_Initiate(&threadPool, MAX_THREADS);
-    TCPServer_Initiate(&server, SERVER_PORT);
+    if (Logger_Initiate("../../logs", LOG_LEVEL_DEBUG) != 0)
+    {
+        fprintf(stderr, "Failed to initialize logger\n");
+    }
+
+    LOG_INFO("Server initializing...");
+
+    if (ThreadPool_Initiate(&threadPool, MAX_THREADS) != 0)
+    {
+        LOG_FATAL("Failed to initialize thread pool");
+        Logger_Shutdown();
+        return EXIT_FAILURE;
+    }
+
+    if (TCPServer_Initiate(&server, SERVER_PORT) != 0)
+    {
+        LOG_FATAL("Failed to initialize TCP server on port %s", SERVER_PORT);
+        ThreadPool_Shutdown(&threadPool);
+        Logger_Shutdown();
+        return EXIT_FAILURE;
+    }
+
     SignalHandler_SetServerFd(server.listen_fd);
 
+    // =============== Server loop ===============
+
+    LOG_INFO("Server is up and running...");
     while (*serverIsRunning)
     {
-        printf("Main: Listening...\n");
         int clientSocket = TCPServer_Accept(&server);
-        if (clientSocket < 0)
+        if (clientSocket <= 0)
         {
             if (!*serverIsRunning)
                 break;
-            perror("accept");
+            if (clientSocket < 0)
+                LOG_ERROR("Failed to accept connection");
             continue;
         }
-        printf("Main: New connection, fd = %d\n", clientSocket);
 
-        // Pass client fd to thread pool
         if (ThreadPool_AddClient(&threadPool, clientSocket) != 0)
         {
-            printf("Main: Thread pool full, rejecting client\n");
+            LOG_ERROR("Thread pool full, rejecting client");
             close(clientSocket);
         }
     }
 
-    printf("Server shutting down..\n");
+    // =============== Shutdown ===============
+
+    LOG_INFO("Server shutting down..");
 
     ThreadPool_Shutdown(&threadPool);
-    close(server.listen_fd);
 
-    printf("Server exited cleanly\n");
+    if (server.listen_fd >= 0) {
+        close(server.listen_fd);
+    }
+
+    LOG_INFO("Server exited cleanly");
+
     return 0;
 }
