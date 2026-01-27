@@ -11,7 +11,6 @@
 #include "ThreadWorker.h"
 #include "Logger.h"
 
-// ============== STATE MACHINE ==============
 static void Client_HandleState(Client *client)
 {
     switch (client->state)
@@ -38,7 +37,6 @@ static void Client_HandleState(Client *client)
     }
 }
 
-// ============== WORKER THREAD LOOP ==============
 static void *ThreadWorker_Work(void *arg)
 {
     ThreadWorker *worker = (ThreadWorker *)arg;
@@ -132,8 +130,7 @@ static void *ThreadWorker_Work(void *arg)
     return NULL;
 }
 
-// ============== PUBLIC API ==============
-int ThreadWorker_Init(ThreadWorker *worker, int id)
+int ThreadWorker_Initiate(ThreadWorker *worker, int id)
 {
     worker->id = id;
     worker->clientCount = 0;

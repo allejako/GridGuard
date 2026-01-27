@@ -31,7 +31,7 @@ typedef struct {
     pthread_cond_t cond;
 } ThreadWorker;
 
-int ThreadWorker_Init(ThreadWorker *worker, int id);
+int ThreadWorker_Initiate(ThreadWorker *worker, int id);
 int ThreadWorker_AddClient(ThreadWorker *worker, int clientFd);
 void ThreadWorker_Shutdown(ThreadWorker *worker);
 

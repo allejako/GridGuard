@@ -20,10 +20,10 @@ typedef struct
 } TCPServer;
 
 
-int TCPServer_Initiate(TCPServer* _Server, const char* _Port);
+int TCPServer_Initiate(TCPServer* server, const char* port);
 
-int TCPServer_Accept(TCPServer* _Server);
+int TCPServer_Accept(TCPServer* server);
 
-void TCPServer_Dispose(TCPServer* _Server);
+void TCPServer_Dispose(TCPServer* server);
 
 #endif //__TCPServer_h_

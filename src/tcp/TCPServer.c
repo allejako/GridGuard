@@ -5,14 +5,14 @@
 #include "Logger.h"
 
 
-int TCPServer_Initiate(TCPServer* _Server, const char* _Port)
+int TCPServer_Initiate(TCPServer* server, const char* port)
 {
 	struct addrinfo hints = {0}, *res = NULL;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	if (getaddrinfo(NULL, _Port, &hints, &res) != 0)
+	if (getaddrinfo(NULL, port, &hints, &res) != 0)
 		return -1;
 
 	int fd = -1;
@@ -41,14 +41,14 @@ int TCPServer_Initiate(TCPServer* _Server, const char* _Port)
 		return -1;
 	}
 
-	_Server->listen_fd = fd;
+	server->listen_fd = fd;
 
 	return 0;
 }
 
-int TCPServer_Accept(TCPServer* _Server)
+int TCPServer_Accept(TCPServer* server)
 {
-    int clientSocket = accept(_Server->listen_fd, NULL, NULL);
+    int clientSocket = accept(server->listen_fd, NULL, NULL);
     if (clientSocket < 0)
     {
         if (errno == EINTR)
@@ -63,11 +63,11 @@ int TCPServer_Accept(TCPServer* _Server)
     return clientSocket;
 }
 
-void TCPServer_Dispose(TCPServer* _Server)
+void TCPServer_Dispose(TCPServer* server)
 {
 	// Close the listening socket
-	if (_Server->listen_fd >= 0) {
-		close(_Server->listen_fd);
-		_Server->listen_fd = -1;
+	if (server->listen_fd >= 0) {
+		close(server->listen_fd);
+		server->listen_fd = -1;
 	}
 }

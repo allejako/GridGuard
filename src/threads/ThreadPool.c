@@ -23,7 +23,7 @@ int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads)
 
     for (int i = 0; i < numOfThreads; i++)
     {
-        if (ThreadWorker_Init(&threadPool->threadWorkers[i], i) != 0)
+        if (ThreadWorker_Initiate(&threadPool->threadWorkers[i], i) != 0)
         {
             LOG_FATAL("Failed to initialize thread workers");
             for (int j = 0; j < i; j++)
