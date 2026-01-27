@@ -3,6 +3,10 @@
 
 #include <stdio.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Log levels
 typedef enum {
     LOG_LEVEL_DEBUG = 0,
@@ -30,5 +34,9 @@ void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...
 #define LOG_WARNING(fmt, ...) Logger_Log(LOG_LEVEL_WARNING, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...) Logger_Log(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_FATAL(fmt, ...) Logger_Log(LOG_LEVEL_FATAL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // LOGGER_H
