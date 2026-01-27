@@ -13,13 +13,14 @@ BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
-TCP_DIR = $(SRC_DIR)/tcp
+TCP_DIR = $(SRC_DIR)/TCP
 THREADS_DIR = $(SRC_DIR)/threads
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
+CONFIG_DIR = config
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -30,8 +31,8 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/*.c) $(wildcard $(THREADS_DIR)/*.c)
-CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.c) $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.c)
+SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c)
+CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 
 # Object files
@@ -76,7 +77,7 @@ $(SERVER_BIN): $(SERVER_OBJS)
 # Build client
 $(CLIENT_BIN): $(CLIENT_OBJS)
 	@echo "Linking client..."
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CXX) $(LDFLAGS) -o $@ $^
 	@echo "Client built successfully: $@"
 
 # Compile C source files
