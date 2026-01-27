@@ -11,7 +11,10 @@ TCPClient::~TCPClient()
 int TCPClient::connect(const std::string &host, const std::string &port)
 {
     if (this->fd >= 0)
+    {
+        LOG_FATAL("FD is unavailable");
         return -1;
+    }
 
     struct addrinfo hints = {};
     struct addrinfo *res = NULL;
@@ -43,6 +46,8 @@ int TCPClient::connect(const std::string &host, const std::string &port)
         return -1;
 
     this->fd = fd;
+
+    LOG_INFO("Client FD %d connected", fd);
     return 0;
 }
 
@@ -59,12 +64,9 @@ int TCPClient::read(void *buffer, size_t length)
 
 void TCPClient::disconnect()
 {
-    if (fd >= 0)
+    if (fd >= 0) {
+        LOG_INFO("Client FD %d disconnected", fd);
         close(fd);
-    std::string fdmsg = std::to_string(fd);
-    std::string msg = "Client FD " + fdmsg + " disconnected";
-    LOG_INFO("%s", msg.c_str());
-    fd = -1;
-
-    return;
+        fd = -1;
+    }
 }
