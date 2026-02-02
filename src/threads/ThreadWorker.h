@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "Config.h"
+#include "config.h"
 
 typedef enum {
     CLIENT_DISCONNECTED = 0,

@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
-#include "Config.h"
+#include "config.h"
 #include "Logger.h"
 
 class TCPClient

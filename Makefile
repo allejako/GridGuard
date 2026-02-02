@@ -13,14 +13,15 @@ BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
-TCP_DIR = $(SRC_DIR)/TCP
+TCP_DIR = $(SRC_DIR)/tcp
+HTTP_DIR = $(SRC_DIR)/http
 THREADS_DIR = $(SRC_DIR)/threads
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 CONFIG_DIR = config
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(HTTP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -31,12 +32,13 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c)
-CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c)
+SERVER_SRCS_CPP = $(wildcard $(HTTP_DIR)/*.cpp) $(wildcard $(TCP_DIR)/TCPClient.cpp)
+CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 
 # Object files
-SERVER_OBJS = $(SERVER_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
 TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
@@ -62,16 +64,17 @@ directories:
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/common
 	@mkdir -p $(BUILD_DIR)/tcp
+	@mkdir -p $(BUILD_DIR)/http
 	@mkdir -p $(BUILD_DIR)/threads
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
 	@mkdir -p config
 
-# Build server
+# Build server (use g++ because we have C++ files now)
 $(SERVER_BIN): $(SERVER_OBJS)
 	@echo "Linking server..."
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CXX) $(LDFLAGS) -o $@ $^
 	@echo "Server built successfully: $@"
 
 # Build client
