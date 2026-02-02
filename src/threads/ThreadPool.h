@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "config.h"
+#include "Config.h"
 #include "ThreadWorker.h"
 
 typedef struct

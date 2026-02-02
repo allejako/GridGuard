@@ -1,6 +1,6 @@
 #include "TCPClient.hpp"
 #include "Logger.h"
-#include "config.h"
+#include "Config.h"
 
 int main()
 {

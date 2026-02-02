@@ -15,6 +15,11 @@
 
 // ============== TIMEOUTS (seconds) ==============
 #define SELECT_TIMEOUT_SEC      1
-#define CLIENT_IDLE_TIMEOUT     300  // 5 minutes
+#define CLIENT_IDLE_TIMEOUT     300
+
+// ============== HTTP CLIENT =====================
+#define HTTP_TIMEOUT            30
+#define HTTP_MAX_RETRIES        3
+#define HTTP_BUFFER_SIZE        8192
 
 #endif // _CONFIG_H_

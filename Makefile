@@ -4,7 +4,7 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread
+LDFLAGS = -pthread -lcurl
 
 # Directories
 SRC_DIR = src
@@ -32,7 +32,7 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(HTTP_DIR)/*.cpp) $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
@@ -74,13 +74,13 @@ directories:
 # Build server (use g++ because we have C++ files now)
 $(SERVER_BIN): $(SERVER_OBJS)
 	@echo "Linking server..."
-	$(CXX) $(LDFLAGS) -o $@ $^
+	$(CXX) -o $@ $^ $(LDFLAGS)
 	@echo "Server built successfully: $@"
 
 # Build client
 $(CLIENT_BIN): $(CLIENT_OBJS)
 	@echo "Linking client..."
-	$(CXX) $(LDFLAGS) -o $@ $^
+	$(CXX) -o $@ $^ $(LDFLAGS)
 	@echo "Client built successfully: $@"
 
 # Compile C source files
