@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
-#include "APIFetcher.h"
+#include "Fetcher.h"
 #include "Config.h"
 #include "Logger.h"
 
@@ -46,7 +46,7 @@ static int PerformRequest(CURL *curl, const char *url, WriteBuffer *buffer, long
 	return 0;
 }
 
-int APIFetcher_Initiate(APIFetcher *fetcher)
+int Fetcher_Initiate(Fetcher *fetcher)
 {
 	if (!fetcher)
 		return -1;
@@ -61,7 +61,7 @@ int APIFetcher_Initiate(APIFetcher *fetcher)
 	return 0;
 }
 
-int APIFetcher_Fetch(APIFetcher *fetcher, const char *url, APIResponse *response)
+int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
 {
 	if (!fetcher || !fetcher->isInitialized || !url || !response)
 		return -1;
@@ -97,7 +97,7 @@ int APIFetcher_Fetch(APIFetcher *fetcher, const char *url, APIResponse *response
 	return -1;
 }
 
-void APIFetcher_FreeResponse(APIResponse *response)
+void Fetcher_FreeResponse(FetchResponse *response)
 {
 	if (!response)
 		return;
@@ -108,7 +108,7 @@ void APIFetcher_FreeResponse(APIResponse *response)
 	response->status = 0;
 }
 
-void APIFetcher_Shutdown(APIFetcher *fetcher)
+void Fetcher_Shutdown(Fetcher *fetcher)
 {
 	if (!fetcher || !fetcher->isInitialized)
 		return;

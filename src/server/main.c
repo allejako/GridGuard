@@ -9,14 +9,18 @@
 #include "ThreadPool.h"
 #include "ClientHandler.h"
 #include "SignalHandler.h"
+#include "PipelineThreads.h"
 #include "Logger.h"
+
+// Global pipeline instance
+Pipeline globalPipeline;
 
 int main()
 {
     // =============== Initialization ===============
 
     TCPServer server;
-    ThreadPool threadPool;
+    ThreadPool threadPool; 
     volatile sig_atomic_t *serverIsRunning = SignalHandler_Init();
 
     if (Logger_Initiate("../../logs", LOG_LEVEL_DEBUG) != 0)
@@ -26,9 +30,18 @@ int main()
 
     LOG_INFO("Server initializing...");
 
+    // Initialize pipeline before thread pool
+    if (Pipeline_Initiate(&globalPipeline) != 0)
+    {
+        LOG_FATAL("Failed to initialize pipeline");
+        Logger_Shutdown();
+        return EXIT_FAILURE;
+    }
+
     if (ThreadPool_Initiate(&threadPool, MAX_THREADS) != 0)
     {
         LOG_FATAL("Failed to initialize thread pool");
+        Pipeline_Shutdown(&globalPipeline);
         Logger_Shutdown();
         return EXIT_FAILURE;
     }
@@ -37,6 +50,7 @@ int main()
     {
         LOG_FATAL("Failed to initialize TCP server on port %s", SERVER_PORT);
         ThreadPool_Shutdown(&threadPool);
+        Pipeline_Shutdown(&globalPipeline);
         Logger_Shutdown();
         return EXIT_FAILURE;
     }
@@ -70,6 +84,7 @@ int main()
     LOG_INFO("Server shutting down..");
 
     ThreadPool_Shutdown(&threadPool);
+    Pipeline_Shutdown(&globalPipeline);
 
     if (server.listen_fd >= 0) {
         close(server.listen_fd);

@@ -5,7 +5,35 @@
 #include <stdbool.h>
 
 #include "Config.h"
-#include "ThreadWorker.h"
+
+// ========== WORKER (Internal) ==========
+
+typedef enum {
+    CLIENT_DISCONNECTED = 0,
+    CLIENT_CONNECTED,
+    CLIENT_AUTHENTICATING,
+    CLIENT_READY,
+    CLIENT_PROCESSING
+} ClientState;
+
+typedef struct {
+    int fd;
+    ClientState state;
+    char buffer[CLIENT_BUFFER_SIZE];
+    int bufferLen;
+} Client;
+
+typedef struct {
+    int id;
+    pthread_t thread;
+    Client clients[MAX_CLIENTS_PER_THREAD];
+    int clientCount;
+    bool isRunning;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} ThreadWorker;
+
+// ========== THREAD POOL ==========
 
 typedef struct
 {
@@ -13,7 +41,7 @@ typedef struct
     pthread_mutex_t mutex;
     int numOfThreads;
     bool isRunning;
-    
+
 } ThreadPool;
 
 int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads);

@@ -15,7 +15,7 @@ int Parser_Initiate(Parser *parser)
     return 0;
 }
 
-int Parser_ParseWeatherData(Parser *parser, const char *jsonData, WeatherForecast *forecast)
+int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoResponse *forecast)
 {
     if (!parser || !parser->isInitialized || !jsonData || !forecast)
     {
@@ -58,61 +58,47 @@ int Parser_ParseWeatherData(Parser *parser, const char *jsonData, WeatherForecas
 
     for (int i = 0; i < arraySize && parsedCount < 96; i++)
     {
-        WeatherData *data = &forecast->forecasts[parsedCount];
+        OpenMeteoEntry *data = &forecast->entries[parsedCount];
 
-        // Parse timestamp (format: "YYYY-MM-DDTHH:MM")
+        // Parse time string (format: "YYYY-MM-DDTHH:MM")
         cJSON *timeItem = cJSON_GetArrayItem(times, i);
         if (cJSON_IsString(timeItem))
         {
-            struct tm tm = {0};
-            if (sscanf(timeItem->valuestring, "%d-%d-%dT%d:%d",
-                      &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-                      &tm.tm_hour, &tm.tm_min) == 5)
-            {
-                tm.tm_year -= 1900;
-                tm.tm_mon -= 1;
-                data->timestamp = mktime(&tm);
-            }
-            else
-            {
-                data->timestamp = time(NULL);
-            }
+            strncpy(data->time, timeItem->valuestring, sizeof(data->time) - 1);
+            data->time[sizeof(data->time) - 1] = '\0';
+        }
+        else
+        {
+            data->time[0] = '\0';
         }
 
         // Parse values from parallel arrays
         cJSON *tempVal = cJSON_GetArrayItem(temps, i);
-        data->temperature = cJSON_IsNumber(tempVal) ? tempVal->valuedouble : 0.0;
+        data->temperature_2m = cJSON_IsNumber(tempVal) ? tempVal->valuedouble : 0.0;
 
         cJSON *humVal = cJSON_GetArrayItem(humidity, i);
-        data->humidity = cJSON_IsNumber(humVal) ? humVal->valuedouble : 0.0;
+        data->humidity_2m = cJSON_IsNumber(humVal) ? humVal->valuedouble : 0.0;
 
         cJSON *cloudVal = cJSON_GetArrayItem(clouds, i);
-        data->cloudCover = cJSON_IsNumber(cloudVal) ? cloudVal->valuedouble : 0.0;
+        data->cloud_cover = cJSON_IsNumber(cloudVal) ? cloudVal->valuedouble : 0.0;
 
         cJSON *windVal = cJSON_GetArrayItem(winds, i);
-        data->windSpeed = cJSON_IsNumber(windVal) ? windVal->valuedouble : 0.0;
+        data->wind_speed_10m = cJSON_IsNumber(windVal) ? windVal->valuedouble : 0.0;
 
         cJSON *solarVal = cJSON_GetArrayItem(solar, i);
-        data->solarIrradiance = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
+        data->shortwave_radiation = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
 
-        data->valid = true;
-
-        // Validate data
-        if (WeatherData_IsValid(data))
-            parsedCount++;
-        else
-            LOG_WARNING("Invalid weather data at index %d, skipping", i);
+        parsedCount++;
     }
 
     forecast->count = parsedCount;
-    forecast->lastUpdated = time(NULL);
 
     cJSON_Delete(root);
     LOG_INFO("Parsed %d weather forecasts", parsedCount);
     return 0;
 }
 
-int Parser_ParseSpotPrices(Parser *parser, const char *jsonData, SpotPriceData *spotData)
+int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse *spotData)
 {
     if (!parser || !parser->isInitialized || !jsonData || !spotData)
     {
@@ -144,73 +130,48 @@ int Parser_ParseSpotPrices(Parser *parser, const char *jsonData, SpotPriceData *
         if (!item)
             continue;
 
-        SpotPrice *price = &spotData->prices[parsedCount];
+        ElprisetEntry *price = &spotData->entries[parsedCount];
 
-        // Parse timestamp (ISO 8601 format or unix timestamp)
+        // Parse time_start string
         cJSON *timeStart = cJSON_GetObjectItem(item, "time_start");
         if (cJSON_IsString(timeStart))
         {
-            // Simple parsing - assumes format "YYYY-MM-DDTHH:MM:SS"
-            struct tm tm = {0};
-            if (sscanf(timeStart->valuestring, "%d-%d-%dT%d:%d:%d",
-                      &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-                      &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6)
-            {
-                tm.tm_year -= 1900;
-                tm.tm_mon -= 1;
-                price->timestamp = mktime(&tm);
-            }
-            else
-            {
-                price->timestamp = time(NULL);
-            }
+            strncpy(price->time_start, timeStart->valuestring, sizeof(price->time_start) - 1);
+            price->time_start[sizeof(price->time_start) - 1] = '\0';
         }
         else
         {
-            price->timestamp = time(NULL) + (i * 3600);
+            price->time_start[0] = '\0';
+        }
+
+        // Parse time_end string
+        cJSON *timeEnd = cJSON_GetObjectItem(item, "time_end");
+        if (cJSON_IsString(timeEnd))
+        {
+            strncpy(price->time_end, timeEnd->valuestring, sizeof(price->time_end) - 1);
+            price->time_end[sizeof(price->time_end) - 1] = '\0';
+        }
+        else
+        {
+            price->time_end[0] = '\0';
         }
 
         // Parse price in SEK/kWh
         cJSON *sekPerKwh = cJSON_GetObjectItem(item, "SEK_per_kWh");
-        if (cJSON_IsNumber(sekPerKwh))
-            price->priceSekPerKwh = sekPerKwh->valuedouble;
-        else
-            price->priceSekPerKwh = 0.0;
+        price->SEK_per_kWh = cJSON_IsNumber(sekPerKwh) ? sekPerKwh->valuedouble : 0.0;
 
-        // Parse price in EUR/MWh
-        cJSON *eurPerMwh = cJSON_GetObjectItem(item, "EUR_per_mwh");
-        if (cJSON_IsNumber(eurPerMwh))
-            price->priceEurPerMwh = eurPerMwh->valuedouble;
-        else
-            price->priceEurPerMwh = 0.0;
+        // Parse price in EUR/kWh
+        cJSON *eurPerKwh = cJSON_GetObjectItem(item, "EUR_per_kWh");
+        price->EUR_per_kWh = cJSON_IsNumber(eurPerKwh) ? eurPerKwh->valuedouble : 0.0;
 
-        // Parse region
-        cJSON *priceArea = cJSON_GetObjectItem(item, "price_area");
-        if (cJSON_IsString(priceArea))
-        {
-            strncpy(price->region, priceArea->valuestring, sizeof(price->region) - 1);
-            price->region[sizeof(price->region) - 1] = '\0';
-        }
-        else
-        {
-            strcpy(price->region, "SE3");
-        }
+        // Parse exchange rate
+        cJSON *exr = cJSON_GetObjectItem(item, "EXR");
+        price->EXR = cJSON_IsNumber(exr) ? exr->valuedouble : 0.0;
 
-        price->valid = true;
-
-        // Validate data
-        if (SpotPrice_IsValid(price))
-        {
-            parsedCount++;
-        }
-        else
-        {
-            LOG_WARNING("Invalid spot price at index %d, skipping", i);
-        }
+        parsedCount++;
     }
 
     spotData->count = parsedCount;
-    spotData->lastUpdated = time(NULL);
 
     cJSON_Delete(root);
     LOG_INFO("Parsed %d spot prices", parsedCount);

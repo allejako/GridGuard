@@ -9,7 +9,7 @@ int BuildWeatherApiUrl(char *buffer, size_t bufferSize, const char *lat, const c
     if (!buffer || bufferSize < 256 || !lat || !lon)
         return -1;
 
-    // Open-Meteo forecast API (gratis, ingen nyckel)
+    // Open-Meteo forecast API
     int written = snprintf(buffer, bufferSize,
         "%s?latitude=%s&longitude=%s"
         "&hourly=temperature_2m,relative_humidity_2m,cloud_cover,wind_speed_10m,shortwave_radiation"

@@ -1,44 +1,8 @@
-#ifndef DATA_STRUCTURES_H
-#define DATA_STRUCTURES_H
+#ifndef ENERGY_DATA_H
+#define ENERGY_DATA_H
 
 #include <time.h>
 #include <stdbool.h>
-
-// Weather data for solar production forecasting
-typedef struct
-{
-    time_t timestamp;
-    double solarIrradiance;    // W/m²
-    double cloudCover;         // 0-100%
-    double temperature;        // °C
-    double windSpeed;          // m/s
-    double humidity;           // 0-100%
-    bool valid;
-} WeatherData;
-
-typedef struct
-{
-    WeatherData forecasts[96];  // 24h with 15-min intervals
-    int count;
-    time_t lastUpdated;
-} WeatherForecast;
-
-// Electricity spot prices
-typedef struct
-{
-    time_t timestamp;
-    double priceSekPerKwh;
-    double priceEurPerMwh;
-    char region[8];            // SE1, SE2, SE3, SE4
-    bool valid;
-} SpotPrice;
-
-typedef struct
-{
-    SpotPrice prices[96];      // 24h spot prices
-    int count;
-    time_t lastUpdated;
-} SpotPriceData;
 
 // Solar production calculation
 typedef struct
@@ -73,19 +37,19 @@ typedef struct
     double estimatedCostSek;
     double batterySocPercent;
     bool valid;
-} EnergyPlanEntry;
+} EnergyDataEntry;
 
 // Complete energy plan for 24-72 hours
 typedef struct
 {
-    EnergyPlanEntry entries[288];  // 72h with 15-min intervals
+    EnergyDataEntry entries[288];  // 72h with 15-min intervals
     int count;
     time_t generatedAt;
     double totalCostSek;
     double totalGridImportKwh;
     double totalGridExportKwh;
     double totalBatteryCycles;
-} EnergyPlan;
+} EnergyData;
 
 // Solar panel configuration
 typedef struct
@@ -93,7 +57,7 @@ typedef struct
     double panelEfficiency;       // 0-1, typically 0.15-0.22
     double panelAreaM2;
     double orientationDegrees;    // 0=north, 90=east, 180=south, 270=west
-    double tiltDegrees;           // 0-90°
+    double tiltDegrees;           // 0-90
     double peakPowerKw;
 } SolarConfig;
 
@@ -119,8 +83,6 @@ typedef struct
 
 // Utility functions
 const char* EnergyAction_ToString(EnergyAction action);
-bool WeatherData_IsValid(const WeatherData *data);
-bool SpotPrice_IsValid(const SpotPrice *price);
-bool EnergyPlanEntry_IsValid(const EnergyPlanEntry *entry);
+bool EnergyDataEntry_IsValid(const EnergyDataEntry *entry);
 
-#endif // DATA_STRUCTURES_H
+#endif // ENERGY_DATA_H

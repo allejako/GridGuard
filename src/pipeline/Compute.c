@@ -21,7 +21,7 @@ int Compute_Initiate(Compute *compute, const SolarConfig *solarCfg,
 }
 
 int Compute_CalculateSolarProduction(Compute *compute,
-                                     const WeatherForecast *forecast,
+                                     const OpenMeteoResponse *forecast,
                                      SolarProduction *production,
                                      int maxEntries)
 {
@@ -31,21 +31,21 @@ int Compute_CalculateSolarProduction(Compute *compute,
     int count = 0;
     for (int i = 0; i < forecast->count && count < maxEntries; i++)
     {
-        const WeatherData *weather = &forecast->forecasts[i];
-        if (!weather->valid)
-            continue;
+        const OpenMeteoEntry *weather = &forecast->entries[i];
 
         SolarProduction *prod = &production[count];
-        prod->timestamp = weather->timestamp;
+
+        // Convert time string to timestamp (simplified - just use index for now)
+        prod->timestamp = 0; // TODO: Parse time string to timestamp
 
         // P = A * r * H * PR
         double area = compute->solarConfig.panelAreaM2;
         double efficiency = compute->solarConfig.panelEfficiency;
-        double irradiance = weather->solarIrradiance / 1000.0; // W/m² -> kW/m²
+        double irradiance = weather->shortwave_radiation / 1000.0; // W/m² -> kW/m²
         double performanceRatio = 0.75;
 
         // Temperaturkorrigering (~0.5% forlust per grad over 25C)
-        double tempCoeff = 1.0 - (0.005 * (weather->temperature - 25.0));
+        double tempCoeff = 1.0 - (0.005 * (weather->temperature_2m - 25.0));
         if (tempCoeff < 0.5) tempCoeff = 0.5;
         if (tempCoeff > 1.2) tempCoeff = 1.2;
 
@@ -62,9 +62,9 @@ int Compute_CalculateSolarProduction(Compute *compute,
 }
 
 int Compute_GenerateEnergyPlan(Compute *compute,
-                              const WeatherForecast *forecast,
-                              const SpotPriceData *spotPrices,
-                              EnergyPlan *plan)
+                              const OpenMeteoResponse *forecast,
+                              const ElprisetResponse *spotPrices,
+                              EnergyData *plan)
 {
     if (!compute || !compute->isInitialized || !forecast || !spotPrices || !plan)
         return -1;
@@ -86,13 +86,13 @@ int Compute_GenerateEnergyPlan(Compute *compute,
 
     for (int i = 0; i < planCount; i++)
     {
-        EnergyPlanEntry *entry = &plan->entries[i];
+        EnergyDataEntry *entry = &plan->entries[i];
         const SolarProduction *prod = &solarProd[i];
-        const SpotPrice *price = &spotPrices->prices[i];
+        const ElprisetEntry *price = &spotPrices->entries[i];
 
         entry->timestamp = prod->timestamp;
         entry->productionKwh = prod->productionKwh;
-        entry->spotPrice = price->priceSekPerKwh;
+        entry->spotPrice = price->SEK_per_kWh;
         entry->consumptionKwh = compute->consumption.baseLoadKw;
 
         double surplus = entry->productionKwh - entry->consumptionKwh;
@@ -100,13 +100,13 @@ int Compute_GenerateEnergyPlan(Compute *compute,
 
         if (surplus > 0)
         {
-            if (price->priceSekPerKwh > priceThreshold)
+            if (price->SEK_per_kWh > priceThreshold)
             {
                 entry->action = ACTION_SELL_TO_GRID;
                 entry->gridPowerKwh = surplus;
                 entry->batteryPowerKwh = 0;
                 totalExport += surplus;
-                totalCost -= surplus * price->priceSekPerKwh;
+                totalCost -= surplus * price->SEK_per_kWh;
             }
             else if (batterySoc < compute->batteryConfig.maxSocPercent)
             {
@@ -131,7 +131,7 @@ int Compute_GenerateEnergyPlan(Compute *compute,
         {
             double deficit = -surplus;
 
-            if (price->priceSekPerKwh > priceThreshold &&
+            if (price->SEK_per_kWh > priceThreshold &&
                 batterySoc > compute->batteryConfig.minSocPercent)
             {
                 double dischargeAmount = deficit;
@@ -150,12 +150,12 @@ int Compute_GenerateEnergyPlan(Compute *compute,
                 entry->gridPowerKwh = deficit;
                 entry->batteryPowerKwh = 0;
                 totalImport += deficit;
-                totalCost += deficit * price->priceSekPerKwh;
+                totalCost += deficit * price->SEK_per_kWh;
             }
         }
 
         entry->batterySocPercent = batterySoc;
-        entry->estimatedCostSek = entry->gridPowerKwh * price->priceSekPerKwh;
+        entry->estimatedCostSek = entry->gridPowerKwh * price->SEK_per_kWh;
         entry->valid = true;
     }
 
