@@ -16,12 +16,13 @@ COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
 HTTP_DIR = $(SRC_DIR)/http
 THREADS_DIR = $(SRC_DIR)/threads
+PIPELINE_DIR = $(SRC_DIR)/pipeline
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 CONFIG_DIR = config
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(HTTP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(HTTP_DIR) -I$(THREADS_DIR) -I$(PIPELINE_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -32,7 +33,7 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(HTTP_DIR)/*.cpp) $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
@@ -66,6 +67,8 @@ directories:
 	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/http
 	@mkdir -p $(BUILD_DIR)/threads
+	@mkdir -p $(BUILD_DIR)/pipeline
+	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
