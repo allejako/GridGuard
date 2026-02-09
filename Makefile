@@ -16,12 +16,13 @@ COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
 HTTP_DIR = $(SRC_DIR)/http
 THREADS_DIR = $(SRC_DIR)/threads
+PIPELINE_DIR = $(SRC_DIR)/pipeline
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 CONFIG_DIR = config
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(HTTP_DIR) -I$(THREADS_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(HTTP_DIR) -I$(THREADS_DIR) -I$(PIPELINE_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -32,14 +33,22 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(HTTP_DIR)/*.cpp) $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
-TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
+
+# Test common dependencies (source files needed by tests)
+TEST_DEPS_SRCS = $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c) $(wildcard $(SERVER_DIR)/cache.c)
 
 # Object files
 SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
+
+# Test binaries (standalone tests)
+TEST_API_FETCH_BIN = $(BIN_DIR)/test_api_fetch
+TEST_APIFETCHER_BIN = $(BIN_DIR)/test_apifetcher
+TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
+TEST_CACHE_BIN = $(BIN_DIR)/test_cache
 
 # Default target
 .PHONY: all
@@ -62,6 +71,8 @@ directories:
 	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/http
 	@mkdir -p $(BUILD_DIR)/threads
+	@mkdir -p $(BUILD_DIR)/pipeline
+	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
@@ -117,17 +128,42 @@ coverage: CXXFLAGS += --coverage -O0
 coverage: LDFLAGS += --coverage
 coverage: clean all
 
-# Build cache test
-$(BIN_DIR)/test_cache: $(BUILD_DIR)/tests/test_cache.o $(BUILD_DIR)/server/cache.o
-	@echo "Linking test_cache..."
+# Build standalone test binaries
+$(TEST_API_FETCH_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_DEPS_SRCS)
+	@echo "Building test_api_fetch..."
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Run tests
+$(TEST_APIFETCHER_BIN): $(SRC_DIR)/tests/test_apifetcher.c $(TEST_DEPS_SRCS)
+	@echo "Building test_apifetcher..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TEST_LOGGER_BIN): $(SRC_DIR)/tests/test_logger.c $(TEST_DEPS_SRCS)
+	@echo "Building test_logger..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TEST_CACHE_BIN): $(SRC_DIR)/tests/test_cache.c $(TEST_DEPS_SRCS)
+	@echo "Building test_cache..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# Run all tests
 .PHONY: test
-test: directories $(BIN_DIR)/test_cache
+test: directories $(TEST_CACHE_BIN) $(TEST_LOGGER_BIN) $(TEST_APIFETCHER_BIN) $(TEST_API_FETCH_BIN)
 	@echo "Running tests..."
-	@$(BIN_DIR)/test_cache
+	@echo "--- test_cache ---"
+	@$(TEST_CACHE_BIN)
+	@echo "--- test_logger ---"
+	@$(TEST_LOGGER_BIN)
+	@echo "--- test_apifetcher ---"
+	@$(TEST_APIFETCHER_BIN)
+	@echo "--- test_api_fetch ---"
+	@$(TEST_API_FETCH_BIN)
 	@echo "All tests passed!"
+
+# Run API test individually
+.PHONY: test-api
+test-api: directories $(TEST_API_FETCH_BIN)
+	@echo "Running API fetch test..."
+	@$(TEST_API_FETCH_BIN)
 
 # Run server
 .PHONY: run-server
