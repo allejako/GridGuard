@@ -36,15 +36,19 @@ CLIENT_BIN = $(BIN_DIR)/leop-client
 SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(HTTP_DIR)/*.cpp) $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
-TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
+
+# Test common dependencies (source files needed by tests)
+TEST_DEPS_SRCS = $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c) $(wildcard $(SERVER_DIR)/cache.c)
 
 # Object files
 SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
-TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
-# Test binary
-TEST_BIN = $(BIN_DIR)/test_runner
+# Test binaries (standalone tests)
+TEST_API_FETCH_BIN = $(BIN_DIR)/test_api_fetch
+TEST_APIFETCHER_BIN = $(BIN_DIR)/test_apifetcher
+TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
+TEST_CACHE_BIN = $(BIN_DIR)/test_cache
 
 # Default target
 .PHONY: all
@@ -124,35 +128,42 @@ coverage: CXXFLAGS += --coverage -O0
 coverage: LDFLAGS += --coverage
 coverage: clean all
 
-# Build test binary
-$(TEST_BIN): $(TEST_OBJS)
-	@echo "Linking test runner..."
-	$(CC) $(LDFLAGS) -o $@ $^
-	@echo "Test runner built successfully: $@"
+# Build standalone test binaries
+$(TEST_API_FETCH_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_DEPS_SRCS)
+	@echo "Building test_api_fetch..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Run tests
+$(TEST_APIFETCHER_BIN): $(SRC_DIR)/tests/test_apifetcher.c $(TEST_DEPS_SRCS)
+	@echo "Building test_apifetcher..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TEST_LOGGER_BIN): $(SRC_DIR)/tests/test_logger.c $(TEST_DEPS_SRCS)
+	@echo "Building test_logger..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TEST_CACHE_BIN): $(SRC_DIR)/tests/test_cache.c $(TEST_DEPS_SRCS)
+	@echo "Building test_cache..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# Run all tests
 .PHONY: test
-test: directories $(TEST_BIN)
+test: directories $(TEST_CACHE_BIN) $(TEST_LOGGER_BIN) $(TEST_APIFETCHER_BIN) $(TEST_API_FETCH_BIN)
 	@echo "Running tests..."
-	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
+	@echo "--- test_cache ---"
+	@$(TEST_CACHE_BIN)
+	@echo "--- test_logger ---"
+	@$(TEST_LOGGER_BIN)
+	@echo "--- test_apifetcher ---"
+	@$(TEST_APIFETCHER_BIN)
+	@echo "--- test_api_fetch ---"
+	@$(TEST_API_FETCH_BIN)
 	@echo "All tests passed!"
 
-# API fetch test binary
-TEST_API_BIN = $(BIN_DIR)/test_api_fetch
-TEST_API_SRCS = $(SRC_DIR)/tests/test_api_fetch.c
-TEST_API_DEPS = $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
-
-# Build API test
-$(TEST_API_BIN): $(TEST_API_SRCS) $(TEST_API_DEPS)
-	@echo "Building API test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_API_SRCS) $(TEST_API_DEPS) $(LDFLAGS)
-	@echo "API test built: $@"
-
-# Run API test
+# Run API test individually
 .PHONY: test-api
-test-api: directories $(TEST_API_BIN)
+test-api: directories $(TEST_API_FETCH_BIN)
 	@echo "Running API fetch test..."
-	@$(TEST_API_BIN)
+	@$(TEST_API_FETCH_BIN)
 
 # Run server
 .PHONY: run-server
