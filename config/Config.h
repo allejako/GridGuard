@@ -1,19 +1,17 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
-// ============== SERVER ==========================
+//  SERVER 
 #define SERVER_PORT "8080"
 #define SERVER_HOST "localhost"
 
 // ============== WEATHER API =====================
-// Open-Meteo - Gratis, ingen API-nyckel behövs
 #define WEATHER_API_BASE_URL    "https://api.open-meteo.com/v1/forecast"
 #define WEATHER_LAT             "59.33"   // Stockholm
 #define WEATHER_LON             "18.07"
 #define WEATHER_TIMEZONE        "Europe/Stockholm"
 
 // ============== SPOT PRICE API ==================
-// Format: /api/v1/prices/{year}/{month}-{day}_{region}.json
 #define SPOTPRICE_API_BASE_URL  "https://www.elprisetjustnu.se/api/v1/prices"
 #define SPOTPRICE_REGION        "SE3"  // SE1, SE2, SE3, SE4
 
