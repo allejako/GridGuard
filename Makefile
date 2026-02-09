@@ -132,29 +132,59 @@ $(TEST_BIN): $(TEST_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^
 	@echo "Test runner built successfully: $@"
 
-# Run tests
+# Run all tests
 .PHONY: test
-test: directories $(TEST_BIN)
-	@echo "Running tests..."
-	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
+test: test-api test-logger test-pipeline
+	@echo ""
+	@echo "======================================"
 	@echo "All tests passed!"
+	@echo "======================================"
 
-# API fetch test binary
+# Test binaries
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
-TEST_API_SRCS = $(SRC_DIR)/tests/test_api_fetch.c
+TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
+TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
+
+# Test dependencies
 TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_LOGGER_DEPS = $(COMMON_DIR)/Logger.c
+TEST_PIPELINE_DEPS = $(THREADS_DIR)/PipelineThreads.c $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 
 # Build API test
-$(TEST_API_BIN): $(TEST_API_SRCS) $(TEST_API_DEPS)
+$(TEST_API_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS)
 	@echo "Building API test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_API_SRCS) $(TEST_API_DEPS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS) $(LDFLAGS)
 	@echo "API test built: $@"
+
+# Build Logger test
+$(TEST_LOGGER_BIN): $(SRC_DIR)/tests/test_logger.c $(TEST_LOGGER_DEPS)
+	@echo "Building Logger test..."
+	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_logger.c $(TEST_LOGGER_DEPS) $(LDFLAGS)
+	@echo "Logger test built: $@"
+
+# Build Pipeline test
+$(TEST_PIPELINE_BIN): $(SRC_DIR)/tests/test_pipeline.c $(TEST_PIPELINE_DEPS)
+	@echo "Building Pipeline test..."
+	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_pipeline.c $(TEST_PIPELINE_DEPS) $(LDFLAGS)
+	@echo "Pipeline test built: $@"
 
 # Run API test
 .PHONY: test-api
 test-api: directories $(TEST_API_BIN)
 	@echo "Running API fetch test..."
 	@$(TEST_API_BIN)
+
+# Run Logger test
+.PHONY: test-logger
+test-logger: directories $(TEST_LOGGER_BIN)
+	@echo "Running Logger test..."
+	@$(TEST_LOGGER_BIN)
+
+# Run Pipeline test
+.PHONY: test-pipeline
+test-pipeline: directories $(TEST_PIPELINE_BIN)
+	@echo "Running Pipeline test..."
+	@$(TEST_PIPELINE_BIN)
 
 # Run server
 .PHONY: run-server
@@ -240,6 +270,9 @@ help:
 	@echo "  coverage     - Build with code coverage support"
 	@echo ""
 	@echo "  test         - Run all tests"
+	@echo "  test-api     - Run API fetch and parser tests"
+	@echo "  test-logger  - Run logger tests"
+	@echo "  test-pipeline- Run multi-threaded pipeline tests"
 	@echo "  valgrind-*   - Run Valgrind memory check"
 	@echo "  helgrind     - Run Helgrind thread safety check"
 	@echo "  gprof-analyze- Analyze gprof profiling data"
