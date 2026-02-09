@@ -4,10 +4,9 @@
 #include "APIFetcher.h"
 #include "APIEndpoints.h"
 #include "Parser.h"
-#include "DataStructures.h"
 #include "OpenMeteoData.h"
 #include "ElprisetData.h"
-#include "PipelineData.h"
+#include "ForecastData.h"
 #include "Config.h"
 
 void print_separator(const char *title)
@@ -116,14 +115,14 @@ int test_pipeline(const OpenMeteoResponse *meteo, const ElprisetResponse *elpris
 {
     print_separator("PIPELINE DATA");
 
-    PipelineData pipeline = {0};
-    if (Parser_BuildPipelineData(meteo, elpriset, &pipeline) != 0)
+    ForecastData pipeline = {0};
+    if (Parser_BuildForecast(meteo, elpriset, &pipeline) != 0)
     {
-        printf("ERROR: Kunde inte bygga PipelineData\n");
+        printf("ERROR: Kunde inte bygga ForecastData\n");
         return -1;
     }
 
-    printf("Antal pipeline-entries: %d\n\n", pipeline.count);
+    printf("Antal forecast-entries: %d\n\n", pipeline.count);
 
     printf("%-20s %-8s %-8s %-10s %-10s\n", "Tid", "Temp", "Moln%", "Sol W/m²", "SEK/kWh");
     printf("%-20s %-8s %-8s %-10s %-10s\n", "---", "----", "-----", "--------", "-------");
@@ -131,7 +130,7 @@ int test_pipeline(const OpenMeteoResponse *meteo, const ElprisetResponse *elpris
     int showCount = pipeline.count < 5 ? pipeline.count : 5;
     for (int i = 0; i < showCount; i++)
     {
-        PipelineEntry *e = &pipeline.entries[i];
+        ForecastEntry *e = &pipeline.entries[i];
         char timeStr[32];
         struct tm *tm = localtime(&e->timestamp);
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M", tm);

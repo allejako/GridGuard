@@ -1,44 +1,8 @@
-#ifndef DATA_STRUCTURES_H
-#define DATA_STRUCTURES_H
+#ifndef ENERGY_PLAN_H
+#define ENERGY_PLAN_H
 
 #include <time.h>
 #include <stdbool.h>
-
-// Weather data for solar production forecasting
-typedef struct
-{
-    time_t timestamp;
-    double solarIrradiance;    // W/m²
-    double cloudCover;         // 0-100%
-    double temperature;        // °C
-    double windSpeed;          // m/s
-    double humidity;           // 0-100%
-    bool valid;
-} WeatherData;
-
-typedef struct
-{
-    WeatherData forecasts[96];  // 24h with 15-min intervals
-    int count;
-    time_t lastUpdated;
-} WeatherForecast;
-
-// Electricity spot prices
-typedef struct
-{
-    time_t timestamp;
-    double priceSekPerKwh;
-    double priceEurPerMwh;
-    char region[8];            // SE1, SE2, SE3, SE4
-    bool valid;
-} SpotPrice;
-
-typedef struct
-{
-    SpotPrice prices[96];      // 24h spot prices
-    int count;
-    time_t lastUpdated;
-} SpotPriceData;
 
 // Solar production calculation
 typedef struct
@@ -93,7 +57,7 @@ typedef struct
     double panelEfficiency;       // 0-1, typically 0.15-0.22
     double panelAreaM2;
     double orientationDegrees;    // 0=north, 90=east, 180=south, 270=west
-    double tiltDegrees;           // 0-90°
+    double tiltDegrees;           // 0-90
     double peakPowerKw;
 } SolarConfig;
 
@@ -119,8 +83,6 @@ typedef struct
 
 // Utility functions
 const char* EnergyAction_ToString(EnergyAction action);
-bool WeatherData_IsValid(const WeatherData *data);
-bool SpotPrice_IsValid(const SpotPrice *price);
 bool EnergyPlanEntry_IsValid(const EnergyPlanEntry *entry);
 
-#endif // DATA_STRUCTURES_H
+#endif // ENERGY_PLAN_H

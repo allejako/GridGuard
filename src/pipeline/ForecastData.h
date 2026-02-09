@@ -1,5 +1,5 @@
-#ifndef _PIPELINE_DATA_H_
-#define _PIPELINE_DATA_H_
+#ifndef _FORECAST_DATA_H_
+#define _FORECAST_DATA_H_
 
 #include <time.h>
 #include <stdbool.h>
@@ -13,12 +13,12 @@ typedef struct {
     double humidity;          // 0-100%
     double spotPriceSek;      // SEK/kWh
     bool valid;
-} PipelineEntry;
+} ForecastEntry;
 
 typedef struct {
-    PipelineEntry entries[96];
+    ForecastEntry entries[96];
     int count;
     time_t lastUpdated;
-} PipelineData;
+} ForecastData;
 
 #endif

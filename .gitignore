@@ -9,6 +9,7 @@ bin/
 # Logs
 logs/
 *.log
+.md/
 
 # Profiling and coverage
 gmon.out
