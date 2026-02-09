@@ -40,10 +40,6 @@ TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 # Object files
 SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
-TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
-
-# Test binary
-TEST_BIN = $(BIN_DIR)/test_runner
 
 # Default target
 .PHONY: all
@@ -121,17 +117,16 @@ coverage: CXXFLAGS += --coverage -O0
 coverage: LDFLAGS += --coverage
 coverage: clean all
 
-# Build test binary
-$(TEST_BIN): $(TEST_OBJS)
-	@echo "Linking test runner..."
-	$(CC) $(LDFLAGS) -o $@ $^
-	@echo "Test runner built successfully: $@"
+# Build cache test
+$(BIN_DIR)/test_cache: $(BUILD_DIR)/tests/test_cache.o $(BUILD_DIR)/server/cache.o
+	@echo "Linking test_cache..."
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Run tests
 .PHONY: test
-test: directories $(TEST_BIN)
+test: directories $(BIN_DIR)/test_cache
 	@echo "Running tests..."
-	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
+	@$(BIN_DIR)/test_cache
 	@echo "All tests passed!"
 
 # Run server
