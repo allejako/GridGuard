@@ -36,7 +36,7 @@ bool WeatherData_IsValid(const WeatherData *data)
     // Timestamp not more than 7 days in the future
     time_t now = time(NULL);
     time_t maxFuture = now + (7 * 24 * 3600);
-    if (data->timestamp > maxFuture || data->timestamp < now - 3600)
+    if (data->timestamp > maxFuture || data->timestamp < now - (24 * 3600))
         return false;
 
     return true;
@@ -55,10 +55,10 @@ bool SpotPrice_IsValid(const SpotPrice *price)
     if (strncmp(price->region, "SE", 2) != 0)
         return false;
 
-    // Validate timestamp
+    // Validate timestamp (allow prices from start of today)
     time_t now = time(NULL);
     time_t maxFuture = now + (7 * 24 * 3600);
-    if (price->timestamp > maxFuture || price->timestamp < now - 3600)
+    if (price->timestamp > maxFuture || price->timestamp < now - (24 * 3600))
         return false;
 
     return true;

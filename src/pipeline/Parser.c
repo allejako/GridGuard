@@ -30,63 +30,70 @@ int Parser_ParseWeatherData(Parser *parser, const char *jsonData, WeatherForecas
         return -1;
     }
 
-    cJSON *list = cJSON_GetObjectItem(root, "list");
-    if (!cJSON_IsArray(list))
+    // Open-Meteo format: hourly.time[], hourly.temperature_2m[], etc.
+    cJSON *hourly = cJSON_GetObjectItem(root, "hourly");
+    if (!cJSON_IsObject(hourly))
     {
-        LOG_ERROR("Weather JSON missing 'list' array");
+        LOG_ERROR("Weather JSON missing 'hourly' object");
         cJSON_Delete(root);
         return -1;
     }
 
-    int arraySize = cJSON_GetArraySize(list);
+    cJSON *times = cJSON_GetObjectItem(hourly, "time");
+    cJSON *temps = cJSON_GetObjectItem(hourly, "temperature_2m");
+    cJSON *humidity = cJSON_GetObjectItem(hourly, "relative_humidity_2m");
+    cJSON *clouds = cJSON_GetObjectItem(hourly, "cloud_cover");
+    cJSON *winds = cJSON_GetObjectItem(hourly, "wind_speed_10m");
+    cJSON *solar = cJSON_GetObjectItem(hourly, "shortwave_radiation");
+
+    if (!cJSON_IsArray(times))
+    {
+        LOG_ERROR("Weather JSON missing 'hourly.time' array");
+        cJSON_Delete(root);
+        return -1;
+    }
+
+    int arraySize = cJSON_GetArraySize(times);
     int parsedCount = 0;
 
     for (int i = 0; i < arraySize && parsedCount < 96; i++)
     {
-        cJSON *item = cJSON_GetArrayItem(list, i);
-        if (!item)
-            continue;
-
         WeatherData *data = &forecast->forecasts[parsedCount];
 
-        // Parse timestamp
-        cJSON *dt = cJSON_GetObjectItem(item, "dt");
-        if (cJSON_IsNumber(dt))
-            data->timestamp = (time_t)dt->valueint;
-        else
-            data->timestamp = time(NULL);
-
-        // Parse main weather data
-        cJSON *main = cJSON_GetObjectItem(item, "main");
-        if (cJSON_IsObject(main))
+        // Parse timestamp (format: "YYYY-MM-DDTHH:MM")
+        cJSON *timeItem = cJSON_GetArrayItem(times, i);
+        if (cJSON_IsString(timeItem))
         {
-            cJSON *temp = cJSON_GetObjectItem(main, "temp");
-            cJSON *humidity = cJSON_GetObjectItem(main, "humidity");
-
-            data->temperature = cJSON_IsNumber(temp) ? temp->valuedouble : 0.0;
-            data->humidity = cJSON_IsNumber(humidity) ? humidity->valuedouble : 0.0;
+            struct tm tm = {0};
+            if (sscanf(timeItem->valuestring, "%d-%d-%dT%d:%d",
+                      &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+                      &tm.tm_hour, &tm.tm_min) == 5)
+            {
+                tm.tm_year -= 1900;
+                tm.tm_mon -= 1;
+                data->timestamp = mktime(&tm);
+            }
+            else
+            {
+                data->timestamp = time(NULL);
+            }
         }
 
-        // Parse clouds
-        cJSON *clouds = cJSON_GetObjectItem(item, "clouds");
-        if (cJSON_IsObject(clouds))
-        {
-            cJSON *all = cJSON_GetObjectItem(clouds, "all");
-            data->cloudCover = cJSON_IsNumber(all) ? all->valuedouble : 0.0;
-        }
+        // Parse values from parallel arrays
+        cJSON *tempVal = cJSON_GetArrayItem(temps, i);
+        data->temperature = cJSON_IsNumber(tempVal) ? tempVal->valuedouble : 0.0;
 
-        // Parse wind
-        cJSON *wind = cJSON_GetObjectItem(item, "wind");
-        if (cJSON_IsObject(wind))
-        {
-            cJSON *speed = cJSON_GetObjectItem(wind, "speed");
-            data->windSpeed = cJSON_IsNumber(speed) ? speed->valuedouble : 0.0;
-        }
+        cJSON *humVal = cJSON_GetArrayItem(humidity, i);
+        data->humidity = cJSON_IsNumber(humVal) ? humVal->valuedouble : 0.0;
 
-        // Calculate solar irradiance based on cloud cover
-        // Simple estimation: max 1000 W/m² on clear day, reduced by cloud cover
-        double clearSkyIrradiance = 1000.0;
-        data->solarIrradiance = clearSkyIrradiance * (1.0 - (data->cloudCover / 100.0));
+        cJSON *cloudVal = cJSON_GetArrayItem(clouds, i);
+        data->cloudCover = cJSON_IsNumber(cloudVal) ? cloudVal->valuedouble : 0.0;
+
+        cJSON *windVal = cJSON_GetArrayItem(winds, i);
+        data->windSpeed = cJSON_IsNumber(windVal) ? windVal->valuedouble : 0.0;
+
+        cJSON *solarVal = cJSON_GetArrayItem(solar, i);
+        data->solarIrradiance = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
 
         data->valid = true;
 
@@ -195,15 +202,6 @@ int Parser_ParseSpotPrices(Parser *parser, const char *jsonData, SpotPriceData *
         if (SpotPrice_IsValid(price))
         {
             parsedCount++;
-
-            // Interpolate to 15-minute intervals (copy same price 4 times)
-            for (int j = 1; j < 4 && parsedCount < 96; j++)
-            {
-                SpotPrice *interpolated = &spotData->prices[parsedCount];
-                *interpolated = *price;
-                interpolated->timestamp += (j * 900); // 900 seconds = 15 minutes
-                parsedCount++;
-            }
         }
         else
         {
@@ -215,7 +213,7 @@ int Parser_ParseSpotPrices(Parser *parser, const char *jsonData, SpotPriceData *
     spotData->lastUpdated = time(NULL);
 
     cJSON_Delete(root);
-    LOG_INFO("Parsed %d spot prices (interpolated to 15-min intervals)", parsedCount);
+    LOG_INFO("Parsed %d spot prices", parsedCount);
     return 0;
 }
 

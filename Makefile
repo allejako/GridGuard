@@ -137,6 +137,23 @@ test: directories $(TEST_BIN)
 	@$(TEST_BIN) || (echo "Tests failed!" && exit 1)
 	@echo "All tests passed!"
 
+# API fetch test binary
+TEST_API_BIN = $(BIN_DIR)/test_api_fetch
+TEST_API_SRCS = $(SRC_DIR)/tests/test_api_fetch.c
+TEST_API_DEPS = $(wildcard $(HTTP_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+
+# Build API test
+$(TEST_API_BIN): $(TEST_API_SRCS) $(TEST_API_DEPS)
+	@echo "Building API test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_API_SRCS) $(TEST_API_DEPS) $(LDFLAGS)
+	@echo "API test built: $@"
+
+# Run API test
+.PHONY: test-api
+test-api: directories $(TEST_API_BIN)
+	@echo "Running API fetch test..."
+	@$(TEST_API_BIN)
+
 # Run server
 .PHONY: run-server
 run-server: server
