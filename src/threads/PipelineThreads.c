@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/socket.h>
 
-// ========== QUEUE IMPLEMENTATION (Internal) ==========
+// QUEUE IMPLEMENTATION (Internal) 
 
 static int Queue_Initiate(Queue *queue)
 {
@@ -128,7 +128,7 @@ static void Queue_Shutdown(Queue *queue)
     LOG_INFO("Queue shutdown");
 }
 
-// ========== INTERNAL DATA STRUCTURES ==========
+// INTERNAL DATA STRUCTURES TILLS VIDARE
 
 typedef struct
 {

@@ -8,7 +8,7 @@
 #include "Parser.h"
 #include "Compute.h"
 
-// ========== QUEUE (Internal) ==========
+// QUEUE (Internal) 
 #define QUEUE_SIZE 100
 
 // Generic queue item that can hold different types of data
@@ -72,12 +72,8 @@ typedef struct
 
 } Pipeline;
 
-// Pipeline lifecycle
 int Pipeline_Initiate(Pipeline *pipeline);
-
-// Operations
 int Pipeline_SubmitRequest(Pipeline *pipeline, const PipelineRequest *request);
-
 void Pipeline_Shutdown(Pipeline *pipeline);
 
 

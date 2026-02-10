@@ -6,7 +6,7 @@
 
 #include "Config.h"
 
-// ========== WORKER (Internal) ==========
+// WORKER (Internal)
 
 typedef enum {
     CLIENT_DISCONNECTED = 0,
@@ -33,7 +33,7 @@ typedef struct {
     pthread_cond_t cond;
 } ThreadWorker;
 
-// ========== THREAD POOL ==========
+// THREAD POOL 
 
 typedef struct
 {
