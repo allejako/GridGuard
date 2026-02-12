@@ -12,12 +12,9 @@
 #include "PipelineThreads.h"
 #include "Logger.h"
 
-// External global pipeline
-extern Pipeline globalPipeline;
-
 // ========== WORKER IMPLEMENTATION (Internal) ==========
 
-static void Client_HandleState(Client *client)
+static void Client_HandleState(Client *client, struct Pipeline *pipeline)
 {
     switch (client->state)
     {
@@ -30,7 +27,7 @@ static void Client_HandleState(Client *client)
         // If buffer has data, process it immediately
         if (client->bufferLen > 0)
         {
-            Client_HandleState(client);  // Recursive call to handle the command
+            Client_HandleState(client, pipeline);  // Recursive call to handle the command
         }
         break;
 
@@ -53,7 +50,7 @@ static void Client_HandleState(Client *client)
             strncpy(request.location, location, sizeof(request.location) - 1);
             strncpy(request.region, region, sizeof(request.region) - 1);
 
-            if (Pipeline_SubmitRequest(&globalPipeline, &request) == 0)
+            if (Pipeline_SubmitRequest((Pipeline *)pipeline, &request) == 0)
             {
                 const char *processing = "Processing request...\n";
                 send(client->fd, processing, strlen(processing), 0);
@@ -163,7 +160,7 @@ static void *ThreadWorker_Work(void *arg)
                 {
                     client->buffer[bytes] = '\0';
                     client->bufferLen = bytes;
-                    Client_HandleState(client);
+                    Client_HandleState(client, worker->pipeline);
                 }
             }
         }
@@ -186,11 +183,12 @@ static void *ThreadWorker_Work(void *arg)
     return NULL;
 }
 
-static int ThreadWorker_Initiate(ThreadWorker *worker, int id)
+static int ThreadWorker_Initiate(ThreadWorker *worker, int id, struct Pipeline *pipeline)
 {
     worker->id = id;
     worker->clientCount = 0;
     worker->isRunning = true;
+    worker->pipeline = pipeline;
 
     // Initialize all client slots as empty
     for (int i = 0; i < MAX_CLIENTS_PER_THREAD; i++)
@@ -253,7 +251,7 @@ static void ThreadWorker_Shutdown(ThreadWorker *worker)
 
 // ========== THREAD POOL IMPLEMENTATION ==========
 
-int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads)
+int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads, struct Pipeline *pipeline)
 {
     if (numOfThreads > MAX_THREADS)
     {
@@ -269,11 +267,12 @@ int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads)
 
     threadPool->numOfThreads = numOfThreads;
     threadPool->isRunning = true;
+    threadPool->pipeline = pipeline;
     pthread_mutex_init(&threadPool->mutex, NULL);
 
     for (int i = 0; i < numOfThreads; i++)
     {
-        if (ThreadWorker_Initiate(&threadPool->threadWorkers[i], i) != 0)
+        if (ThreadWorker_Initiate(&threadPool->threadWorkers[i], i, pipeline) != 0)
         {
             LOG_FATAL("Failed to initialize thread workers");
             for (int j = 0; j < i; j++)

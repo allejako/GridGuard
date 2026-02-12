@@ -1,3 +1,6 @@
+// MOCK IMPLEMENTATION - Simplified single-threaded computation with mock data
+// Not yet fully implemented - this is a placeholder for future energy calculations
+
 #ifndef _COMPUTE_H_
 #define _COMPUTE_H_
 

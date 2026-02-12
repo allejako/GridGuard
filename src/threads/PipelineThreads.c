@@ -461,6 +461,7 @@ int Pipeline_Initiate(Pipeline *pipeline)
         .averageDailyKwh = 15.0
     };
 
+    // Initialize Compute
     if (Compute_Initiate(&pipeline->compute, &solar, &battery, &consumption) != 0)
     {
         LOG_ERROR("Pipeline: Failed to initiate Compute");
