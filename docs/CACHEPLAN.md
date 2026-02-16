@@ -52,7 +52,7 @@ Request → FetchStage → Parse → Compute → Svar
 | Cache | TTL | Motivering |
 |-------|-----|------------|
 | Weather | 15 min | API uppdateras varje timme, 15 min ger bra balans |
-| Price | 60 min | Dagspriser ändras sällan, kan vara längre |
+| Price | 15 min | Samma TTL som väderdata för konsistens |
 
 ### Datastrukturer
 
@@ -208,7 +208,7 @@ Uppdatera `test_pipeline.c` för ny arkitektur.
                                   │
                          ┌────────┴────────┐
                          │   PriceCache    │
-                         │   TTL: 60 min   │
+                         │   TTL: 15 min   │
                          │  Key: region_   │
                          │       date      │
                          └─────────────────┘

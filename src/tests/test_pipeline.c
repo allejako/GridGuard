@@ -16,7 +16,7 @@ int main(void)
     print_separator("PIPELINE THREADS TEST");
 
     // Initialize logger
-    if (Logger_Initiate("../../logs", LOG_LEVEL_DEBUG) != 0)
+    if (Logger_Initiate("logs/test.log", LOG_LEVEL_DEBUG) != 0)
     {
         fprintf(stderr, "Warning: Failed to initialize logger\n");
     }
