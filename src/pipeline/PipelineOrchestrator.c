@@ -2,6 +2,7 @@
 #include "FetchStage.h"
 #include "ParseStage.h"
 #include "ComputeStage.h"
+#include "CacheStage.h"
 #include "Queue.h"
 #include "Logger.h"
 
@@ -29,6 +30,14 @@ int Pipeline_Initiate(Pipeline *pipeline)
         LOG_ERROR("Pipeline: Failed to initiate parse queue");
         Queue_Shutdown(&pipeline->requestQueue);
         Queue_Shutdown(&pipeline->fetchQueue);
+        return -1;
+    }
+    if (Queue_Initiate(&pipeline->computeQueue) != 0)
+    {
+        LOG_ERROR("Pipeline: Failed to initiate compute queue");
+        Queue_Shutdown(&pipeline->requestQueue);
+        Queue_Shutdown(&pipeline->fetchQueue);
+        Queue_Shutdown(&pipeline->parseQueue);
         return -1;
     }
 
@@ -86,6 +95,21 @@ int Pipeline_Initiate(Pipeline *pipeline)
         Queue_Shutdown(&pipeline->requestQueue);
         Queue_Shutdown(&pipeline->fetchQueue);
         Queue_Shutdown(&pipeline->parseQueue);
+        Queue_Shutdown(&pipeline->computeQueue);
+        return -1;
+    }
+
+    // Initialize Cache with 15 minute TTL
+    if (Cache_Initiate(&pipeline->cache, CACHE_DEFAULT_TTL_SECONDS) != 0)
+    {
+        LOG_ERROR("Pipeline: Failed to initiate Cache");
+        Compute_Shutdown(&pipeline->compute);
+        Parser_Shutdown(&pipeline->parser);
+        Fetcher_Shutdown(&pipeline->fetcher);
+        Queue_Shutdown(&pipeline->requestQueue);
+        Queue_Shutdown(&pipeline->fetchQueue);
+        Queue_Shutdown(&pipeline->parseQueue);
+        Queue_Shutdown(&pipeline->computeQueue);
         return -1;
     }
 
@@ -125,16 +149,36 @@ int Pipeline_Initiate(Pipeline *pipeline)
         pipeline->isRunning = false;
         pthread_join(pipeline->fetchThread, NULL);
         pthread_join(pipeline->parseThread, NULL);
+        Cache_Shutdown(&pipeline->cache);
         Compute_Shutdown(&pipeline->compute);
         Parser_Shutdown(&pipeline->parser);
         Fetcher_Shutdown(&pipeline->fetcher);
         Queue_Shutdown(&pipeline->requestQueue);
         Queue_Shutdown(&pipeline->fetchQueue);
         Queue_Shutdown(&pipeline->parseQueue);
+        Queue_Shutdown(&pipeline->computeQueue);
         return -1;
     }
 
-    LOG_INFO("Pipeline: Initiated with 3 worker threads");
+    if (pthread_create(&pipeline->cacheThread, NULL, CacheStage_Work, pipeline) != 0)
+    {
+        LOG_ERROR("Pipeline: Failed to create cache thread");
+        pipeline->isRunning = false;
+        pthread_join(pipeline->fetchThread, NULL);
+        pthread_join(pipeline->parseThread, NULL);
+        pthread_join(pipeline->computeThread, NULL);
+        Cache_Shutdown(&pipeline->cache);
+        Compute_Shutdown(&pipeline->compute);
+        Parser_Shutdown(&pipeline->parser);
+        Fetcher_Shutdown(&pipeline->fetcher);
+        Queue_Shutdown(&pipeline->requestQueue);
+        Queue_Shutdown(&pipeline->fetchQueue);
+        Queue_Shutdown(&pipeline->parseQueue);
+        Queue_Shutdown(&pipeline->computeQueue);
+        return -1;
+    }
+
+    LOG_INFO("Pipeline: Initiated with 4 worker threads (fetch, parse, compute, cache)");
     return 0;
 }
 
@@ -163,13 +207,16 @@ void Pipeline_Shutdown(Pipeline *pipeline)
     Queue_Shutdown(&pipeline->requestQueue);
     Queue_Shutdown(&pipeline->fetchQueue);
     Queue_Shutdown(&pipeline->parseQueue);
+    Queue_Shutdown(&pipeline->computeQueue);
 
     // Wait for all threads to finish
     pthread_join(pipeline->fetchThread, NULL);
     pthread_join(pipeline->parseThread, NULL);
     pthread_join(pipeline->computeThread, NULL);
+    pthread_join(pipeline->cacheThread, NULL);
 
     // Cleanup components
+    Cache_Shutdown(&pipeline->cache);
     Compute_Shutdown(&pipeline->compute);
     Parser_Shutdown(&pipeline->parser);
     Fetcher_Shutdown(&pipeline->fetcher);

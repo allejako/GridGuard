@@ -7,6 +7,7 @@
 #include "Fetcher.h"
 #include "Parser.h"
 #include "Compute.h"
+#include "Cache.h"
 
 // Pipeline request from client
 typedef struct
@@ -23,16 +24,19 @@ typedef struct Pipeline
     pthread_t fetchThread;
     pthread_t parseThread;
     pthread_t computeThread;
+    pthread_t cacheThread;
 
     // Producer-consumer queues
     Queue requestQueue;  // Client requests -> Fetch
     Queue fetchQueue;    // Fetch -> Parse
     Queue parseQueue;    // Parse -> Compute
+    Queue computeQueue;  // Compute -> Cache
 
     // Pipeline components
     Fetcher fetcher;
     Parser parser;
     Compute compute;
+    Cache cache;
 
     // Control
     bool isRunning;
