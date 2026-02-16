@@ -5,27 +5,12 @@
 #include <stdbool.h>
 
 #include "Config.h"
+#include "ClientHandler.h"
 
 // Forward declaration (to avoid circular dependency)
 struct Pipeline;
 
-// WORKER (Internal)
-
-typedef enum {
-    CLIENT_DISCONNECTED = 0,
-    CLIENT_CONNECTED,
-    CLIENT_AUTHENTICATING,
-    CLIENT_READY,
-    CLIENT_PROCESSING
-} ClientState;
-
-typedef struct {
-    int fd;
-    ClientState state;
-    char buffer[CLIENT_BUFFER_SIZE];
-    int bufferLen;
-} Client;
-
+// Thread worker - manages a set of clients
 typedef struct {
     int id;
     pthread_t thread;
@@ -37,8 +22,7 @@ typedef struct {
     struct Pipeline *pipeline;  // Reference to pipeline (not owned)
 } ThreadWorker;
 
-// THREAD POOL
-
+// Thread pool - manages multiple workers
 typedef struct
 {
     ThreadWorker *threadWorkers;

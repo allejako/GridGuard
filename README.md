@@ -10,7 +10,7 @@ LEOP (Local Energy Optimization Platform) är ett systemnära mjukvaruprojekt f�
 
 ## Produktnamn
 
-[LÄGG TILL ERT UNIKA PRODUKTNAMN HÄR]
+[GridGuard]
 
 ## Systemöversikt
 
@@ -107,7 +107,7 @@ make clean
 
 ### Branching-strategi
 
-- `main` - Stabil produktionskod
+- `master` - Stabil produktionskod
 - `develop` - Utvecklingsbranch
 - `feature/*` - Feature branches
 - `bugfix/*` - Bugfix branches
@@ -161,7 +161,3 @@ Detta projekt är utvecklat som en del av utbildning på CHAS Academy.
 ## Kontakt
 
 Vid frågor kontakta teamet via [KONTAKTINFORMATION]
-
----
-
-**Senast uppdaterad:** [DATUM]

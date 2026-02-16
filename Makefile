@@ -15,15 +15,23 @@ CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
 API_DIR = $(SRC_DIR)/api
-THREADS_DIR = $(SRC_DIR)/threads
-PIPELINE_DIR = $(SRC_DIR)/pipeline
 DATA_DIR = $(SRC_DIR)/data
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 CONFIG_DIR = config
 
+# Pipeline directories (new structure)
+PIPELINE_DIR = $(SRC_DIR)/pipeline
+PIPELINE_STAGES_DIR = $(PIPELINE_DIR)/stages
+PIPELINE_COMPONENTS_DIR = $(PIPELINE_DIR)/components
+
+# Concurrency directories (new structure)
+CONCURRENCY_DIR = $(SRC_DIR)/concurrency
+SYNC_DIR = $(CONCURRENCY_DIR)/sync
+POOL_DIR = $(CONCURRENCY_DIR)/pool
+
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(API_DIR) -I$(THREADS_DIR) -I$(PIPELINE_DIR) -I$(DATA_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(API_DIR) -I$(DATA_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR) -I$(PIPELINE_DIR) -I$(PIPELINE_STAGES_DIR) -I$(PIPELINE_COMPONENTS_DIR) -I$(CONCURRENCY_DIR) -I$(SYNC_DIR) -I$(POOL_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -34,7 +42,7 @@ SERVER_BIN = $(BIN_DIR)/leop-server
 CLIENT_BIN = $(BIN_DIR)/leop-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(PIPELINE_STAGES_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(POOL_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
@@ -68,8 +76,11 @@ directories:
 	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/api
 	@mkdir -p $(BUILD_DIR)/data
-	@mkdir -p $(BUILD_DIR)/threads
 	@mkdir -p $(BUILD_DIR)/pipeline
+	@mkdir -p $(BUILD_DIR)/pipeline/stages
+	@mkdir -p $(BUILD_DIR)/pipeline/components
+	@mkdir -p $(BUILD_DIR)/concurrency/sync
+	@mkdir -p $(BUILD_DIR)/concurrency/pool
 	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
@@ -146,9 +157,9 @@ TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 
 # Test dependencies
-TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 TEST_LOGGER_DEPS = $(COMMON_DIR)/Logger.c
-TEST_PIPELINE_DEPS = $(THREADS_DIR)/PipelineThreads.c $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_PIPELINE_DEPS = $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(PIPELINE_STAGES_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 
 # Build API test
 $(TEST_API_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS)

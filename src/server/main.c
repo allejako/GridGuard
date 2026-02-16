@@ -7,7 +7,7 @@
 int main()
 {
     // Initialize logger
-    if (Logger_Initiate("../../logs", LOG_LEVEL_DEBUG) != 0)
+    if (Logger_Initiate("../logs", LOG_LEVEL_DEBUG) != 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
         return EXIT_FAILURE;

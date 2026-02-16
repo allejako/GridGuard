@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "PipelineThreads.h"
+#include "PipelineOrchestrator.h"
 #include "Logger.h"
 #include "Config.h"
 
@@ -16,7 +16,7 @@ int main(void)
     print_separator("PIPELINE THREADS TEST");
 
     // Initialize logger
-    if (Logger_Initiate("../../logs", LOG_LEVEL_DEBUG) != 0)
+    if (Logger_Initiate("../logs", LOG_LEVEL_DEBUG) != 0)
     {
         fprintf(stderr, "Warning: Failed to initialize logger\n");
     }

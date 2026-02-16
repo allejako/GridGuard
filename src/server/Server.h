@@ -4,7 +4,7 @@
 #include <signal.h>
 #include "TCPServer.h"
 #include "ThreadPool.h"
-#include "PipelineThreads.h"
+#include "PipelineOrchestrator.h"
 
 typedef struct
 {
