@@ -3,11 +3,13 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 typedef struct
 {
 	void *curl;
 	bool isInitialized;
+	pthread_mutex_t mutex;
 } Fetcher;
 
 typedef struct

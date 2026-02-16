@@ -1,6 +1,7 @@
 #ifndef _PARSER_H_
 #define _PARSER_H_
 
+#include <pthread.h>
 #include "OpenMeteoData.h"
 #include "ElprisetData.h"
 #include "ForecastData.h"
@@ -8,6 +9,7 @@
 typedef struct
 {
     bool isInitialized;
+    pthread_mutex_t mutex;
 } Parser;
 
 int Parser_Initiate(Parser *parser);
