@@ -1,5 +1,5 @@
-#include "CacheStage.h"
-#include "PipelineOrchestrator.h"
+#include "CacheWorker.h"
+#include "GridGuard.h"
 #include "Queue.h"
 #include "Cache.h"
 #include "Logger.h"
@@ -8,15 +8,15 @@
 #include <stdio.h>
 #include <sys/socket.h>
 
-void *CacheStage_Work(void *arg)
+void *CacheWorker_Run(void *arg)
 {
-    Pipeline *pipeline = (Pipeline *)arg;
-    LOG_INFO("Cache thread started");
+    GridGuard *app = (GridGuard *)arg;
+    LOG_INFO("CacheWorker: Thread started");
 
-    while (pipeline->isRunning)
+    while (app->isRunning)
     {
         QueueItem item;
-        if (Queue_Pop(&pipeline->computeQueue, &item) != 0)
+        if (Queue_Pop(&app->computeQueue, &item) != 0)
             break;
 
         if (item.type != DATA_TYPE_ENERGY_PLAN)
@@ -26,10 +26,10 @@ void *CacheStage_Work(void *arg)
         }
 
         ComputeResult *result = (ComputeResult *)item.data;
-        LOG_INFO("Cache: Processing result for %s/%s", result->location, result->region);
+        LOG_INFO("CacheWorker: Processing result for %s/%s", result->location, result->region);
 
         // Store in cache
-        Cache_Store(&pipeline->cache, result->location, result->region, &result->plan);
+        Cache_Store(&app->cache, result->location, result->region, &result->plan);
 
         // Format response for client
         EnergyData *plan = &result->plan;
@@ -59,12 +59,12 @@ void *CacheStage_Work(void *arg)
 
         if (send(result->clientFd, response, len, 0) < 0)
         {
-            LOG_ERROR("Cache: Failed to send response to client");
+            LOG_ERROR("CacheWorker: Failed to send response to client");
         }
 
         free(item.data);
     }
 
-    LOG_INFO("Cache thread exiting");
+    LOG_INFO("CacheWorker: Thread exiting");
     return NULL;
 }

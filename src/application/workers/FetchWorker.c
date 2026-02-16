@@ -1,5 +1,5 @@
-#include "FetchStage.h"
-#include "PipelineOrchestrator.h"
+#include "FetchWorker.h"
+#include "GridGuard.h"
 #include "Queue.h"
 #include "Fetcher.h"
 #include "APIEndpoints.h"
@@ -8,15 +8,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-void *FetchStage_Work(void *arg)
+void *FetchWorker_Run(void *arg)
 {
-    Pipeline *pipeline = (Pipeline *)arg;
-    LOG_INFO("Fetch thread started");
+    GridGuard *app = (GridGuard *)arg;
+    LOG_INFO("FetchWorker: Thread started");
 
-    while (pipeline->isRunning)
+    while (app->isRunning)
     {
         QueueItem item;
-        if (Queue_Pop(&pipeline->requestQueue, &item) != 0)
+        if (Queue_Pop(&app->requestQueue, &item) != 0)
             break;
 
         if (item.type != DATA_TYPE_REQUEST)
@@ -25,8 +25,8 @@ void *FetchStage_Work(void *arg)
             continue;
         }
 
-        PipelineRequest *request = (PipelineRequest *)item.data;
-        LOG_INFO("Fetch: Processing request for %s/%s", request->location, request->region);
+        WorkRequest *request = (WorkRequest *)item.data;
+        LOG_INFO("FetchWorker: Processing request for %s/%s", request->location, request->region);
 
         // Allocate result
         FetchResult *result = calloc(1, sizeof(FetchResult));
@@ -49,34 +49,34 @@ void *FetchStage_Work(void *arg)
 
         // Fetch weather data
         FetchResponse weatherResp;
-        if (Fetcher_Fetch(&pipeline->fetcher, weatherUrl, &weatherResp) == 0)
+        if (Fetcher_Fetch(&app->fetcher, weatherUrl, &weatherResp) == 0)
         {
             strncpy(result->weatherJson, weatherResp.data, sizeof(result->weatherJson) - 1);
             Fetcher_FreeResponse(&weatherResp);
-            LOG_INFO("Fetch: Got weather data (%zu bytes)", strlen(result->weatherJson));
+            LOG_INFO("FetchWorker: Got weather data (%zu bytes)", strlen(result->weatherJson));
         }
         else
         {
-            LOG_ERROR("Fetch: Failed to get weather data");
+            LOG_ERROR("FetchWorker: Failed to get weather data");
         }
 
         // Fetch price data
         FetchResponse priceResp;
-        if (Fetcher_Fetch(&pipeline->fetcher, priceUrl, &priceResp) == 0)
+        if (Fetcher_Fetch(&app->fetcher, priceUrl, &priceResp) == 0)
         {
             strncpy(result->priceJson, priceResp.data, sizeof(result->priceJson) - 1);
             Fetcher_FreeResponse(&priceResp);
-            LOG_INFO("Fetch: Got price data (%zu bytes)", strlen(result->priceJson));
+            LOG_INFO("FetchWorker: Got price data (%zu bytes)", strlen(result->priceJson));
         }
         else
         {
-            LOG_ERROR("Fetch: Failed to get price data");
+            LOG_ERROR("FetchWorker: Failed to get price data");
         }
 
         // Push to parse queue
-        if (Queue_Push(&pipeline->fetchQueue, result, sizeof(FetchResult), DATA_TYPE_API_RESPONSE) != 0)
+        if (Queue_Push(&app->fetchQueue, result, sizeof(FetchResult), DATA_TYPE_API_RESPONSE) != 0)
         {
-            LOG_ERROR("Fetch: Failed to push to parse queue");
+            LOG_ERROR("FetchWorker: Failed to push to parse queue");
             free(result);
         }
         else
@@ -87,6 +87,6 @@ void *FetchStage_Work(void *arg)
         free(item.data);
     }
 
-    LOG_INFO("Fetch thread exiting");
+    LOG_INFO("FetchWorker: Thread exiting");
     return NULL;
 }

@@ -15,23 +15,25 @@ CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
 TCP_DIR = $(SRC_DIR)/tcp
 API_DIR = $(SRC_DIR)/api
-DATA_DIR = $(SRC_DIR)/data
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 CONFIG_DIR = config
 
-# Pipeline directories (new structure)
-PIPELINE_DIR = $(SRC_DIR)/pipeline
-PIPELINE_STAGES_DIR = $(PIPELINE_DIR)/stages
-PIPELINE_COMPONENTS_DIR = $(PIPELINE_DIR)/components
+# Application directories (domain-specific code)
+APPLICATION_DIR = $(SRC_DIR)/application
+APP_CORE_DIR = $(APPLICATION_DIR)/core
+APP_WORKERS_DIR = $(APPLICATION_DIR)/workers
+APP_MODELS_DIR = $(APPLICATION_DIR)/models
+APP_SERVICES_DIR = $(APPLICATION_DIR)/services
 
-# Concurrency directories (new structure)
+# Concurrency directories (OS primitives)
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
+THREADS_DIR = $(CONCURRENCY_DIR)/threads
 SYNC_DIR = $(CONCURRENCY_DIR)/sync
-POOL_DIR = $(CONCURRENCY_DIR)/pool
+IPC_DIR = $(CONCURRENCY_DIR)/ipc
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(API_DIR) -I$(DATA_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR) -I$(PIPELINE_DIR) -I$(PIPELINE_STAGES_DIR) -I$(PIPELINE_COMPONENTS_DIR) -I$(CONCURRENCY_DIR) -I$(SYNC_DIR) -I$(POOL_DIR)
+INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(API_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR) -I$(APPLICATION_DIR) -I$(APP_CORE_DIR) -I$(APP_WORKERS_DIR) -I$(APP_MODELS_DIR) -I$(APP_SERVICES_DIR) -I$(CONCURRENCY_DIR) -I$(THREADS_DIR) -I$(SYNC_DIR) -I$(IPC_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -42,7 +44,7 @@ SERVER_BIN = $(BIN_DIR)/GridGuard-server
 CLIENT_BIN = $(BIN_DIR)/GridGuard-client
 
 # Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(PIPELINE_STAGES_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(POOL_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(APP_CORE_DIR)/*.c) $(wildcard $(APP_WORKERS_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(IPC_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 SERVER_SRCS_CPP = $(wildcard $(TCP_DIR)/TCPClient.cpp)
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
@@ -75,12 +77,13 @@ directories:
 	@mkdir -p $(BUILD_DIR)/common
 	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/api
-	@mkdir -p $(BUILD_DIR)/data
-	@mkdir -p $(BUILD_DIR)/pipeline
-	@mkdir -p $(BUILD_DIR)/pipeline/stages
-	@mkdir -p $(BUILD_DIR)/pipeline/components
+	@mkdir -p $(BUILD_DIR)/application/core
+	@mkdir -p $(BUILD_DIR)/application/workers
+	@mkdir -p $(BUILD_DIR)/application/models
+	@mkdir -p $(BUILD_DIR)/application/services
+	@mkdir -p $(BUILD_DIR)/concurrency/threads
 	@mkdir -p $(BUILD_DIR)/concurrency/sync
-	@mkdir -p $(BUILD_DIR)/concurrency/pool
+	@mkdir -p $(BUILD_DIR)/concurrency/ipc
 	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests
 	@mkdir -p $(BIN_DIR)
@@ -157,9 +160,9 @@ TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 
 # Test dependencies
-TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 TEST_LOGGER_DEPS = $(COMMON_DIR)/Logger.c
-TEST_PIPELINE_DEPS = $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(PIPELINE_STAGES_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) $(wildcard $(APP_WORKERS_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
 
 # Build API test
 $(TEST_API_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS)

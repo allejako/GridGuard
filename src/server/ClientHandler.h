@@ -5,7 +5,7 @@
 #include "Config.h"
 
 // Forward declaration
-struct Pipeline;
+struct GridGuard;
 
 // Client connection states
 typedef enum {
@@ -25,6 +25,6 @@ typedef struct {
 } Client;
 
 // Handle client state machine - processes commands and updates state
-void Client_HandleState(Client *client, struct Pipeline *pipeline);
+void Client_HandleState(Client *client, struct GridGuard *app);
 
 #endif // _CLIENT_HANDLER_H_

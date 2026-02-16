@@ -4,13 +4,13 @@
 #include <signal.h>
 #include "TCPServer.h"
 #include "ThreadPool.h"
-#include "PipelineOrchestrator.h"
+#include "GridGuard.h"
 
 typedef struct
 {
     TCPServer tcpServer;
     ThreadPool threadPool;
-    Pipeline pipeline;
+    GridGuard app;
     volatile sig_atomic_t *isRunning;
 } Server;
 

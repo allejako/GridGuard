@@ -1,5 +1,5 @@
-#ifndef _PIPELINE_ORCHESTRATOR_H_
-#define _PIPELINE_ORCHESTRATOR_H_
+#ifndef _GRIDGUARD_H_
+#define _GRIDGUARD_H_
 
 #include <pthread.h>
 #include <stdbool.h>
@@ -9,16 +9,16 @@
 #include "Compute.h"
 #include "Cache.h"
 
-// Pipeline request from client
+// Work request from client
 typedef struct
 {
     int clientFd;
     char location[64];
     char region[16];
-} PipelineRequest;
+} WorkRequest;
 
-// Multi-threaded pipeline system
-typedef struct Pipeline
+// Multi-threaded application core
+typedef struct GridGuard
 {
     // Worker threads
     pthread_t fetchThread;
@@ -32,7 +32,7 @@ typedef struct Pipeline
     Queue parseQueue;    // Parse -> Compute
     Queue computeQueue;  // Compute -> Cache
 
-    // Pipeline components
+    // Application services
     Fetcher fetcher;
     Parser parser;
     Compute compute;
@@ -42,10 +42,10 @@ typedef struct Pipeline
     bool isRunning;
     pthread_mutex_t mutex;
 
-} Pipeline;
+} GridGuard;
 
-int Pipeline_Initiate(Pipeline *pipeline);
-int Pipeline_SubmitRequest(Pipeline *pipeline, const PipelineRequest *request);
-void Pipeline_Shutdown(Pipeline *pipeline);
+int GridGuard_Initiate(GridGuard *app);
+int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request);
+void GridGuard_Shutdown(GridGuard *app);
 
-#endif // _PIPELINE_ORCHESTRATOR_H_
+#endif // _GRIDGUARD_H_

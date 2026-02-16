@@ -1,21 +1,21 @@
-#include "ParseStage.h"
-#include "FetchStage.h"
-#include "PipelineOrchestrator.h"
+#include "ParseWorker.h"
+#include "FetchWorker.h"
+#include "GridGuard.h"
 #include "Queue.h"
 #include "Parser.h"
 #include "Logger.h"
 #include <stdlib.h>
 #include <string.h>
 
-void *ParseStage_Work(void *arg)
+void *ParseWorker_Run(void *arg)
 {
-    Pipeline *pipeline = (Pipeline *)arg;
-    LOG_INFO("Parse thread started");
+    GridGuard *app = (GridGuard *)arg;
+    LOG_INFO("ParseWorker: Thread started");
 
-    while (pipeline->isRunning)
+    while (app->isRunning)
     {
         QueueItem item;
-        if (Queue_Pop(&pipeline->fetchQueue, &item) != 0)
+        if (Queue_Pop(&app->fetchQueue, &item) != 0)
             break;
 
         if (item.type != DATA_TYPE_API_RESPONSE)
@@ -25,7 +25,7 @@ void *ParseStage_Work(void *arg)
         }
 
         FetchResult *fetchData = (FetchResult *)item.data;
-        LOG_INFO("Parse: Processing data for %s/%s", fetchData->location, fetchData->region);
+        LOG_INFO("ParseWorker: Processing data for %s/%s", fetchData->location, fetchData->region);
 
         // Allocate result
         ParseResult *result = calloc(1, sizeof(ParseResult));
@@ -43,33 +43,33 @@ void *ParseStage_Work(void *arg)
         // Parse weather
         if (strlen(fetchData->weatherJson) > 0)
         {
-            if (Parser_ParseOpenMeteo(&pipeline->parser, fetchData->weatherJson, &result->weather) == 0)
+            if (Parser_ParseOpenMeteo(&app->parser, fetchData->weatherJson, &result->weather) == 0)
             {
-                LOG_INFO("Parse: Parsed %d weather entries", result->weather.count);
+                LOG_INFO("ParseWorker: Parsed %d weather entries", result->weather.count);
             }
             else
             {
-                LOG_ERROR("Parse: Failed to parse weather data");
+                LOG_ERROR("ParseWorker: Failed to parse weather data");
             }
         }
 
         // Parse prices
         if (strlen(fetchData->priceJson) > 0)
         {
-            if (Parser_ParseElpriset(&pipeline->parser, fetchData->priceJson, &result->prices) == 0)
+            if (Parser_ParseElpriset(&app->parser, fetchData->priceJson, &result->prices) == 0)
             {
-                LOG_INFO("Parse: Parsed %d price entries", result->prices.count);
+                LOG_INFO("ParseWorker: Parsed %d price entries", result->prices.count);
             }
             else
             {
-                LOG_ERROR("Parse: Failed to parse price data");
+                LOG_ERROR("ParseWorker: Failed to parse price data");
             }
         }
 
         // Push to compute queue
-        if (Queue_Push(&pipeline->parseQueue, result, sizeof(ParseResult), DATA_TYPE_PARSED_DATA) != 0)
+        if (Queue_Push(&app->parseQueue, result, sizeof(ParseResult), DATA_TYPE_PARSED_DATA) != 0)
         {
-            LOG_ERROR("Parse: Failed to push to compute queue");
+            LOG_ERROR("ParseWorker: Failed to push to compute queue");
             free(result);
         }
         else
@@ -80,6 +80,6 @@ void *ParseStage_Work(void *arg)
         free(item.data);
     }
 
-    LOG_INFO("Parse thread exiting");
+    LOG_INFO("ParseWorker: Thread exiting");
     return NULL;
 }

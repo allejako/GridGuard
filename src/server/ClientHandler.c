@@ -1,12 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "ClientHandler.h"
-#include "PipelineOrchestrator.h"
+#include "GridGuard.h"
 #include "Logger.h"
 #include <string.h>
 #include <sys/socket.h>
 
-void Client_HandleState(Client *client, struct Pipeline *pipeline)
+void Client_HandleState(Client *client, struct GridGuard *app)
 {
     switch (client->state)
     {
@@ -20,7 +20,7 @@ void Client_HandleState(Client *client, struct Pipeline *pipeline)
         // If buffer has data, process it immediately
         if (client->bufferLen > 0)
         {
-            Client_HandleState(client, pipeline);  // Recursive call to handle the command
+            Client_HandleState(client, app);  // Recursive call to handle the command
         }
         break;
     }
@@ -38,14 +38,14 @@ void Client_HandleState(Client *client, struct Pipeline *pipeline)
         {
             LOG_INFO("ClientHandler: Client FD %d requested forecast for %s/%s", client->fd, location, region);
 
-            // Submit to pipeline
-            PipelineRequest request = {
+            // Submit to GridGuard application
+            WorkRequest request = {
                 .clientFd = client->fd
             };
             strncpy(request.location, location, sizeof(request.location) - 1);
             strncpy(request.region, region, sizeof(request.region) - 1);
 
-            if (Pipeline_SubmitRequest((Pipeline *)pipeline, &request) == 0)
+            if (GridGuard_SubmitRequest(app, &request) == 0)
             {
                 const char *processing = "Processing request...\n";
                 send(client->fd, processing, strlen(processing), 0);
@@ -53,7 +53,7 @@ void Client_HandleState(Client *client, struct Pipeline *pipeline)
             }
             else
             {
-                const char *error = "ERROR: Pipeline queue full, try again later\n> ";
+                const char *error = "ERROR: Request queue full, try again later\n> ";
                 send(client->fd, error, strlen(error), 0);
             }
         }

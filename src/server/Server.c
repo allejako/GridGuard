@@ -19,18 +19,18 @@ int Server_Initiate(Server *server)
     // Initialize signal handler first
     server->isRunning = SignalHandler_Init();
 
-    // Initialize pipeline
-    if (Pipeline_Initiate(&server->pipeline) != 0)
+    // Initialize GridGuard application core
+    if (GridGuard_Initiate(&server->app) != 0)
     {
-        LOG_FATAL("Server: Failed to initialize pipeline");
+        LOG_FATAL("Server: Failed to initialize GridGuard application");
         return -1;
     }
 
-    // Initialize thread pool with pipeline reference
-    if (ThreadPool_Initiate(&server->threadPool, MAX_THREADS, (struct Pipeline *)&server->pipeline) != 0)
+    // Initialize thread pool with GridGuard reference
+    if (ThreadPool_Initiate(&server->threadPool, MAX_THREADS, (struct GridGuard *)&server->app) != 0)
     {
         LOG_FATAL("Server: Failed to initialize thread pool");
-        Pipeline_Shutdown(&server->pipeline);
+        GridGuard_Shutdown(&server->app);
         return -1;
     }
 
@@ -39,7 +39,7 @@ int Server_Initiate(Server *server)
     {
         LOG_FATAL("Server: Failed to initialize TCP server on port %s", SERVER_PORT);
         ThreadPool_Shutdown(&server->threadPool);
-        Pipeline_Shutdown(&server->pipeline);
+        GridGuard_Shutdown(&server->app);
         return -1;
     }
 
@@ -60,11 +60,11 @@ int Server_Run(Server *server)
     while (*server->isRunning)
     {
         int clientSocket = TCPServer_Accept(&server->tcpServer);
-        if (clientSocket <= 0)
+        if (clientSocket <= 0) 
         {
             if (!*server->isRunning)
                 break;
-            if (clientSocket < 0)
+            if (clientSocket < 0) 
                 LOG_ERROR("Server: Failed to accept connection");
             continue;
         }
@@ -89,7 +89,7 @@ void Server_Shutdown(Server *server)
 
     // Shutdown components in reverse order
     ThreadPool_Shutdown(&server->threadPool);
-    Pipeline_Shutdown(&server->pipeline);
+    GridGuard_Shutdown(&server->app);
 
     if (server->tcpServer.listen_fd >= 0)
     {

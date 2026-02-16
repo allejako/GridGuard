@@ -1,10 +1,10 @@
-#ifndef _PARSE_STAGE_H_
-#define _PARSE_STAGE_H_
+#ifndef _PARSE_WORKER_H_
+#define _PARSE_WORKER_H_
 
 #include "OpenMeteoData.h"
 #include "ElprisetData.h"
 
-// Result from parse stage - passed to compute stage
+// Result from parse worker - passed to compute worker
 typedef struct
 {
     OpenMeteoResponse weather;
@@ -15,9 +15,9 @@ typedef struct
 } ParseResult;
 
 // Forward declaration
-struct Pipeline;
+struct GridGuard;
 
-// Parse thread worker function
-void *ParseStage_Work(void *arg);
+// Parse worker thread function
+void *ParseWorker_Run(void *arg);
 
-#endif // _PARSE_STAGE_H_
+#endif // _PARSE_WORKER_H_
