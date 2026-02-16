@@ -32,7 +32,7 @@ void Client_HandleState(Client *client, struct Pipeline *pipeline)
         char location[64] = "stockholm";  // Default
         char region[16] = "SE3";          // Default
 
-        sscanf(client->buffer, "%31s %63s %15s", command, location, region);
+        sscanf(client->buffer, "%31s %63s %15s", command, location, region); // Bör också innehålla klientens solcells parametrar som ska finnas i klient config.
 
         if (strcmp(command, "forecast") == 0)
         {

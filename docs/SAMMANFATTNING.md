@@ -60,8 +60,8 @@ Enligt kursplaneringen:
 ### Pipeline-arkitekturen (Producer-Consumer)
 
 ```
-┌──────────────┐     ┌──────────────┐CACHE ┌──────────────┐
-│  FETCH-TRÅD  │────▶│  PARSE-TRÅD  │────▶│ COMPUTE-TRÅD │
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  FETCH-TRÅD  │ --> │  PARSE-TRÅD  │ --> │ COMPUTE-TRÅD │
 │              │     │              │     │              │
 │ Hämtar data  │     │ Parsar JSON  │     │ Beräknar     │
 │ från API:er  │     │ till structs │     │ energiplan   │

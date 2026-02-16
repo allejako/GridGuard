@@ -62,6 +62,7 @@ int Pipeline_Initiate(Pipeline *pipeline)
     }
 
     // Configure compute with default settings
+    // Temporärt, ska ersättas med klient config fil
     SolarConfig solar = {
         .panelEfficiency = 0.18,
         .panelAreaM2 = 20.0,
