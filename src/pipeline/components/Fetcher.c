@@ -57,6 +57,7 @@ int Fetcher_Initiate(Fetcher *fetcher)
 
 	fetcher->curl = curl;
 	fetcher->isInitialized = true;
+	pthread_mutex_init(&fetcher->mutex, NULL);
 
 	return 0;
 }
@@ -65,6 +66,8 @@ int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
 {
 	if (!fetcher || !fetcher->isInitialized || !url || !response)
 		return -1;
+
+	pthread_mutex_lock(&fetcher->mutex);
 
 	CURL *curl = (CURL *)fetcher->curl;
 	WriteBuffer buffer = {NULL, 0};
@@ -82,6 +85,7 @@ int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
 				response->data = buffer.data;
 				response->size = buffer.size;
 				response->status = (int)statusCode;
+				pthread_mutex_unlock(&fetcher->mutex);
 				return 0;
 			}
 
@@ -94,6 +98,7 @@ int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
 	}
 
 	free(buffer.data);
+	pthread_mutex_unlock(&fetcher->mutex);
 	return -1;
 }
 
@@ -113,6 +118,7 @@ void Fetcher_Shutdown(Fetcher *fetcher)
 	if (!fetcher || !fetcher->isInitialized)
 		return;
 
+	pthread_mutex_destroy(&fetcher->mutex);
 	curl_easy_cleanup((CURL *)fetcher->curl);
 	fetcher->curl = NULL;
 	fetcher->isInitialized = false;

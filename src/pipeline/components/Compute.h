@@ -4,6 +4,7 @@
 #ifndef _COMPUTE_H_
 #define _COMPUTE_H_
 
+#include <pthread.h>
 #include "ForecastData.h"
 #include "EnergyData.h"
 #include "OpenMeteoData.h"
@@ -15,6 +16,7 @@ typedef struct
     BatteryConfig batteryConfig;
     ConsumptionProfile consumption;
     bool isInitialized;
+    pthread_mutex_t mutex;
 } Compute;
 
 int Compute_Initiate(Compute *compute, const SolarConfig *solarCfg, const BatteryConfig *batteryCfg, const ConsumptionProfile *consumptionCfg);

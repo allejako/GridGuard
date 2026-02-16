@@ -27,6 +27,9 @@ gmon.out
 config/*.conf
 !config/*.conf.example
 
+# External libraries
+cJSON/
+
 # OS files
 .DS_Store
 Thumbs.db

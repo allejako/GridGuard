@@ -11,6 +11,7 @@ int Parser_Initiate(Parser *parser)
         return -1;
 
     parser->isInitialized = true;
+    pthread_mutex_init(&parser->mutex, NULL);
     LOG_INFO("Parser initialized");
     return 0;
 }
@@ -23,10 +24,13 @@ int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoRespons
         return -1;
     }
 
+    pthread_mutex_lock(&parser->mutex);
+
     cJSON *root = cJSON_Parse(jsonData);
     if (!root)
     {
         LOG_ERROR("Failed to parse weather JSON: %s", cJSON_GetErrorPtr());
+        pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
@@ -36,6 +40,7 @@ int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoRespons
     {
         LOG_ERROR("Weather JSON missing 'hourly' object");
         cJSON_Delete(root);
+        pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
@@ -50,6 +55,7 @@ int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoRespons
     {
         LOG_ERROR("Weather JSON missing 'hourly.time' array");
         cJSON_Delete(root);
+        pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
@@ -95,6 +101,7 @@ int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoRespons
 
     cJSON_Delete(root);
     LOG_INFO("Parsed %d weather forecasts", parsedCount);
+    pthread_mutex_unlock(&parser->mutex);
     return 0;
 }
 
@@ -106,10 +113,13 @@ int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse 
         return -1;
     }
 
+    pthread_mutex_lock(&parser->mutex);
+
     cJSON *root = cJSON_Parse(jsonData);
     if (!root)
     {
         LOG_ERROR("Failed to parse spot price JSON: %s", cJSON_GetErrorPtr());
+        pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
@@ -118,6 +128,7 @@ int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse 
     {
         LOG_ERROR("Spot price JSON is not an array");
         cJSON_Delete(root);
+        pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
@@ -175,6 +186,7 @@ int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse 
 
     cJSON_Delete(root);
     LOG_INFO("Parsed %d spot prices", parsedCount);
+    pthread_mutex_unlock(&parser->mutex);
     return 0;
 }
 
@@ -183,6 +195,7 @@ void Parser_Shutdown(Parser *parser)
     if (!parser || !parser->isInitialized)
         return;
 
+    pthread_mutex_destroy(&parser->mutex);
     parser->isInitialized = false;
     LOG_INFO("Parser shutdown");
 }

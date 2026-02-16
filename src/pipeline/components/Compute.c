@@ -8,32 +8,12 @@
 #include "Compute.h"
 #include "Logger.h"
 
-int Compute_Initiate(Compute *compute, const SolarConfig *solarCfg,
-                     const BatteryConfig *batteryCfg,
-                     const ConsumptionProfile *consumptionCfg)
+// Internal unlocked variant - called by other Compute functions that already hold the mutex
+static int CalculateSolarProduction_Internal(Compute *compute,
+                                              const OpenMeteoResponse *forecast,
+                                              SolarProduction *production,
+                                              int maxEntries)
 {
-    if (!compute || !solarCfg || !batteryCfg || !consumptionCfg)
-        return -1;
-
-    memset(compute, 0, sizeof(Compute));
-
-    compute->solarConfig = *solarCfg;
-    compute->batteryConfig = *batteryCfg;
-    compute->consumption = *consumptionCfg;
-    compute->isInitialized = true;
-
-    LOG_INFO("Compute initialized (MOCK MODE)");
-    return 0;
-}
-
-int Compute_CalculateSolarProduction(Compute *compute,
-                                     const OpenMeteoResponse *forecast,
-                                     SolarProduction *production,
-                                     int maxEntries)
-{
-    if (!compute || !compute->isInitialized || !forecast || !production)
-        return -1;
-
     LOG_INFO("Calculating solar production (MOCK DATA)");
 
     int count = forecast->count < maxEntries ? forecast->count : maxEntries;
@@ -58,6 +38,39 @@ int Compute_CalculateSolarProduction(Compute *compute,
     return count;
 }
 
+int Compute_Initiate(Compute *compute, const SolarConfig *solarCfg,
+                     const BatteryConfig *batteryCfg,
+                     const ConsumptionProfile *consumptionCfg)
+{
+    if (!compute || !solarCfg || !batteryCfg || !consumptionCfg)
+        return -1;
+
+    memset(compute, 0, sizeof(Compute));
+
+    compute->solarConfig = *solarCfg;
+    compute->batteryConfig = *batteryCfg;
+    compute->consumption = *consumptionCfg;
+    compute->isInitialized = true;
+    pthread_mutex_init(&compute->mutex, NULL);
+
+    LOG_INFO("Compute initialized (MOCK MODE)");
+    return 0;
+}
+
+int Compute_CalculateSolarProduction(Compute *compute,
+                                     const OpenMeteoResponse *forecast,
+                                     SolarProduction *production,
+                                     int maxEntries)
+{
+    if (!compute || !compute->isInitialized || !forecast || !production)
+        return -1;
+
+    pthread_mutex_lock(&compute->mutex);
+    int result = CalculateSolarProduction_Internal(compute, forecast, production, maxEntries);
+    pthread_mutex_unlock(&compute->mutex);
+    return result;
+}
+
 int Compute_GenerateEnergyPlan(Compute *compute,
                               const OpenMeteoResponse *forecast,
                               const ElprisetResponse *spotPrices,
@@ -66,14 +79,17 @@ int Compute_GenerateEnergyPlan(Compute *compute,
     if (!compute || !compute->isInitialized || !forecast || !spotPrices || !plan)
         return -1;
 
+    pthread_mutex_lock(&compute->mutex);
+
     LOG_INFO("Generating mock energy plan");
 
     // Generate mock solar production
     SolarProduction solarProd[288];
-    int prodCount = Compute_CalculateSolarProduction(compute, forecast, solarProd, 288);
+    int prodCount = CalculateSolarProduction_Internal(compute, forecast, solarProd, 288);
     if (prodCount <= 0)
     {
         LOG_ERROR("No solar production data");
+        pthread_mutex_unlock(&compute->mutex);
         return -1;
     }
 
@@ -108,6 +124,7 @@ int Compute_GenerateEnergyPlan(Compute *compute,
     plan->totalBatteryCycles = 0.0; // mock
 
     LOG_INFO("Generated mock energy plan: %d entries", planCount);
+    pthread_mutex_unlock(&compute->mutex);
     return 0;
 }
 
@@ -116,6 +133,7 @@ void Compute_Shutdown(Compute *compute)
     if (!compute || !compute->isInitialized)
         return;
 
+    pthread_mutex_destroy(&compute->mutex);
     compute->isInitialized = false;
     LOG_INFO("Compute shutdown");
 }
