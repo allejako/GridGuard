@@ -1,4 +1,4 @@
-# LEOP Makefile
+# GridGuard Makefile
 # Systemprogrammering och introduktion till C++
 
 # Compiler och flaggor
@@ -38,8 +38,8 @@ CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
 CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 
 # Output binaries
-SERVER_BIN = $(BIN_DIR)/leop-server
-CLIENT_BIN = $(BIN_DIR)/leop-client
+SERVER_BIN = $(BIN_DIR)/GridGuard-server
+CLIENT_BIN = $(BIN_DIR)/GridGuard-client
 
 # Source files (lägg till fler när de skapas)
 SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(PIPELINE_DIR)/*.c) $(wildcard $(PIPELINE_STAGES_DIR)/*.c) $(wildcard $(PIPELINE_COMPONENTS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(POOL_DIR)/*.c) $(wildcard $(DATA_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
