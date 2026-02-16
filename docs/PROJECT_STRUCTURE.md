@@ -1,240 +1,128 @@
-# LEOP Projektstruktur
+# GridGuard Projektstruktur
 
-Detta dokument beskriver projektets mappstruktur och syfte med varje komponent.
+*Uppdaterad: 2026-02-16*
 
-## Övergripande struktur
+## Mappstruktur
 
 ```
-leop/
-├── src/                    # Källkod
-│   ├── server/            # C-baserad server
-│   ├── client/            # C++-baserad klient
-│   ├── common/            # Delad kod mellan server och klient
-│   └── tests/             # Enhetstester och integrationstester
+GridGuard/
+├── src/
+│   ├── server/                 # Server entry + orchestration
+│   │   ├── main.c              # Entry point (34 rader)
+│   │   ├── Server.h/c          # Äger alla komponenter
+│   │   └── ClientHandler.h/c   # Client state machine
+│   │
+│   ├── pipeline/               # Data processing pipeline
+│   │   ├── PipelineOrchestrator.h/c  # Koordinerar stages
+│   │   ├── stages/
+│   │   │   ├── FetchStage.h/c        # Hämtar data från API
+│   │   │   ├── ParseStage.h/c        # Parsar JSON
+│   │   │   └── ComputeStage.h/c      # Beräknar energiplan
+│   │   └── components/
+│   │       ├── Fetcher.h/c           # HTTP/curl wrapper
+│   │       ├── Parser.h/c            # cJSON wrapper
+│   │       └── Compute.h/c           # Energiberäkningar (mock)
+│   │
+│   ├── concurrency/            # Trådhantering
+│   │   ├── sync/
+│   │   │   └── Queue.h/c             # Trådsäker producer-consumer kö
+│   │   └── pool/
+│   │       └── ThreadPool.h/c        # Worker threads för klienter
+│   │
+│   ├── tcp/                    # Nätverkskommunikation
+│   │   ├── TCPServer.h/c             # Server socket
+│   │   └── TCPClient.hpp/cpp         # C++ klient
+│   │
+│   ├── api/                    # Externa API:er
+│   │   └── APIEndpoints.h/c          # URL-byggare
+│   │
+│   ├── data/                   # Datastrukturer
+│   │   ├── EnergyData.h/c            # Energiplan struct
+│   │   ├── OpenMeteoData.h           # Väderdata struct
+│   │   └── ElprisetData.h            # Spotprisdata struct
+│   │
+│   ├── common/                 # Gemensamma verktyg
+│   │   ├── Logger.h/c                # Färgkodad loggning
+│   │   └── SignalHandler.h/c         # SIGINT/SIGTERM
+│   │
+│   ├── client/                 # C++ klient
+│   │   └── main.cpp                  # Klient entry point
+│   │
+│   ├── libs/                   # Tredjepartsbibliotek
+│   │   └── cJSON.h/c                 # JSON-parser
+│   │
+│   └── tests/                  # Tester
+│       ├── test_api_fetch.c          # API + parsing test
+│       ├── test_logger.c             # Logger test
+│       └── test_pipeline.c           # Pipeline test
 │
-├── docs/                   # Dokumentation
-│   ├── ARCHITECTURE.md    # Arkitekturdokumentation
-│   ├── API.md            # API-dokumentation
-│   └── PROFILING.md      # Profileringsrapporter
+├── config/
+│   └── Config.h                # Konfigurationskonstanter
 │
-├── config/                 # Konfigurationsfiler
-│   ├── server.conf.example
-│   └── client.conf.example
+├── docs/                       # Dokumentation
+├── build/                      # Kompilerade objekt (gitignored)
+├── bin/                        # Executables (gitignored)
+├── logs/                       # Loggfiler (gitignored)
 │
-├── scripts/                # Build och deployment scripts
-│   ├── setup.sh           # Utvecklingsmiljö setup
-│   └── run_tests.sh       # Test runner
-│
-├── build/                  # Kompilerade objektfiler (git-ignorerad)
-├── bin/                    # Executables (git-ignorerad)
-├── logs/                   # Loggfiler (git-ignorerad)
-│
-├── Makefile               # Build-system
-├── README.md              # Projektöversikt
-├── BACKLOG.md             # Projektbacklog
-├── CONTRIBUTING.md        # Bidragsriktlinjer
-└── .gitignore             # Git ignore-filer
+├── Makefile                    # Build-system
+└── README.md
 ```
 
-## Detaljerad beskrivning
-
-### `/src` - Källkod
-
-#### `/src/server` - C Server
-Serverkomponenter skrivna i C:
+## Arkitektur
 
 ```
-src/server/
-├── main.c                 # Entry point, main loop
-├── server.c/h             # Server-logik, socket handling
-├── connection.c/h         # Klientanslutningar
-├── config.c/h             # Konfigurationshantering
-├── logger.c/h             # Loggningssystem
-├── fetch.c/h              # Datahämtning från API
-├── parse.c/h              # JSON-parsing
-├── compute.c/h            # Energiberäkningar
-├── cache.c/h              # Cache-implementation
-└── protocol.c/h           # Kommunikationsprotokoll
+main.c → Server
+           ├── TCPServer      (accepterar klienter)
+           ├── ThreadPool     (hanterar klienter med select())
+           │     └── ClientHandler (state machine)
+           └── Pipeline       (3 worker-trådar)
+                 ├── FetchStage  → requestQueue → fetchQueue
+                 ├── ParseStage  → fetchQueue   → parseQueue
+                 └── ComputeStage→ parseQueue   → client socket
 ```
 
-#### `/src/client` - C++ Klient
-Klientkomponenter skrivna i C++:
+## Viktiga komponenter
 
-```
-src/client/
-├── main.cpp               # Entry point
-├── Client.cpp/hpp         # Huvudsaklig klient-klass
-├── Connection.cpp/hpp     # Socket-anslutning
-├── CommandParser.cpp/hpp  # CLI argument parsing
-└── Display.cpp/hpp        # Output formattering
-```
+| Komponent | Fil | Ansvar |
+|-----------|-----|--------|
+| Server | `server/Server.c` | Äger och koordinerar alla komponenter |
+| Pipeline | `pipeline/PipelineOrchestrator.c` | Startar 3 worker-trådar |
+| Queue | `concurrency/sync/Queue.c` | Trådsäker FIFO med mutex/cond |
+| ThreadPool | `concurrency/pool/ThreadPool.c` | Hanterar 20 workers x 50 klienter |
+| ClientHandler | `server/ClientHandler.c` | Parsar kommandon, submittar requests |
 
-#### `/src/common` - Gemensam kod
-Kod som delas mellan server och klient:
+## Dataflöde
 
-```
-src/common/
-├── types.h                # Gemensamma datatyper
-├── protocol.h             # Protokolldefinitioner
-├── utils.c/h              # Hjälpfunktioner
-└── constants.h            # Konstanter
-```
+1. **Client** → TCP connect → **ThreadPool** tilldelar worker
+2. **Worker** → recv() kommando → **ClientHandler** parsar
+3. **ClientHandler** → `Pipeline_SubmitRequest()` → **requestQueue**
+4. **FetchStage** → hämtar väder + priser → **fetchQueue**
+5. **ParseStage** → parsar JSON → **parseQueue**
+6. **ComputeStage** → beräknar plan → `send()` till client
 
-#### `/src/tests` - Tester
-Enhetstester och integrationstester:
+## Build
 
-```
-src/tests/
-├── test_cache.c           # Cache-tester
-├── test_parser.c          # Parser-tester
-├── test_compute.c         # Beräkningstester
-├── test_integration.c     # End-to-end tester
-└── test_runner.c          # Test framework
+```bash
+make              # Bygg server + klient
+make test         # Kör alla tester
+make clean        # Rensa build
+make valgrind-server  # Minnesanalys
 ```
 
-### `/docs` - Dokumentation
+## Tester
 
-```
-docs/
-├── ARCHITECTURE.md        # Systemarkitektur
-├── API.md                 # API-specifikation
-├── PROFILING.md           # Profileringsresultat
-├── SETUP.md               # Setup-instruktioner
-└── images/                # Diagram och bilder
-    ├── architecture.png
-    └── pipeline.png
+```bash
+make test-api      # API fetch + parsing
+make test-logger   # Logger-funktionalitet
+make test-pipeline # Multi-threaded pipeline
 ```
 
-### `/config` - Konfiguration
+## Konfiguration (config/Config.h)
 
+```c
+SERVER_PORT          "8080"
+MAX_THREADS          20
+MAX_CLIENTS_PER_THREAD 50
+WEATHER_API_BASE_URL "https://api.open-meteo.com/v1/forecast"
+SPOTPRICE_API_BASE_URL "https://www.elprisetjustnu.se/api/v1/prices"
 ```
-config/
-├── server.conf.example    # Exempel på server-config
-├── client.conf.example    # Exempel på klient-config
-├── development.conf       # Dev-miljö settings
-└── production.conf        # Prod-miljö settings
-```
-
-### `/scripts` - Automation
-
-```
-scripts/
-├── setup.sh               # Setup utvecklingsmiljö
-├── run_tests.sh           # Kör alla tester
-├── deploy.sh              # Deployment script
-└── benchmark.sh           # Performance benchmarks
-```
-
-## Filnamngivning
-
-### C-filer
-- **Header files:** `.h` extension
-- **Implementation:** `.c` extension
-- **Naming:** `snake_case`
-- **Example:** `energy_optimizer.c`, `energy_optimizer.h`
-
-### C++-filer
-- **Header files:** `.hpp` extension (eller `.h`)
-- **Implementation:** `.cpp` extension
-- **Naming:** `PascalCase` för klasser, `snake_case` för filer
-- **Example:** `EnergyOptimizer.cpp`, `EnergyOptimizer.hpp`
-
-### Dokumentation
-- **Markdown:** `.md` extension
-- **Naming:** `UPPERCASE` för viktiga docs, `lowercase` för övriga
-- **Example:** `README.md`, `ARCHITECTURE.md`, `guide.md`
-
-## Build Artifacts
-
-Följande genereras under build och ska inte committas:
-
-```
-build/                     # Objektfiler
-bin/                       # Executables
-logs/                      # Loggfiler
-*.o                        # Objektfiler
-*.so, *.a                  # Libraries
-gmon.out                   # Profiling data
-*.gcda, *.gcno             # Coverage data
-```
-
-## Konfigurationsfiler
-
-### server.conf
-Innehåller:
-- Server port och socket path
-- API endpoints och nycklar
-- Cache settings
-- Log-konfiguration
-
-### client.conf
-Innehåller:
-- Server connection details
-- Output format preferences
-- Timeout settings
-
-## Loggar
-
-```
-logs/
-├── server.log             # Server-loggar
-├── client.log             # Klient-loggar
-├── error.log              # Endast fel
-└── debug.log              # Debug-information
-```
-
-## Hur man lägger till ny funktionalitet
-
-1. **Skapa nya filer i rätt katalog**
-   ```bash
-   # För server-funktionalitet
-   touch src/server/new_feature.c
-   touch src/server/new_feature.h
-   
-   # För klient-funktionalitet
-   touch src/client/NewFeature.cpp
-   touch src/client/NewFeature.hpp
-   ```
-
-2. **Uppdatera Makefile om nödvändigt**
-   - Lägg till nya källfiler i `*_SRCS` variabler
-   - Lägg till nya dependencies om det behövs
-
-3. **Dokumentera**
-   - Uppdatera relevant dokumentation
-   - Lägg till kommentarer i koden
-
-4. **Testa**
-   - Skapa tester i `/src/tests`
-   - Uppdatera `test_runner.c`
-
-## Git Workflow
-
-1. **Feature branch**
-   ```bash
-   git checkout -b feature/new-functionality
-   ```
-
-2. **Commit changes**
-   ```bash
-   git add src/server/new_feature.c
-   git commit -m "feat(server): add new functionality"
-   ```
-
-3. **Push och skapa PR**
-   ```bash
-   git push origin feature/new-functionality
-   ```
-
-## Nästa steg för vecka 1
-
-- [ ] Skapa grundläggande mappstruktur
-- [ ] Skapa placeholder-filer för viktiga komponenter
-- [ ] Implementera grundläggande build-system
-- [ ] Sätt upp Git-repository
-- [ ] Skapa exempel-konfigurationsfiler
-
----
-
-**Uppdaterad:** 2025-01-XX  
-**Team:** [TEAM-NAMN]

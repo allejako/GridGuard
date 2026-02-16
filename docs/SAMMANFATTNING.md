@@ -1,6 +1,7 @@
 # GridGuard - Sammanfattning och Guide
 
 *Dokument skapat: 2026-02-16*
+*Senast uppdaterad: 2026-02-16 (Alternativ A mappstruktur)*
 
 ---
 
@@ -72,40 +73,49 @@ Enligt kursplaneringen:
   (mutex+cond)        (mutex+cond)        klient
 ```
 
-### Mappstruktur
+### Mappstruktur (Alternativ A - refaktorerad 2026-02-16)
 
 ```
 src/
-├── server/           # Server-koordinering
-│   ├── main.c        # Entry point
-│   └── Server.h/c    # Orchestration
+├── server/                    # Server-koordinering
+│   ├── main.c                 # Entry point (34 rader)
+│   ├── Server.h/c             # Orchestration
+│   └── ClientHandler.h/c      # Client-protokoll och state machine
 │
-├── pipeline/         # Dataflödeskomponenter
-│   ├── Fetcher.h/c   # HTTP API-hämtning (libcurl)
-│   ├── Parser.h/c    # JSON-parsing (cJSON)
-│   └── Compute.h/c   # Energiberäkningar (MOCK!)
+├── pipeline/                  # Pipeline-system
+│   ├── PipelineOrchestrator.h/c   # Koordinerar stages
+│   ├── stages/                    # Worker-trådarnas logik
+│   │   ├── FetchStage.h/c         # Hämtar data från API
+│   │   ├── ParseStage.h/c         # Parsar JSON
+│   │   └── ComputeStage.h/c       # Beräknar energiplan
+│   └── components/                # Domänlogik
+│       ├── Fetcher.h/c            # HTTP API-hämtning (libcurl)
+│       ├── Parser.h/c             # JSON-parsing (cJSON)
+│       └── Compute.h/c            # Energiberäkningar (MOCK!)
 │
-├── threads/          # Tråd- och köhantering
-│   ├── PipelineThreads.h/c  # 3 pipeline-trådar + queues
-│   └── ThreadPool.h/c       # Worker-trådar för klienter
+├── concurrency/               # Tråd- och synkronisering
+│   ├── sync/
+│   │   └── Queue.h/c              # Återanvändbar trådsäker kö
+│   └── pool/
+│       └── ThreadPool.h/c         # Worker-trådar för klienter
 │
-├── tcp/              # Nätverkskommunikation
-│   ├── TCPServer.h/c # C-baserad server
-│   └── TCPClient.hpp/cpp  # C++ klient (MINIMAL!)
+├── tcp/                       # Nätverkskommunikation
+│   ├── TCPServer.h/c              # C-baserad server
+│   └── TCPClient.hpp/cpp          # C++ klient (MINIMAL!)
 │
-├── data/             # Datastrukturer
-│   ├── EnergyData.h/c      # Energiplan
-│   ├── OpenMeteoData.h     # Väderdata
-│   └── ElprisetData.h      # Spotprisdata
+├── data/                      # Datastrukturer
+│   ├── EnergyData.h/c             # Energiplan
+│   ├── OpenMeteoData.h            # Väderdata
+│   └── ElprisetData.h             # Spotprisdata
 │
-├── common/           # Gemensamma verktyg
-│   ├── Logger.h/c          # Loggning
-│   └── SignalHandler.h/c   # SIGINT/SIGTERM
+├── common/                    # Gemensamma verktyg
+│   ├── Logger.h/c                 # Loggning
+│   └── SignalHandler.h/c          # SIGINT/SIGTERM
 │
-├── api/              # API-endpoints
-│   └── APIEndpoints.h/c    # URL-byggning
+├── api/                       # API-endpoints
+│   └── APIEndpoints.h/c           # URL-byggning
 │
-└── tests/            # Tester
+└── tests/                     # Tester
     ├── test_api_fetch.c
     ├── test_logger.c
     └── test_pipeline.c
@@ -123,17 +133,17 @@ Servern använder POSIX-trådar. Viktiga funktioner:
 - `pthread_mutex_lock/unlock()` - Låsa/låsa upp mutex
 - `pthread_cond_wait/signal()` - Villkorsvariabler
 
-**Se:** `src/threads/PipelineThreads.c` för producer-consumer implementation
+**Se:** `src/concurrency/sync/Queue.c` och `src/pipeline/stages/` för producer-consumer implementation
 
 ### 2. Queue med Mutex och Condition Variables
 
 ```c
-// Från PipelineThreads.c - Producer-consumer mönster
+// Från concurrency/sync/Queue.c - Producer-consumer mönster
 pthread_mutex_lock(&queue->mutex);
-while (Queue_IsFull(queue)) {
+while (queue->count >= QUEUE_SIZE && !queue->isShutdown) {
     pthread_cond_wait(&queue->notFull, &queue->mutex);
 }
-Queue_Push(queue, item);
+// ... push item ...
 pthread_cond_signal(&queue->notEmpty);
 pthread_mutex_unlock(&queue->mutex);
 ```
@@ -159,15 +169,16 @@ Se `src/tcp/TCPServer.c`:
 
 | Komponent | Status | Kommentar |
 |-----------|--------|-----------|
-| Server-arkitektur (C) | KLART | main.c, Server.h/c |
-| Pipeline med 3 trådar | KLART | Fetch/Parse/Compute-trådar |
-| Queue-system | KLART | Mutex + condition variables |
+| Server-arkitektur (C) | KLART | main.c, Server.h/c, ClientHandler.h/c |
+| Pipeline med 3 trådar | KLART | stages/FetchStage, ParseStage, ComputeStage |
+| Queue-system | KLART | Återanvändbar modul i concurrency/sync/ |
 | API-integration | KLART | Open-Meteo + elpriset.se |
 | TCP-server | KLART | Accepterar klienter |
 | Logger | KLART | Färgkodad loggning |
 | Signalhantering | KLART | SIGINT/SIGTERM |
-| Thread pool | KLART | 20 workers |
+| Thread pool | KLART | 20 workers i concurrency/pool/ |
 | Tester | DELVIS | 3 tester finns |
+| **Mappstruktur** | KLART | Refaktorerad till Alternativ A (2026-02-16) |
 
 ### STATUS - Vad som SAKNAS / BEHÖVER ARBETE
 
@@ -227,7 +238,7 @@ public:
 
 ### Alternativ 2: Compute-modulen
 
-`src/pipeline/Compute.c` är en mock. Du kan:
+`src/pipeline/components/Compute.c` är en mock. Du kan:
 
 1. Implementera riktiga energiberäkningar
 2. Beräkna solcellsproduktion baserat på solinstrålning
@@ -302,7 +313,8 @@ Från kursplaneringen - dessa ska ni demonstrera:
 1. **Läs genom koden**
    - Börja med `src/server/main.c` (34 rader)
    - Sedan `src/server/Server.c`
-   - Sedan `src/threads/PipelineThreads.c`
+   - Sedan `src/pipeline/PipelineOrchestrator.c`
+   - Sedan `src/pipeline/stages/` för worker-logik
 
 2. **Bygg och kör**
    ```bash
