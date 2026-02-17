@@ -16,7 +16,7 @@ typedef struct
 {
     Client clients[MAX_CLIENTS_PER_THREAD];
     int clientCount;
-    struct ThreadPool *threadPool;   // Reference to parent thread pool for accessing shared resources
+    struct ThreadPool *threadPool;   
 } ThreadWorkerContext;
 
 // Thread pool - specialized worker pool for handling network I/O
