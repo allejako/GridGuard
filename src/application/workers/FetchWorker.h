@@ -11,10 +11,7 @@ typedef struct
     int clientFd;
 } FetchResult;
 
-// Forward declaration
-struct GridGuard;
-
-// Fetch worker thread function
+// Fetch worker thread function (pthread-compatible) expects GridGuard* as argument
 void *FetchWorker_Run(void *arg);
 
 #endif // _FETCH_WORKER_H_

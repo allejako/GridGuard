@@ -14,10 +14,7 @@ typedef struct
     int clientFd;
 } ParseResult;
 
-// Forward declaration
-struct GridGuard;
-
-// Parse worker thread function
+// Parse worker thread function (pthread-compatible) expects GridGuard* as argument
 void *ParseWorker_Run(void *arg);
 
 #endif // _PARSE_WORKER_H_

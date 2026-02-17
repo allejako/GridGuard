@@ -12,10 +12,7 @@ typedef struct
     int clientFd;
 } ComputeResult;
 
-// Forward declaration
-struct GridGuard;
-
-// Cache worker thread function
+// Cache worker thread function (pthread-compatible) expects GridGuard* as argument
 void *CacheWorker_Run(void *arg);
 
 #endif // _CACHE_WORKER_H_
