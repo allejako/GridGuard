@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-// Scheduling policies for work distribution
+// Scheduling policies for work distribution 
 typedef enum
 {
     SCHEDULING_POLICY_LEAST_CONNECTIONS,  // Worker with fewest clients (default)
@@ -11,7 +11,7 @@ typedef enum
     SCHEDULING_POLICY_RANDOM              // Random worker selection
 } SchedulingPolicy;
 
-// Worker load info - passed to scheduler when selecting next worker
+// Worker load inf, passed to scheduler when selecting next worker
 typedef struct
 {
     int workerId;
@@ -19,11 +19,11 @@ typedef struct
     int capacity;     // Max capacity for this worker
 } WorkerLoad;
 
-// Scheduler - handles work distribution logic
+// Handles work distribution logic
 typedef struct
 {
     SchedulingPolicy policy;
-    int lastSelectedWorker;  // For round-robin
+    int lastSelectedWorker;  // For rr 
     pthread_mutex_t mutex;
 } Scheduler;
 
