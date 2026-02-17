@@ -764,7 +764,7 @@ erDiagram
     }
 
     USER_CONFIGS {
-        text user_id PK_FK
+        text user_id PK
         text location_name
         real latitude
         real longitude
@@ -944,7 +944,6 @@ sequenceDiagram
     participant GG as GridGuard Core
     participant Ext as External APIs
 
-    rect rgb(230, 240, 255)
     Note over User,DB: 1. Registration
     User->>Next: Fill registration form
     Next->>API: POST /api/v1/users/register<br/>{email, password}
@@ -956,9 +955,7 @@ sequenceDiagram
     API-->>Next: {userId, apiKey, JWT}
     Next->>Next: Store JWT in localStorage
     Next-->>User: Redirect to dashboard
-    end
 
-    rect rgb(255, 250, 230)
     Note over User,DB: 2. Login
     User->>Next: Enter email + password
     Next->>API: POST /api/v1/users/login
@@ -970,9 +967,7 @@ sequenceDiagram
     API-->>Next: {JWT, user info}
     Next->>Next: Store JWT
     Next-->>User: Dashboard
-    end
 
-    rect rgb(240, 255, 240)
     Note over User,GG: 3. Configure System
     User->>Next: Fill config form<br/>(solar, battery, consumption)
     Next->>API: PUT /api/v1/users/me/config<br/>Authorization: Bearer JWT
@@ -980,9 +975,7 @@ sequenceDiagram
     API->>DB: UPDATE user_configs<br/>WHERE user_id=?
     API-->>Next: Success
     Next-->>User: Config saved
-    end
 
-    rect rgb(255, 240, 245)
     Note over User,Ext: 4. Get Forecast
     User->>Next: Click "Get Forecast"
     Next->>API: GET /api/v1/forecast<br/>Authorization: Bearer JWT
@@ -1000,9 +993,8 @@ sequenceDiagram
     end
     GG->>GG: Compute with user config
     GG-->>API: Personalized energy plan
-    API-->>Next: {forecast: [...], summary: {...}}
+    API-->>Next: Forecast data
     Next-->>User: Display graph + summary
-    end
 ```
 
 ### WorkRequest Evolution
@@ -1121,7 +1113,7 @@ flowchart TB
             DASH_HISTORY[history/page.tsx<br/>Historical data]
 
             API_ROUTES[api/]
-            API_AUTH[auth/[...nextauth]/route.ts]
+            API_AUTH[auth/nextauth/route.ts]
             API_FORECAST[forecast/route.ts]
             API_CONFIG[config/route.ts]
         end
@@ -1182,20 +1174,20 @@ flowchart TB
 
 ```mermaid
 graph TD
-    ROOT[/ - Landing Page]
+    ROOT[Landing Page]
 
-    ROOT --> AUTH[/auth/]
-    ROOT --> DASH[/dashboard/]
+    ROOT --> AUTH[Auth Pages]
+    ROOT --> DASH[Dashboard Pages]
 
-    AUTH --> LOGIN[/auth/login<br/>Login form]
-    AUTH --> REGISTER[/auth/register<br/>Registration form]
-    AUTH --> RESET[/auth/reset-password<br/>Password reset]
+    AUTH --> LOGIN[Login Form]
+    AUTH --> REGISTER[Registration Form]
+    AUTH --> RESET[Password Reset]
 
-    DASH --> OVERVIEW[/dashboard<br/>Overview + stats]
-    DASH --> CONFIG[/dashboard/config<br/>System configuration]
-    DASH --> FORECAST[/dashboard/forecast<br/>Energy forecast]
-    DASH --> HISTORY[/dashboard/history<br/>Historical data]
-    DASH --> PROFILE[/dashboard/profile<br/>User profile]
+    DASH --> OVERVIEW[Overview and Stats]
+    DASH --> CONFIG[System Configuration]
+    DASH --> FORECAST[Energy Forecast]
+    DASH --> HISTORY[Historical Data]
+    DASH --> PROFILE[User Profile]
 
     CONFIG --> CONFIG_SOLAR[Solar config section]
     CONFIG --> CONFIG_BATTERY[Battery config section]
@@ -1579,9 +1571,9 @@ flowchart TB
     end
 
     subgraph SERVICES["GridGuard Services"]
-        WD_SVC[gridguard-watchdog.service]
-        NEXT_SVC[gridguard-platform.service]
-        API_SVC[gridguard-api.service]
+        WD_SVC[watchdog service]
+        NEXT_SVC[platform service]
+        API_SVC[api service]
     end
 
     subgraph DEPS["Dependencies"]
@@ -1598,9 +1590,9 @@ flowchart TB
     NEXT_SVC -.->|After| WD_SVC
     API_SVC -.->|After| WD_SVC
 
-    WD_SVC --> PROC_WD[/usr/local/bin/gridguard-watchdog]
-    NEXT_SVC --> PROC_NEXT[npm run start]
-    API_SVC --> PROC_API[/usr/local/bin/gridguard-api]
+    WD_SVC --> PROC_WD[watchdog binary]
+    NEXT_SVC --> PROC_NEXT[npm start]
+    API_SVC --> PROC_API[api binary]
 
     style SYSTEMD fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     style SERVICES fill:#fff3e0,stroke:#f57c00,stroke-width:2px
@@ -1695,22 +1687,22 @@ flowchart LR
 
     V2[Version 2.0<br/>Multi-user<br/>SQLite database<br/>User configs<br/>Shared cache]
 
-    V3[Version 3.0<br/>Daemon + Watchdog<br/>Process management<br/>Auto-restart<br/>IPC pipes]
+    V3[Version 3.0<br/>Daemon Watchdog<br/>Process mgmt<br/>Auto-restart<br/>IPC pipes]
 
     V4[Version 4.0<br/>REST API<br/>JWT auth<br/>Next.js platform<br/>C++ CLI client]
 
-    V5[Version 5.0<br/>Production<br/>10,000+ users<br/>Cloud deployment<br/>Monitoring]
+    V5[Version 5.0<br/>Production<br/>10k users<br/>Cloud deploy<br/>Monitoring]
 
     V1 -->|Phase 1-3| V2
     V2 -->|Phase 4| V3
     V3 -->|Phase 5-7| V4
     V4 -->|Phase 8| V5
 
-    style V1 fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style V2 fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style V3 fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    style V4 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style V5 fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
+    style V1 fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    style V2 fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    style V3 fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#000
+    style V4 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    style V5 fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
 ```
 
 ### Kursmål Coverage
