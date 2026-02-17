@@ -108,7 +108,7 @@ char region[16] = "SE3";          // Default ❌
 │  │ 1. Lookup user config (SQLite)                       │   │
 │  │ 2. Check cache for weather/prices (SQLite)           │   │
 │  │ 3. Fetch if cache miss                               │   │
-│  │ 4. Parse data                                         │   │
+│  │ 4. Parse data                                        │   │
 │  │ 5. Compute with USER-SPECIFIC settings               │   │
 │  │ 6. Return personalized energy plan                   │   │
 │  └──────────────────────────────────────────────────────┘   │
