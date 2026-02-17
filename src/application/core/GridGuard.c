@@ -41,7 +41,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize components
+    // Initialize services/components 
     if (Fetcher_Initiate(&app->fetcher) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate APIFetcher");
@@ -191,8 +191,7 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request)
     LOG_INFO("GridGuard: Submitting work request for %s/%s from client FD %d",
              request->location, request->region, request->clientFd);
 
-    return Queue_Push(&app->requestQueue, (void *)request,
-                      sizeof(WorkRequest), DATA_TYPE_REQUEST);
+    return Queue_Push(&app->requestQueue, (void *)request, sizeof(WorkRequest), DATA_TYPE_REQUEST);
 }
 
 void GridGuard_Shutdown(GridGuard *app)
