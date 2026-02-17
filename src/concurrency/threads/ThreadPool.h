@@ -8,7 +8,6 @@
 #include "ClientHandler.h"
 #include "WorkerPool.h"
 
-// Forward declarations (to avoid circular dependency)
 struct GridGuard;
 struct ThreadPool;
 
@@ -17,7 +16,7 @@ typedef struct
 {
     Client clients[MAX_CLIENTS_PER_THREAD];
     int clientCount;
-    struct ThreadPool *threadPool;  // Back-reference to parent ThreadPool (for pipeline access)
+    struct ThreadPool *threadPool;   // Reference to parent thread pool for accessing shared resources
 } ThreadWorkerContext;
 
 // Thread pool - specialized worker pool for handling network I/O
@@ -25,7 +24,7 @@ typedef struct ThreadPool
 {
     WorkerPool pool;                  // Generic worker pool (lifecycle + scheduling)
     ThreadWorkerContext *contexts;    // Context for each worker
-    struct GridGuard *app;            // GridGuard application reference (owned by Server, not ThreadPool)
+    struct GridGuard *app;            // Reference to main application for accessing queues and services
 } ThreadPool;
 
 int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads, struct GridGuard *app);
