@@ -59,7 +59,7 @@ void *ComputeWorker_Run(void *arg)
 
         // Cache MISS - generate energy plan
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(&app->compute, &parseData->weather, &parseData->prices, &plan) == 0)
+        if (Compute_GenerateEnergyPlan(&app->compute, &parseData->forecastData, &plan) == 0)
         {
             LOG_INFO("ComputeWorker: Generated plan with %d entries, cost: %.2f SEK",
                      plan.count, plan.totalCostSek);

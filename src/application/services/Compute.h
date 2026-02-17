@@ -21,7 +21,7 @@ typedef struct
 
 int Compute_Initiate(Compute *compute, const SolarConfig *solarCfg, const BatteryConfig *batteryCfg, const ConsumptionProfile *consumptionCfg);
 int Compute_CalculateSolarProduction(Compute *compute, const OpenMeteoResponse *forecast, SolarProduction *production, int maxEntries);
-int Compute_GenerateEnergyPlan(Compute *compute, const OpenMeteoResponse *forecast, const ElprisetResponse *spotPrices, EnergyData *plan);
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastData, EnergyData *plan);
 void Compute_Shutdown(Compute *compute);
 
 #endif

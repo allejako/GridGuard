@@ -1,14 +1,12 @@
 #ifndef _PARSE_WORKER_H_
 #define _PARSE_WORKER_H_
 
-#include "OpenMeteoData.h"
-#include "ElprisetData.h"
+#include "ForecastData.h"
 
 // Result from parse worker - passed to compute worker
 typedef struct
 {
-    OpenMeteoResponse weather;
-    ElprisetResponse prices;
+    ForecastData forecastData;
     char location[64];
     char region[16];
     int clientFd;

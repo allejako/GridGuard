@@ -72,41 +72,45 @@ int Compute_CalculateSolarProduction(Compute *compute,
 }
 
 int Compute_GenerateEnergyPlan(Compute *compute,
-                              const OpenMeteoResponse *forecast,
-                              const ElprisetResponse *spotPrices,
+                              const ForecastData *forecastData,
                               EnergyData *plan)
 {
-    if (!compute || !compute->isInitialized || !forecast || !spotPrices || !plan)
+    if (!compute || !compute->isInitialized || !forecastData || !plan)
         return -1;
 
     pthread_mutex_lock(&compute->mutex);
 
-    LOG_INFO("Generating mock energy plan");
+    LOG_INFO("Generating mock energy plan from unified forecast data");
 
-    // Generate mock solar production
-    SolarProduction solarProd[288];
-    int prodCount = CalculateSolarProduction_Internal(compute, forecast, solarProd, 288);
-    if (prodCount <= 0)
+    if (forecastData->count <= 0)
     {
-        LOG_ERROR("No solar production data");
+        LOG_ERROR("No forecast data available");
         pthread_mutex_unlock(&compute->mutex);
         return -1;
     }
 
-    // Generate simple mock energy plan
-    int planCount = prodCount < spotPrices->count ? prodCount : spotPrices->count;
+    // Generate simple mock energy plan from unified forecast
+    int planCount = forecastData->count;
     double mockBatterySoc = 50.0; // mock battery state
 
     for (int i = 0; i < planCount; i++)
     {
         EnergyDataEntry *entry = &plan->entries[i];
-        const SolarProduction *prod = &solarProd[i];
-        const ElprisetEntry *price = &spotPrices->entries[i];
+        const ForecastEntry *forecast = &forecastData->entries[i];
 
-        // Simple mock data
-        entry->timestamp = prod->timestamp;
-        entry->productionKwh = prod->productionKwh;
-        entry->spotPrice = price->SEK_per_kWh;
+        if (!forecast->valid)
+            continue;
+
+        // Calculate simple mock solar production
+        double irradiance = forecast->solarIrradiance / 1000.0;
+        double production = compute->solarConfig.panelAreaM2 *
+                           compute->solarConfig.panelEfficiency *
+                           irradiance * 0.75; // mock performance ratio
+
+        // Fill energy plan entry
+        entry->timestamp = forecast->timestamp;
+        entry->productionKwh = production;
+        entry->spotPrice = forecast->spotPriceSek;
         entry->consumptionKwh = compute->consumption.baseLoadKw;
         entry->batterySocPercent = mockBatterySoc;
         entry->gridPowerKwh = 0.0;
@@ -123,7 +127,7 @@ int Compute_GenerateEnergyPlan(Compute *compute,
     plan->totalGridExportKwh = 0.0; // mock
     plan->totalBatteryCycles = 0.0; // mock
 
-    LOG_INFO("Generated mock energy plan: %d entries", planCount);
+    LOG_INFO("Generated mock energy plan: %d entries from unified forecast", planCount);
     pthread_mutex_unlock(&compute->mutex);
     return 0;
 }
