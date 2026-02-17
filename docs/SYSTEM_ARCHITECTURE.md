@@ -122,10 +122,10 @@ flowchart TB
     FETCHER -.->|HTTPS| EXT_API1
     FETCHER -.->|HTTPS| EXT_API2
 
-    style CURRENT fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style GRIDGUARD fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style WORKERS fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style SERVICES fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style CURRENT fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
+    style GRIDGUARD fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    style WORKERS fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+    style SERVICES fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
 ```
 
 ### Nuvarande Mappstruktur
@@ -171,10 +171,10 @@ graph TD
 
     LIBS --> CJSON[cJSON.c/h]
 
-    style DAEMON_I fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style WATCH_I fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style IPC_C fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style ROOT fill:#e1f5fe,stroke:#01579b,stroke-width:3px
+    style DAEMON_I fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    style WATCH_I fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    style IPC_C fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    style ROOT fill:#e1f5fe,stroke:#01579b,stroke-width:3px,color:#000
 ```
 
 ### Nuvarande Dataflöde
@@ -419,12 +419,12 @@ flowchart TB
     W1 --> OPENMETEO
     W1 --> ELPRISET
 
-    style USERS fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px
-    style FRONTEND fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    style API_LAYER fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style BACKEND fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style DATA_LAYER fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style EXTERNAL fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style USERS fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px,color:#000
+    style FRONTEND fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#000
+    style API_LAYER fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    style BACKEND fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+    style DATA_LAYER fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
+    style EXTERNAL fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
 ```
 
 ### Complete Directory Structure (Målarkitektur)
@@ -476,13 +476,13 @@ graph TD
     DATA --> DATA_DB[gridguard.db<br/>⭐ NYT SQLite]
     DATA --> DATA_USERS[users/<br/>⭐ NYT JSON configs]
 
-    style PLATFORM fill:#e1bee7,stroke:#6a1b9a,stroke-width:3px
-    style INFRA_API fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style INFRA_DB fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style INFRA_DAEMON fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style INFRA_WATCH fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style CONC_IPC fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style DATA fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style PLATFORM fill:#e1bee7,stroke:#6a1b9a,stroke-width:3px,color:#000
+    style INFRA_API fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style INFRA_DB fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style INFRA_DAEMON fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style INFRA_WATCH fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style CONC_IPC fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style DATA fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
 ```
 
 ---
@@ -550,9 +550,9 @@ flowchart TB
     D_PID -.->|write| PIDFILE
     WD_LOOP -.->|read| PIDFILE
 
-    style WATCHDOG_PROC fill:#bbdefb,stroke:#1976d2,stroke-width:3px
-    style DAEMON_PROC fill:#fff9c4,stroke:#f57f17,stroke-width:3px
-    style IPC fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style WATCHDOG_PROC fill:#bbdefb,stroke:#1976d2,stroke-width:3px,color:#000
+    style DAEMON_PROC fill:#fff9c4,stroke:#f57f17,stroke-width:3px,color:#000
+    style IPC fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
 
 ### Daemon Lifecycle
@@ -733,10 +733,10 @@ flowchart TB
 
     DB_WRAPPER --> SQLITE_DB
 
-    style DB_WRAPPER fill:#ffe0b2,stroke:#e65100,stroke-width:2px
-    style SQLITE_DB fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style TABLES fill:#e1bee7,stroke:#6a1b9a,stroke-width:1px
-    style INDEXES fill:#c5cae9,stroke:#3f51b5,stroke-width:1px
+    style DB_WRAPPER fill:#ffe0b2,stroke:#e65100,stroke-width:2px,color:#000
+    style SQLITE_DB fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    style TABLES fill:#e1bee7,stroke:#6a1b9a,stroke-width:1px,color:#000
+    style INDEXES fill:#c5cae9,stroke:#3f51b5,stroke-width:1px,color:#000
 ```
 
 ### Database Schema
@@ -886,9 +886,9 @@ flowchart TB
     CALC -->|User B config| RESULT2[Plan B: 30m²]
     CALC -->|User C config| RESULT3[Plan C: Göteborg]
 
-    style FETCH_STAGE fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style COMPUTE_STAGE fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style CACHE_DB fill:#b39ddb,stroke:#5e35b1,stroke-width:2px
+    style FETCH_STAGE fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style COMPUTE_STAGE fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
+    style CACHE_DB fill:#b39ddb,stroke:#5e35b1,stroke-width:2px,color:#000
 ```
 
 ### Connection Pooling
@@ -1041,8 +1041,8 @@ flowchart LR
         CFG_CONS --> CONS_2[avgDailyKwh: 25.0]
     end
 
-    style BEFORE fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style AFTER fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style BEFORE fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    style AFTER fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
 ```
 
 ### Cache Sharing Example
@@ -1079,11 +1079,11 @@ flowchart TB
     T4 --> OP4 --> R4
     T5 --> OP5 --> R5
 
-    style OP1 fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style OP2 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style OP3 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style OP4 fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style OP5 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
+    style OP1 fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
+    style OP2 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style OP3 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style OP4 fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
+    style OP5 fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
 ```
 
 ---
@@ -1164,10 +1164,10 @@ flowchart TB
     API_ROUTES -.->|Proxy| REST
     LIB_API -.->|HTTPS| REST
 
-    style NEXTJS fill:#e1bee7,stroke:#6a1b9a,stroke-width:3px
-    style APP_ROUTER fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style COMPONENTS fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    style LIB fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style NEXTJS fill:#e1bee7,stroke:#6a1b9a,stroke-width:3px,color:#000
+    style APP_ROUTER fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    style COMPONENTS fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#000
+    style LIB fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
 ```
 
 ### Page Hierarchy
@@ -1198,9 +1198,9 @@ graph TD
     FORECAST --> FORECAST_SUMMARY[Summary stats]
     FORECAST --> FORECAST_ACTIONS[Recommended actions]
 
-    style ROOT fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px
-    style DASH fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    style FORECAST fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style ROOT fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px,color:#000
+    style DASH fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#000
+    style FORECAST fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
 
 ### Component Structure
@@ -1250,9 +1250,9 @@ flowchart TB
     CONFIG_FORM --> INPUT
     CONFIG_FORM --> BUTTON
 
-    style PAGES fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px
-    style DASHBOARD_COMPONENTS fill:#c5e1a5,stroke:#558b2f,stroke-width:2px
-    style UI_COMPONENTS fill:#b2dfdb,stroke:#00695c,stroke-width:2px
+    style PAGES fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
+    style DASHBOARD_COMPONENTS fill:#c5e1a5,stroke:#558b2f,stroke-width:2px,color:#000
+    style UI_COMPONENTS fill:#b2dfdb,stroke:#00695c,stroke-width:2px,color:#000
 ```
 
 ### API Client Flow
@@ -1334,9 +1334,9 @@ flowchart TB
     CONFIG_CLI --> CONFIG_FILE
     AUTH --> TOKEN_FILE
 
-    style CLI_APP fill:#e1f5fe,stroke:#0277bd,stroke-width:3px
-    style NETWORK fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style STORAGE fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style CLI_APP fill:#e1f5fe,stroke:#0277bd,stroke-width:3px,color:#000
+    style NETWORK fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    style STORAGE fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
 ```
 
 ### CLI Commands
@@ -1516,9 +1516,9 @@ flowchart TB
 
     SQLITE -.->|Daily backup| BACKUPS
 
-    style VPS fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
-    style SERVICES fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style DATA fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style VPS fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
+    style SERVICES fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    style DATA fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
 ```
 
 ### Nginx Configuration
@@ -1594,8 +1594,8 @@ flowchart TB
     NEXT_SVC --> PROC_NEXT[npm start]
     API_SVC --> PROC_API[api binary]
 
-    style SYSTEMD fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style SERVICES fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style SYSTEMD fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    style SERVICES fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
 ```
 
 ---
