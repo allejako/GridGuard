@@ -13,8 +13,8 @@
 typedef struct
 {
     int clientFd;
-    char location[64];
-    char region[16];
+    char location[64]; // TEMP LÖSNING
+    char region[16]; // TEMP LÖSNING
 } WorkRequest;
 
 // Multi-threaded application core
