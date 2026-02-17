@@ -23,104 +23,78 @@ Genom att lägga till daemon-funktionalitet och en watchdog-process får vi båd
 ### Översikt - Komplett system
 
 ```mermaid
-graph TB
-    subgraph "System Boot / Init"
-        INIT[systemd/init]
-    end
+flowchart TB
+    INIT[systemd/init]
 
-    subgraph "Watchdog Process (PID 1234)"
-        WD[Watchdog Main Loop]
-        WD_FORK[fork + exec]
-        WD_WAIT[waitpid monitoring]
-        WD_RESTART[Restart Logic]
-    end
+    WD[Watchdog Process]
+    WD_FORK[fork + exec]
+    WD_WAIT[waitpid monitoring]
+    WD_RESTART[Restart Logic]
 
-    subgraph "Daemon Process (PID 1235)"
-        DAEMON[GridGuard Daemon]
-        DAEMON_INIT[Daemon_Init]
+    DAEMON[GridGuard Daemon Process]
+    TCP[TCP Server]
+    TPOOL[ThreadPool]
+    FETCH[Fetch Thread]
+    PARSE[Parse Thread]
+    COMPUTE[Compute Thread]
+    CACHE[Cache Thread]
+    HB[Heartbeat Thread]
 
-        subgraph "Server Components"
-            TCP[TCP Server]
-            TPOOL[ThreadPool]
-        end
+    CLIENT1[Client 1]
+    CLIENT2[Client 2]
 
-        subgraph "Worker Threads"
-            FETCH[Fetch Thread]
-            PARSE[Parse Thread]
-            COMPUTE[Compute Thread]
-            CACHE[Cache Thread]
-        end
-
-        HB_THREAD[Heartbeat Thread]
-    end
-
-    subgraph "Client Connections"
-        CLIENT1[Client 1]
-        CLIENT2[Client 2]
-        CLIENT3[Client N...]
-    end
-
-    subgraph "IPC Mechanisms"
-        PIPE[Pipe - Heartbeat]
-        SIGNALS[Signals - Control]
-        PIDFILE[/var/run/gridguard.pid]
-    end
+    PIPE[(Heartbeat Pipe)]
+    SIGNALS[(Signals)]
+    PIDFILE[(PID File)]
 
     INIT -->|starts| WD
     WD -->|fork| WD_FORK
     WD_FORK -->|exec| DAEMON
     WD -->|monitors| WD_WAIT
-    WD_WAIT -->|detects crash| WD_RESTART
-    WD_RESTART -->|restarts| WD_FORK
+    WD_WAIT -.->|detects crash| WD_RESTART
+    WD_RESTART -.->|restarts| WD_FORK
 
-    DAEMON --> DAEMON_INIT
-    DAEMON_INIT -->|daemonize| DAEMON
     DAEMON --> TCP
     DAEMON --> TPOOL
     DAEMON --> FETCH
     DAEMON --> PARSE
     DAEMON --> COMPUTE
     DAEMON --> CACHE
-    DAEMON --> HB_THREAD
+    DAEMON --> HB
 
     TCP --> CLIENT1
     TCP --> CLIENT2
-    TCP --> CLIENT3
 
-    HB_THREAD -.->|writes heartbeat| PIPE
-    WD -.->|reads heartbeat| PIPE
+    HB -.->|write| PIPE
+    WD -.->|read| PIPE
 
-    WD -.->|SIGTERM/SIGHUP| SIGNALS
-    SIGNALS -.->|shutdown/reload| DAEMON
+    WD -.->|SIGTERM| SIGNALS
+    SIGNALS -.->|shutdown| DAEMON
 
-    DAEMON -->|writes PID| PIDFILE
-    WD -->|reads PID| PIDFILE
+    DAEMON -->|write| PIDFILE
+    WD -->|read| PIDFILE
 
-    style WD fill:#e1f5ff
-    style DAEMON fill:#fff4e1
-    style PIPE fill:#e8f5e9
-    style SIGNALS fill:#fce4ec
+    style WD fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style DAEMON fill:#fff4e1,stroke:#e65100,stroke-width:2px
+    style PIPE fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style SIGNALS fill:#fce4ec,stroke:#c2185b,stroke-width:2px
 ```
 
 ### Process-hierarki
 
 ```mermaid
-graph TD
-    subgraph "Process Tree"
-        SYSTEMD[systemd - PID 1]
+flowchart TD
+    SYSTEMD[systemd<br/>PID: 1]
 
-        WD_PROC[GridGuard-watchdog<br/>PID: 1234<br/>PPID: 1]
+    WD_PROC[GridGuard-watchdog<br/>PID: 1234<br/>PPID: 1]
 
-        DAEMON_PROC[GridGuard-daemon<br/>PID: 1235<br/>PPID: 1234<br/>Session Leader: Yes<br/>Terminal: None]
+    DAEMON_PROC[GridGuard-daemon<br/>PID: 1235<br/>PPID: 1234<br/>Session Leader]
 
-        subgraph "Daemon Internal Threads"
-            T1[Fetch Thread<br/>TID: 1236]
-            T2[Parse Thread<br/>TID: 1237]
-            T3[Compute Thread<br/>TID: 1238]
-            T4[Cache Thread<br/>TID: 1239]
-            T5[Heartbeat Thread<br/>TID: 1240]
-        end
-    end
+    T1[Fetch Thread<br/>TID: 1236]
+    T2[Parse Thread<br/>TID: 1237]
+    T3[Compute Thread<br/>TID: 1238]
+    T4[Cache Thread<br/>TID: 1239]
+    T5[Heartbeat Thread<br/>TID: 1240]
 
     SYSTEMD -->|spawns| WD_PROC
     WD_PROC -->|fork + exec| DAEMON_PROC
@@ -138,50 +112,44 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant WD as Watchdog Process
-    participant PIPE as Heartbeat Pipe
-    participant SIG as Signals
-    participant PID as PID File
-    participant D as Daemon Process
+    participant WD as Watchdog
+    participant D as Daemon
     participant HB as Heartbeat Thread
 
     Note over WD: Startup
     WD->>WD: fork()
-    WD->>D: exec("GridGuard-daemon -d")
+    WD->>D: exec daemon
 
     Note over D: Daemonize
-    D->>D: fork() -> setsid() -> fork()
-    D->>PID: Write PID (1235)
+    D->>D: fork, setsid, fork
+    D->>D: Write PID file
     D->>D: Start worker threads
-    D->>HB: Start heartbeat thread
+    D->>HB: Start heartbeat
 
     Note over WD,D: Normal Operation
     loop Every 10 seconds
-        HB->>PIPE: Write "H" (heartbeat)
-        WD->>PIPE: Read heartbeat
-        WD->>WD: Update lastHeartbeat timestamp
+        HB->>WD: Send heartbeat via pipe
+        WD->>WD: Update timestamp
     end
 
     loop Every 5 seconds
-        WD->>D: waitpid(WNOHANG)
+        WD->>D: waitpid WNOHANG
         alt Daemon alive
             WD->>WD: Continue monitoring
         else Daemon crashed
             WD->>WD: Detect crash
             WD->>WD: Check restart count
-            WD->>WD: fork() + exec() (restart)
+            WD->>D: fork + exec restart
         end
     end
 
     Note over WD,D: Shutdown
-    WD->>SIG: Send SIGTERM
-    SIG->>D: Receive SIGTERM
+    WD->>D: Send SIGTERM
     D->>D: Graceful shutdown
     D->>D: Close sockets
-    D->>D: Free memory
-    D->>PID: Remove PID file
-    D->>WD: exit(0)
-    WD->>D: waitpid() - collect exit status
+    D->>D: Remove PID file
+    D->>WD: exit 0
+    WD->>WD: waitpid collect status
     WD->>WD: Shutdown complete
 ```
 
@@ -189,29 +157,29 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Monitoring: Watchdog starts daemon
+    [*] --> Monitoring
 
     Monitoring --> CheckHealth: Every 5 sec
-    CheckHealth --> Monitoring: Daemon alive + heartbeat OK
+    CheckHealth --> Monitoring: Daemon alive
 
-    CheckHealth --> CrashDetected: waitpid() returns (daemon died)
-    CheckHealth --> FrozenDetected: Heartbeat timeout
+    CheckHealth --> CrashDetected: waitpid returns
+    CheckHealth --> FrozenDetected: No heartbeat
 
-    CrashDetected --> CheckRestartLimit: Daemon crashed
-    FrozenDetected --> KillDaemon: No heartbeat for 30s
-    KillDaemon --> CheckRestartLimit: Send SIGKILL
+    CrashDetected --> CheckLimit: Daemon died
+    FrozenDetected --> KillDaemon: Timeout 30s
+    KillDaemon --> CheckLimit: Send SIGKILL
 
-    CheckRestartLimit --> CountRestart: Restarts < 5 in 5 min
-    CheckRestartLimit --> GiveUp: Restarts >= 5 in 5 min
+    CheckLimit --> CountRestart: Under limit
+    CheckLimit --> GiveUp: Over limit
 
-    CountRestart --> WaitBeforeRestart: Increment counter
-    WaitBeforeRestart --> RestartDaemon: Wait 2 seconds
-    RestartDaemon --> Monitoring: fork() + exec()
+    CountRestart --> WaitRestart: Increment counter
+    WaitRestart --> RestartDaemon: Wait 2 sec
+    RestartDaemon --> Monitoring: fork + exec
 
-    GiveUp --> [*]: Log error and exit
+    GiveUp --> [*]: Log and exit
 
-    Monitoring --> GracefulShutdown: SIGTERM received
-    GracefulShutdown --> [*]: Daemon exits cleanly
+    Monitoring --> Shutdown: SIGTERM
+    Shutdown --> [*]: Clean exit
 ```
 
 ---
