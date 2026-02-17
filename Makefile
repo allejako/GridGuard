@@ -13,7 +13,7 @@ BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
 COMMON_DIR = $(SRC_DIR)/common
-TCP_DIR = $(SRC_DIR)/tcp
+TCP_DIR = $(SERVER_DIR)/tcp
 API_DIR = $(SRC_DIR)/api
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
@@ -73,9 +73,9 @@ client: directories $(CLIENT_BIN)
 directories:
 	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/server
+	@mkdir -p $(BUILD_DIR)/server/tcp
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/common
-	@mkdir -p $(BUILD_DIR)/tcp
 	@mkdir -p $(BUILD_DIR)/api
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
