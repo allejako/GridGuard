@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "common/Logger.h"
+#include "Logger.h"
 
 int main(void)
 {

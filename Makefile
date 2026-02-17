@@ -12,12 +12,8 @@ BUILD_DIR = build
 BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
 CLIENT_DIR = $(SRC_DIR)/client
-COMMON_DIR = $(SRC_DIR)/common
-TCP_DIR = $(SERVER_DIR)/tcp
-API_DIR = $(SRC_DIR)/api
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
-CONFIG_DIR = config
 
 # Application directories (domain-specific code)
 APPLICATION_DIR = $(SRC_DIR)/application
@@ -25,6 +21,20 @@ APP_CORE_DIR = $(APPLICATION_DIR)/core
 APP_WORKERS_DIR = $(APPLICATION_DIR)/workers
 APP_MODELS_DIR = $(APPLICATION_DIR)/models
 APP_SERVICES_DIR = $(APPLICATION_DIR)/services
+APP_API_DIR = $(APPLICATION_DIR)/api
+APP_CONFIGS_DIR = $(APPLICATION_DIR)/configs
+
+# Infrastructure directories (platform & runtime)
+INFRASTRUCTURE_DIR = $(SRC_DIR)/infrastructure
+LOGGING_DIR = $(INFRASTRUCTURE_DIR)/logging
+SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
+DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
+WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
+
+# Network directories
+NETWORK_DIR = $(SRC_DIR)/network
+NETWORK_SERVER_DIR = $(NETWORK_DIR)/server
+NETWORK_CLIENT_DIR = $(NETWORK_DIR)/client
 
 # Concurrency directories (OS primitives)
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
@@ -33,7 +43,29 @@ SYNC_DIR = $(CONCURRENCY_DIR)/sync
 IPC_DIR = $(CONCURRENCY_DIR)/ipc
 
 # Include paths for headers
-INCLUDES = -I$(SRC_DIR) -I$(COMMON_DIR) -I$(TCP_DIR) -I$(API_DIR) -I$(SERVER_DIR) -I$(CLIENT_DIR) -I$(LIBS_DIR) -I$(CONFIG_DIR) -I$(APPLICATION_DIR) -I$(APP_CORE_DIR) -I$(APP_WORKERS_DIR) -I$(APP_MODELS_DIR) -I$(APP_SERVICES_DIR) -I$(CONCURRENCY_DIR) -I$(THREADS_DIR) -I$(SYNC_DIR) -I$(IPC_DIR)
+INCLUDES = -I$(SRC_DIR) \
+           -I$(SERVER_DIR) \
+           -I$(CLIENT_DIR) \
+           -I$(LIBS_DIR) \
+           -I$(APPLICATION_DIR) \
+           -I$(APP_CORE_DIR) \
+           -I$(APP_WORKERS_DIR) \
+           -I$(APP_MODELS_DIR) \
+           -I$(APP_SERVICES_DIR) \
+           -I$(APP_API_DIR) \
+           -I$(APP_CONFIGS_DIR) \
+           -I$(INFRASTRUCTURE_DIR) \
+           -I$(LOGGING_DIR) \
+           -I$(SIGNALS_DIR) \
+           -I$(DAEMON_DIR) \
+           -I$(WATCHDOG_DIR) \
+           -I$(NETWORK_DIR) \
+           -I$(NETWORK_SERVER_DIR) \
+           -I$(NETWORK_CLIENT_DIR) \
+           -I$(CONCURRENCY_DIR) \
+           -I$(THREADS_DIR) \
+           -I$(SYNC_DIR) \
+           -I$(IPC_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -43,11 +75,30 @@ CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 SERVER_BIN = $(BIN_DIR)/GridGuard-server
 CLIENT_BIN = $(BIN_DIR)/GridGuard-client
 
-# Source files (lägg till fler när de skapas)
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(TCP_DIR)/TCPServer.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(APP_CORE_DIR)/*.c) $(wildcard $(APP_WORKERS_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(THREADS_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(IPC_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
-SERVER_SRCS_CPP = $(wildcard $(TCP_DIR)/TCPClient.cpp)
-CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.cpp) $(wildcard $(TCP_DIR)/*.cpp) $(wildcard $(HTTP_DIR)/*.cpp)
-TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
+# Source files
+SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
+                $(wildcard $(LOGGING_DIR)/*.c) \
+                $(wildcard $(SIGNALS_DIR)/*.c) \
+                $(wildcard $(DAEMON_DIR)/*.c) \
+                $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
+                $(wildcard $(APP_API_DIR)/*.c) \
+                $(wildcard $(APP_CORE_DIR)/*.c) \
+                $(wildcard $(APP_WORKERS_DIR)/*.c) \
+                $(wildcard $(APP_MODELS_DIR)/*.c) \
+                $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                $(wildcard $(THREADS_DIR)/*.c) \
+                $(wildcard $(SYNC_DIR)/*.c) \
+                $(wildcard $(IPC_DIR)/*.c) \
+                $(wildcard $(LIBS_DIR)/*.c)
+
+SERVER_SRCS_CPP = $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
+
+CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) \
+              $(wildcard $(LOGGING_DIR)/*.c) \
+              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
+
+TEST_SRCS = $(wildcard $(TEST_DIR)/unit/*.c) \
+            $(wildcard $(TEST_DIR)/integration/*.c)
 
 # Object files
 SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
@@ -73,22 +124,27 @@ client: directories $(CLIENT_BIN)
 directories:
 	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/server
-	@mkdir -p $(BUILD_DIR)/server/tcp
 	@mkdir -p $(BUILD_DIR)/client
-	@mkdir -p $(BUILD_DIR)/common
-	@mkdir -p $(BUILD_DIR)/api
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
 	@mkdir -p $(BUILD_DIR)/application/models
 	@mkdir -p $(BUILD_DIR)/application/services
+	@mkdir -p $(BUILD_DIR)/application/api
+	@mkdir -p $(BUILD_DIR)/application/configs
+	@mkdir -p $(BUILD_DIR)/infrastructure/logging
+	@mkdir -p $(BUILD_DIR)/infrastructure/signals
+	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
+	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
+	@mkdir -p $(BUILD_DIR)/network/server
+	@mkdir -p $(BUILD_DIR)/network/client
 	@mkdir -p $(BUILD_DIR)/concurrency/threads
 	@mkdir -p $(BUILD_DIR)/concurrency/sync
 	@mkdir -p $(BUILD_DIR)/concurrency/ipc
 	@mkdir -p $(BUILD_DIR)/libs
-	@mkdir -p $(BUILD_DIR)/tests
+	@mkdir -p $(BUILD_DIR)/tests/unit
+	@mkdir -p $(BUILD_DIR)/tests/integration
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
-	@mkdir -p config
 
 # Build server (use g++ because we have C++ files now)
 $(SERVER_BIN): $(SERVER_OBJS)
@@ -160,26 +216,39 @@ TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 
 # Test dependencies
-TEST_API_DEPS = $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
-TEST_LOGGER_DEPS = $(COMMON_DIR)/Logger.c
-TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) $(wildcard $(APP_WORKERS_DIR)/*.c) $(wildcard $(APP_SERVICES_DIR)/*.c) $(wildcard $(SYNC_DIR)/*.c) $(wildcard $(API_DIR)/*.c) $(wildcard $(COMMON_DIR)/*.c) $(wildcard $(APP_MODELS_DIR)/*.c) $(wildcard $(LIBS_DIR)/*.c)
+TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
+                $(wildcard $(LOGGING_DIR)/*.c) \
+                $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                $(wildcard $(APP_MODELS_DIR)/*.c) \
+                $(wildcard $(LIBS_DIR)/*.c)
+
+TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
+
+TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
+                     $(wildcard $(APP_WORKERS_DIR)/*.c) \
+                     $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                     $(wildcard $(SYNC_DIR)/*.c) \
+                     $(wildcard $(APP_API_DIR)/*.c) \
+                     $(wildcard $(LOGGING_DIR)/*.c) \
+                     $(wildcard $(APP_MODELS_DIR)/*.c) \
+                     $(wildcard $(LIBS_DIR)/*.c)
 
 # Build API test
-$(TEST_API_BIN): $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS)
+$(TEST_API_BIN): $(TEST_DIR)/integration/test_api_fetch.c $(TEST_API_DEPS)
 	@echo "Building API test..."
-	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_api_fetch.c $(TEST_API_DEPS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_api_fetch.c $(TEST_API_DEPS) $(LDFLAGS)
 	@echo "API test built: $@"
 
 # Build Logger test
-$(TEST_LOGGER_BIN): $(SRC_DIR)/tests/test_logger.c $(TEST_LOGGER_DEPS)
+$(TEST_LOGGER_BIN): $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS)
 	@echo "Building Logger test..."
-	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_logger.c $(TEST_LOGGER_DEPS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS) $(LDFLAGS)
 	@echo "Logger test built: $@"
 
 # Build Pipeline test
-$(TEST_PIPELINE_BIN): $(SRC_DIR)/tests/test_pipeline.c $(TEST_PIPELINE_DEPS)
+$(TEST_PIPELINE_BIN): $(TEST_DIR)/integration/test_pipeline.c $(TEST_PIPELINE_DEPS)
 	@echo "Building Pipeline test..."
-	$(CC) $(CFLAGS) -o $@ $(SRC_DIR)/tests/test_pipeline.c $(TEST_PIPELINE_DEPS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_pipeline.c $(TEST_PIPELINE_DEPS) $(LDFLAGS)
 	@echo "Pipeline test built: $@"
 
 # Run API test
