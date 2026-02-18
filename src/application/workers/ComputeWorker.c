@@ -5,7 +5,7 @@
 #include "Queue.h"
 #include "Compute.h"
 #include "Cache.h"
-#include "EnergyData.h"
+#include "Energy.h"
 #include "Logger.h"
 #include <stdlib.h>
 #include <string.h>

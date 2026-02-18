@@ -1,7 +1,7 @@
 #ifndef _PARSE_WORKER_H_
 #define _PARSE_WORKER_H_
 
-#include "ForecastData.h"
+#include "Forecast.h"
 
 // Result from parse worker - passed to compute worker
 typedef struct

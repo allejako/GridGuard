@@ -11,7 +11,7 @@
 void *FetchWorker_Run(void *arg)
 {
     GridGuard *app = (GridGuard *)arg;
-    LOG_INFO("FetchWorker: Thread started");
+    LOG_INFO("FetchWorker: Thread started (multi-source mode: SMHI + Open-Meteo)");
 
     while (app->isRunning)
     {
@@ -41,23 +41,47 @@ void *FetchWorker_Run(void *arg)
         strncpy(result->region, request->region, sizeof(result->region) - 1);
         result->clientFd = request->clientFd;
 
-        // Build URLs
-        char weatherUrl[512];
+        // Build URLs for all sources
+        char smhiUrl[512];
+        char openMeteoUrl[512];
         char priceUrl[256];
-        BuildWeatherApiUrl(weatherUrl, sizeof(weatherUrl), WEATHER_LAT, WEATHER_LON);
+
+        BuildSMHIApiUrl(smhiUrl, sizeof(smhiUrl), WEATHER_LAT, WEATHER_LON);
+        BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), WEATHER_LAT, WEATHER_LON);
         BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request->region, NULL);
 
-        // Fetch weather data
-        FetchResponse weatherResp;
-        if (Fetcher_Fetch(&app->fetcher, weatherUrl, &weatherResp) == 0)
+        // Fetch from SMHI (primary source for Swedish weather)
+        FetchResponse smhiResp;
+        if (Fetcher_Fetch(&app->fetcher, smhiUrl, &smhiResp) == 0)
         {
-            strncpy(result->weatherJson, weatherResp.data, sizeof(result->weatherJson) - 1);
-            Fetcher_FreeResponse(&weatherResp);
-            LOG_INFO("FetchWorker: Got weather data (%zu bytes)", strlen(result->weatherJson));
+            strncpy(result->smhiJson, smhiResp.data, sizeof(result->smhiJson) - 1);
+            Fetcher_FreeResponse(&smhiResp);
+            LOG_INFO("FetchWorker: Got SMHI data (%zu bytes)", strlen(result->smhiJson));
         }
         else
         {
-            LOG_ERROR("FetchWorker: Failed to get weather data");
+            LOG_WARNING("FetchWorker: SMHI fetch failed - will use Open-Meteo as fallback");
+        }
+
+        // Fetch from Open-Meteo (backup + solar irradiance data)
+        FetchResponse omResp;
+        if (Fetcher_Fetch(&app->fetcher, openMeteoUrl, &omResp) == 0)
+        {
+            strncpy(result->openMeteoJson, omResp.data, sizeof(result->openMeteoJson) - 1);
+            // Backward compatibility: also store in weatherJson
+            strncpy(result->weatherJson, omResp.data, sizeof(result->weatherJson) - 1);
+            Fetcher_FreeResponse(&omResp);
+            LOG_INFO("FetchWorker: Got Open-Meteo data (%zu bytes)", strlen(result->openMeteoJson));
+        }
+        else
+        {
+            LOG_WARNING("FetchWorker: Open-Meteo fetch failed");
+        }
+
+        // Check if we got at least one weather source
+        if (strlen(result->smhiJson) == 0 && strlen(result->openMeteoJson) == 0)
+        {
+            LOG_ERROR("FetchWorker: CRITICAL - Both weather sources failed!");
         }
 
         // Fetch price data

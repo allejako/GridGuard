@@ -1,7 +1,7 @@
 #ifndef _CACHE_WORKER_H_
 #define _CACHE_WORKER_H_
 
-#include "EnergyData.h"
+#include "Energy.h"
 
 // Result from compute worker - passed to cache worker
 typedef struct

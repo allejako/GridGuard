@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <pthread.h>
-#include "EnergyData.h"
+#include "Energy.h"
 
 #define CACHE_MAX_ENTRIES 64
 #define CACHE_DEFAULT_TTL_SECONDS 900  // 15 minutes
