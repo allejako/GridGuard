@@ -27,7 +27,7 @@ static void SignalHandler_HandleSignal(int signum)
     }
 }
 
-volatile sig_atomic_t *SignalHandler_Init(void)
+volatile sig_atomic_t *SignalHandler_Initiate(void)
 {
     struct sigaction sa;
 
