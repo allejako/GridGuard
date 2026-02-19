@@ -74,6 +74,7 @@ CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 # Output binaries
 SERVER_BIN = $(BIN_DIR)/GridGuard-server
 CLIENT_BIN = $(BIN_DIR)/GridGuard-client
+WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
 
 # Source files
 SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
@@ -107,6 +108,14 @@ TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 # Test binary
 TEST_BIN = $(BIN_DIR)/test_runner
+
+# Watchdog source files
+WATCHDOG_SRCS = $(WATCHDOG_DIR)/main.c \
+                $(WATCHDOG_DIR)/Watchdog.c \
+                $(DAEMON_DIR)/PidFile.c \
+                $(LOGGING_DIR)/Logger.c
+
+WATCHDOG_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(WATCHDOG_SRCS))
 
 # Default target
 .PHONY: all
@@ -169,6 +178,15 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<..."
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Build watchdog
+.PHONY: watchdog
+watchdog: directories $(WATCHDOG_BIN)
+
+$(WATCHDOG_BIN): $(WATCHDOG_OBJS)
+	@echo "Linking watchdog..."
+	$(CC) -o $@ $^ $(LDFLAGS)
+	@echo "Watchdog built successfully: $@"
 
 # Debug build with additional flags
 .PHONY: debug
@@ -280,6 +298,12 @@ run-server: server
 run-client: client
 	@echo "Starting client..."
 	@$(CLIENT_BIN)
+
+# Run watchdog (starts daemon automatically)
+.PHONY: run-watchdog
+run-watchdog: server watchdog
+	@echo "Starting watchdog..."
+	@$(WATCHDOG_BIN)
 
 # Run both (server in background, client in foreground)
 .PHONY: run
