@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
@@ -104,6 +104,7 @@ static void Watchdog_CloseHeartbeatPipe(void)
 }
 
 // Check heartbeat pipe with timeout. Returns 1 if heartbeat received, 0 on timeout, -1 on error.
+// Uses poll() instead of select() to avoid the FD_SETSIZE (1024) fd limit.
 static int Watchdog_CheckHeartbeat(int timeout_sec)
 {
     if (heartbeat_pipe[0] < 0)
@@ -111,21 +112,17 @@ static int Watchdog_CheckHeartbeat(int timeout_sec)
         return 1; // No pipe = skip heartbeat check
     }
 
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(heartbeat_pipe[0], &readfds);
+    struct pollfd pfd;
+    pfd.fd = heartbeat_pipe[0];
+    pfd.events = POLLIN;
 
-    struct timeval tv;
-    tv.tv_sec = timeout_sec;
-    tv.tv_usec = 0;
-
-    int ret = select(heartbeat_pipe[0] + 1, &readfds, NULL, NULL, &tv);
+    int ret = poll(&pfd, 1, timeout_sec * 1000);
 
     if (ret < 0)
     {
         if (errno == EINTR)
             return 1; // Interrupted by signal, not a timeout
-        LOG_ERROR("Watchdog: select() on heartbeat pipe failed: %s", strerror(errno));
+        LOG_ERROR("Watchdog: poll() on heartbeat pipe failed: %s", strerror(errno));
         return -1;
     }
 
@@ -290,6 +287,8 @@ int Watchdog_Run(const char *daemon_path)
 
     int status;
     time_t last_stable_start = time(NULL);
+    time_t last_heartbeat = time(NULL);
+    int killed_for_timeout = 0; // Set when we kill a frozen daemon — don't treat its exit as clean
 
     while (watchdog_running)
     {
@@ -300,14 +299,27 @@ int Watchdog_Run(const char *daemon_path)
             got_sighup = 0;
         }
 
-        // Check heartbeat (non-blocking with timeout)
+        // Poll for heartbeat (blocks for MONITOR_POLL_SEC seconds)
         int hb = Watchdog_CheckHeartbeat(MONITOR_POLL_SEC);
-        if (hb == 0)
+        if (hb == 1)
         {
-            LOG_WARNING("Watchdog: No heartbeat for %d seconds, daemon may be frozen",
-                        HEARTBEAT_TIMEOUT);
+            last_heartbeat = time(NULL);
+        }
+        else if (hb == 0)
+        {
+            // No heartbeat in this poll window - check accumulated silence
+            double elapsed = difftime(time(NULL), last_heartbeat);
+            if (elapsed < HEARTBEAT_TIMEOUT)
+            {
+                // Still within tolerance, keep polling
+                goto check_waitpid;
+            }
+
+            LOG_WARNING("Watchdog: No heartbeat for %.0f seconds (timeout=%d), daemon may be frozen",
+                        elapsed, HEARTBEAT_TIMEOUT);
 
             // Send SIGTERM first, give it 5 seconds
+            killed_for_timeout = 1;
             LOG_INFO("Watchdog: Sending SIGTERM to frozen daemon (PID %d)", daemon_pid);
             kill(daemon_pid, SIGTERM);
             sleep(5);
@@ -327,6 +339,7 @@ int Watchdog_Run(const char *daemon_path)
         }
 
         // Non-blocking check if daemon has exited
+        check_waitpid:;
         pid_t result = waitpid(daemon_pid, &status, WNOHANG);
 
         if (result < 0)
@@ -349,13 +362,16 @@ int Watchdog_Run(const char *daemon_path)
         if (WIFEXITED(status))
         {
             int exit_code = WEXITSTATUS(status);
-            if (exit_code == 0)
+            if (exit_code == 0 && !killed_for_timeout)
             {
                 LOG_INFO("Watchdog: Daemon exited cleanly (code 0), shutting down");
                 Watchdog_CloseHeartbeatPipe();
                 return 0;
             }
-            LOG_WARNING("Watchdog: Daemon exited with error code %d", exit_code);
+            if (exit_code != 0)
+                LOG_WARNING("Watchdog: Daemon exited with error code %d", exit_code);
+            else
+                LOG_WARNING("Watchdog: Frozen daemon exited cleanly after SIGTERM, restarting");
         }
         else if (WIFSIGNALED(status))
         {
@@ -408,6 +424,8 @@ int Watchdog_Run(const char *daemon_path)
 
         LOG_INFO("Watchdog: Daemon respawned with PID %d", daemon_pid);
         last_stable_start = time(NULL);
+        last_heartbeat = time(NULL);
+        killed_for_timeout = 0;
     }
 
     // Shutting down: wait for daemon

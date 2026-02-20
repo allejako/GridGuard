@@ -38,22 +38,23 @@ int main(int argc, char *argv[])
         snprintf(log_path, sizeof(log_path), "logs/server.log");
     }
 
-    // Daemonize before initializing logger (stdout/stderr will be closed)
+    // Initialize logger before daemonizing so PidFile_Write errors are captured.
+    // The log path is already absolute (resolved above), so chdir("/") won't affect it.
+    if (Logger_Initiate(log_path, LOG_LEVEL_DEBUG) != 0)
+    {
+        fprintf(stderr, "Failed to initialize logger\n");
+        return EXIT_FAILURE;
+    }
+
+    // Daemonize (stdout/stderr redirected to /dev/null; file logger stays open)
     if (daemonize)
     {
         if (Daemon_Init() != 0)
         {
-            fprintf(stderr, "Failed to daemonize\n");
+            LOG_FATAL("Failed to daemonize");
+            Logger_Shutdown();
             return EXIT_FAILURE;
         }
-    }
-
-    // Initialize logger (uses file logging, works both foreground and daemon mode)
-    if (Logger_Initiate(log_path, LOG_LEVEL_DEBUG) != 0)
-    {
-        if (!daemonize)
-            fprintf(stderr, "Failed to initialize logger\n");
-        return EXIT_FAILURE;
     }
 
     if (daemonize)

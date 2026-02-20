@@ -51,37 +51,46 @@ static void *Daemon_HeartbeatLoop(void *arg)
 
 int Daemon_Init(void)
 {
-    // Step 1: Fork and let parent exit
-    pid_t pid = fork();
-    if (pid < 0)
-    {
-        perror("Daemon: fork() failed");
-        return -1;
-    }
-    if (pid > 0)
-    {
-        // Parent exits - child continues
-        _exit(0);
-    }
+    // When running under a watchdog (GRIDGUARD_HEARTBEAT_FD is set), skip the
+    // double-fork: the watchdog already owns process supervision via waitpid.
+    // Forking would make the watchdog track the wrong PID (the intermediate
+    // child that exits immediately), leaving the real daemon unsupervised.
+    int under_watchdog = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
 
-    // Step 2: Create new session - become session leader, detach from terminal
-    if (setsid() < 0)
+    if (!under_watchdog)
     {
-        perror("Daemon: setsid() failed");
-        return -1;
-    }
+        // Step 1: Fork and let parent exit
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            perror("Daemon: fork() failed");
+            return -1;
+        }
+        if (pid > 0)
+        {
+            // Parent exits - child continues
+            _exit(0);
+        }
 
-    // Step 3: Fork again to ensure we can never reacquire a terminal
-    pid = fork();
-    if (pid < 0)
-    {
-        perror("Daemon: second fork() failed");
-        return -1;
-    }
-    if (pid > 0)
-    {
-        // First child exits - grandchild becomes the daemon
-        _exit(0);
+        // Step 2: Create new session - become session leader, detach from terminal
+        if (setsid() < 0)
+        {
+            perror("Daemon: setsid() failed");
+            return -1;
+        }
+
+        // Step 3: Fork again to ensure we can never reacquire a terminal
+        pid = fork();
+        if (pid < 0)
+        {
+            perror("Daemon: second fork() failed");
+            return -1;
+        }
+        if (pid > 0)
+        {
+            // First child exits - grandchild becomes the daemon
+            _exit(0);
+        }
     }
 
     // Step 4: Change working directory to root so we don't lock any mountpoints
