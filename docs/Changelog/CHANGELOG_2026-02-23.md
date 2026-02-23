@@ -145,3 +145,45 @@ Sätt på `/** */`-kommentarer på de viktigaste publika funktionerna: `JWT_Vali
 **Daemon och watchdog** — kursmål 1, 2, 8
 
 Befintlig daemon och watchdog-kod använder `fork()` och processer. Om kommunikationen mellan watchdog och server sker via en anonym pipe (`pipe()` + `fork()`) täcks kursmål 8 (pipes) och kursmål 1 (processer, `fork`, `waitpid`). Kolla om nuvarande implementation redan gör detta — annars är det ett enkelt tillägg.
+
+---
+
+## Fas 3 — Bort med libcurl och OpenSSL, in med HTTPClient och mbedTLS
+
+### Bakgrund
+
+Systemet ska i slutändan köras på en inbyggd enhet — troligen ett ESP32 eller liknande mikrokontroller. Varken libcurl eller OpenSSL finns tillgängliga på embedded-plattformar av den storleken. Det är bättre att lösa det nu än att behöva skriva om allt närmre slutet av projektet.
+
+### HTTPClient — egen HTTPS-klient utan libcurl
+
+`Fetcher.c` använde tidigare libcurl för att hämta data från SMHI, Open-Meteo och Elpriset. Curl är ett stort externt beroende som kräver dynamisk länkning och inte finns på embedded.
+
+Den egna `HTTPClient` i `src/network/client/` gör exakt det projektet behöver: en blockerande HTTPS GET med konfigurerbar timeout, retry-logik och en enkel response-struct. Under huven är det POSIX-sockets med `getaddrinfo` + `connect`, med send/receive-timeouts satta via `setsockopt`. Inget mer.
+
+Interfacet följer projektets Initiate/Shutdown-mönster. `Fetcher` äger ett `HTTPClient`-objekt och initierar det i `Fetcher_Initiate`. Allt som anropade `Fetcher_Fetch` behöver inte ändras alls.
+
+### mbedTLS — bort med OpenSSL
+
+OpenSSL är installerat på Linux men saknas på ESP32 och de flesta embedded-miljöer. mbedTLS är skrivet specifikt för inbyggda system — liten kodbas, inga externa beroenden, officiellt stöd i ESP-IDF.
+
+Två ställen i projektet använde OpenSSL:
+
+`JWTValidator.c` använde `EVP_DecodeBlock` för base64url-avkodning, `HMAC(EVP_sha256, ...)` för signaturberäkning och `CRYPTO_memcmp` för konstant-tids-jämförelse. Dessa är ersatta med `mbedtls_base64_decode`, `mbedtls_md_hmac` och `mbedtls_ct_memcmp`. Logiken är identisk — bara biblioteksanropen byttes ut.
+
+`HTTPClient.c` använde `SSL_CTX`/`SSL` för TLS-handskakning, läsning och skrivning. Det är ersatt med `mbedtls_ssl_config`, `mbedtls_ssl_context`, `mbedtls_entropy_context` och `mbedtls_ctr_drbg_context`. Entropy och DRBG initieras en gång i `HTTPClient_Initiate` och återanvänds vid varje request. TLS-kontexten skapas och förstörs per anrop. TCP-lagret med `getaddrinfo`/`connect` och `setsockopt`-timeouts är oförändrat.
+
+Makefile länkar nu med `-lmbedtls -lmbedx509 -lmbedcrypto` istället för `-lssl -lcrypto`.
+
+### Vad som krävs på Linux för att bygga
+
+```
+sudo dnf install mbedtls-devel
+```
+
+På Ubuntu/Debian:
+
+```
+sudo apt install libmbedtls-dev
+```
+
+På ESP32 ingår mbedTLS i ESP-IDF — inga extra steg behövs.

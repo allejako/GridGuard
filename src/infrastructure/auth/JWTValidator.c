@@ -8,12 +8,12 @@
 #include <stdio.h>
 #include <time.h>
 
-#include <openssl/hmac.h>
-#include <openssl/evp.h>
+#include <mbedtls/md.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/constant_time.h>
 
 // ---------------------------------------------------------------------------
-// Internal: base64url → standard base64, then decode with EVP_DecodeBlock.
-// dst must be large enough: ceil(srcLen / 4) * 3 + 1 bytes.
+// Internal: base64url → standard base64, then decode with mbedtls_base64_decode.
 // Returns decoded byte count on success, -1 on error.
 // ---------------------------------------------------------------------------
 static int base64url_decode(const char *src, size_t srcLen,
@@ -41,15 +41,15 @@ static int base64url_decode(const char *src, size_t srcLen,
         buf[i] = '=';
     buf[padded] = '\0';
 
-    int decoded = EVP_DecodeBlock(dst, (const unsigned char *)buf, (int)padded);
+    size_t olen = 0;
+    int ret = mbedtls_base64_decode(dst, dstBufLen, &olen,
+                                    (const unsigned char *)buf, padded);
     free(buf);
 
-    if (decoded < 0)
+    if (ret != 0)
         return -1;
 
-    // EVP_DecodeBlock counts padding bytes in the output length; subtract them.
-    int padding = (int)(padded - srcLen);
-    return decoded - padding;
+    return (int)olen;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,12 +196,17 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     //    Compute HMAC over "header.payload" (raw bytes from original token).
     // -----------------------------------------------------------------------
     unsigned char computedSig[32];
-    unsigned int  computedSigLen = sizeof(computedSig);
 
-    HMAC(EVP_sha256(),
-         secret, (int)strlen(secret),
-         (const unsigned char *)signingInput, signingLen,
-         computedSig, &computedSigLen);
+    const mbedtls_md_info_t *mdInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (mbedtls_md_hmac(mdInfo,
+                        (const unsigned char *)secret, strlen(secret),
+                        (const unsigned char *)signingInput, signingLen,
+                        computedSig) != 0)
+    {
+        LOG_ERROR("JWTValidator: HMAC computation failed");
+        free(copy);
+        return -1;
+    }
 
     // Decode signature from token
     size_t sigB64Len = strlen(sigB64);
@@ -210,19 +215,14 @@ int JWT_Validate(const char *token, JWTClaims *claims)
                                        tokenSig, sizeof(tokenSig));
     free(copy); // done with split copy
 
-    if (tokenSigLen < 0 || (unsigned int)tokenSigLen != computedSigLen)
+    if (tokenSigLen < 0 || tokenSigLen != 32)
     {
         LOG_WARNING("JWTValidator: Signature length mismatch");
         return -1;
     }
 
     // Constant-time comparison to resist timing attacks.
-    // CRYPTO_memcmp returns 0 if equal.
-#ifdef OPENSSL_VERSION_NUMBER
-    if (CRYPTO_memcmp(computedSig, tokenSig, computedSigLen) != 0)
-#else
-    if (memcmp(computedSig, tokenSig, computedSigLen) != 0)
-#endif
+    if (mbedtls_ct_memcmp(computedSig, tokenSig, 32) != 0)
     {
         LOG_WARNING("JWTValidator: Signature verification failed");
         return -1;
