@@ -12,7 +12,15 @@ int WorkCompletion_Initiate(WorkCompletion *wc)
 
     memset(wc, 0, sizeof(WorkCompletion));
     pthread_mutex_init(&wc->mutex, NULL);
-    pthread_cond_init(&wc->cond, NULL);
+
+    // Use CLOCK_MONOTONIC so the timeout is immune to NTP adjustments
+    // and manual system clock changes.
+    pthread_condattr_t attr;
+    pthread_condattr_init(&attr);
+    pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+    pthread_cond_init(&wc->cond, &attr);
+    pthread_condattr_destroy(&attr);
+
     return 0;
 }
 
@@ -57,7 +65,7 @@ int WorkCompletion_Wait(WorkCompletion *wc)
         return -1;
 
     struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
     deadline.tv_sec += WORK_COMPLETION_TIMEOUT_SEC;
 
     pthread_mutex_lock(&wc->mutex);

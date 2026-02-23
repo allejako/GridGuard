@@ -22,7 +22,7 @@
 static int decode_chunked(const char *src, size_t srcLen,
                            char **out, size_t *outLen)
 {
-    char *buf = malloc(srcLen + 1); // decoded is always <= encoded
+    char *buf = malloc(srcLen + 1); // decoded body is always <= encoded size
     if (!buf) return -1;
 
     size_t      written = 0;
@@ -40,7 +40,9 @@ static int decode_chunked(const char *src, size_t srcLen,
 
         if (sz == 0) break; // final zero-length chunk
 
-        if (p + sz > end) { free(buf); return -1; }
+        // Compare sz against available bytes without pointer arithmetic overflow.
+        // p + sz could wrap if sz is near SIZE_MAX on a 32-bit build.
+        if (sz > (size_t)(end - p)) { free(buf); return -1; }
 
         memcpy(buf + written, p, sz);
         written += sz;
@@ -266,6 +268,10 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
         written += ret;
     }
 
+    // Hard cap on response size to prevent unbounded memory growth.
+    // 4 MB is generous for any API response this server consumes.
+#define HTTP_CLIENT_MAX_RESPONSE_SIZE (4u * 1024u * 1024u)
+
     size_t capacity = 16384;
     size_t total    = 0;
     char  *buf      = malloc(capacity);
@@ -285,8 +291,17 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
             total += (size_t)ret;
             if (total + 1 >= capacity)
             {
-                capacity *= 2;
-                char *tmp = realloc(buf, capacity);
+                if (capacity >= HTTP_CLIENT_MAX_RESPONSE_SIZE)
+                {
+                    free(buf);
+                    mbedtls_ssl_free(&ssl);
+                    close(fd);
+                    return -1;
+                }
+                size_t newCapacity = capacity * 2;
+                if (newCapacity > HTTP_CLIENT_MAX_RESPONSE_SIZE)
+                    newCapacity = HTTP_CLIENT_MAX_RESPONSE_SIZE;
+                char *tmp = realloc(buf, newCapacity);
                 if (!tmp)
                 {
                     free(buf);
@@ -294,7 +309,8 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
                     close(fd);
                     return -1;
                 }
-                buf = tmp;
+                buf      = tmp;
+                capacity = newCapacity;
             }
         }
         else if (ret == 0 || ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
