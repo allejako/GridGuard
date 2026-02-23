@@ -6,11 +6,20 @@
 #define SERVER_HOST "localhost"
 
 // ============== WEATHER API =====================
-// Open-Meteo - Gratis, ingen API-nyckel behövs
-#define WEATHER_API_BASE_URL    "https://api.open-meteo.com/v1/forecast"
+// SMHI - Primary source for Swedish weather data
+#define SMHI_API_BASE_URL       "https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2"
+
+// Open-Meteo - Backup source + solar irradiance data
+#define OPENMETEO_API_BASE_URL  "https://api.open-meteo.com/v1/forecast"
+
+// Location configuration
 #define WEATHER_LAT             "59.33"   // Stockholm
 #define WEATHER_LON             "18.07"
 #define WEATHER_TIMEZONE        "Europe/Stockholm"
+
+// Multi-source configuration
+#define WEATHER_PRIMARY_SOURCE  "SMHI"
+#define WEATHER_BACKUP_SOURCE   "OpenMeteo"
 
 // ============== SPOT PRICE API ==================
 // Format: /api/v1/prices/{year}/{month}-{day}_{region}.json
