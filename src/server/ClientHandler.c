@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <string.h>
+#include <stdio.h>
 #include <unistd.h>
 
 #include "ClientHandler.h"
@@ -9,7 +10,9 @@
 #include "HTTPResponse.h"
 #include "WorkCompletion.h"
 #include "JWTValidator.h"
+#include "UserConfigDB.h"
 #include "Logger.h"
+#include "cJSON.h"
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -21,11 +24,26 @@ static void HandleHealth(int fd)
     HTTPResponse_SendJson(fd, "{\"status\":\"ok\",\"service\":\"GridGuard\"}");
 }
 
-// GET /forecast — requires valid JWT.
+// GET /forecast — requires valid JWT + user config in DB.
 // WorkCompletion lives on this thread's stack; safe because this thread
 // blocks in WorkCompletion_Wait for the entire pipeline duration.
 static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claims)
 {
+    UserConfig cfg;
+    int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
+    if (found == -1)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Database error");
+        return;
+    }
+    if (found == 1)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "User config not set. Use PUT /user/config first.");
+        return;
+    }
+
     WorkCompletion wc;
     if (WorkCompletion_Initiate(&wc) != 0)
     {
@@ -38,13 +56,17 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
         .clientFd   = fd,
         .completion = &wc
     };
-    // TODO Fas 3: replace hardcoded location/region with user config from SQLite
-    //             looked up by claims->subject (user_id).
-    strncpy(req.location, "stockholm", sizeof(req.location) - 1);
-    strncpy(req.region,   "SE3",       sizeof(req.region) - 1);
+    snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
+    snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
+    strncpy(req.region,   cfg.region,      sizeof(req.region)   - 1);
+    strncpy(req.location, claims->subject, sizeof(req.location) - 1);
+    req.solarAreaM2     = cfg.solarAreaM2;
+    req.solarEfficiency = cfg.solarEfficiency;
+    req.consumptionKwh  = cfg.consumptionKwh;
 
-    LOG_INFO("ClientHandler: Forecast for user=%s location=%s region=%s",
-             claims->subject, req.location, req.region);
+    LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h",
+             claims->subject, req.lat, req.lon, req.region,
+             req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
 
     if (GridGuard_SubmitRequest(app, &req) != 0)
     {
@@ -61,6 +83,85 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
                                "Pipeline error or timeout");
 
     WorkCompletion_Destroy(&wc);
+}
+
+// GET /user/config — returns the stored config for the authenticated user.
+static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims)
+{
+    UserConfig cfg;
+    int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
+    if (found == -1)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Database error");
+        return;
+    }
+    if (found == 1)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "No config found");
+        return;
+    }
+
+    char json[256];
+    snprintf(json, sizeof(json),
+             "{\"latitude\":%.4f,\"longitude\":%.4f,"
+             "\"region\":\"%s\",\"solar_area_m2\":%.2f,"
+             "\"solar_efficiency\":%.3f,\"consumption_kwh\":%.3f,"
+             "\"updated_at\":%ld}",
+             cfg.latitude, cfg.longitude, cfg.region,
+             cfg.solarAreaM2, cfg.solarEfficiency,
+             cfg.consumptionKwh, cfg.updatedAt);
+    HTTPResponse_SendJson(fd, json);
+}
+
+// PUT /user/config — persist lat/lon/region/solar for the authenticated user.
+static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims,
+                                const HTTPRequest *request)
+{
+    cJSON *json = cJSON_Parse(request->body);
+    if (!json)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid JSON");
+        return;
+    }
+
+    cJSON *jLat         = cJSON_GetObjectItemCaseSensitive(json, "latitude");
+    cJSON *jLon         = cJSON_GetObjectItemCaseSensitive(json, "longitude");
+    cJSON *jRegion      = cJSON_GetObjectItemCaseSensitive(json, "region");
+    cJSON *jArea        = cJSON_GetObjectItemCaseSensitive(json, "solar_area_m2");
+    cJSON *jEff         = cJSON_GetObjectItemCaseSensitive(json, "solar_efficiency");
+    cJSON *jConsumption = cJSON_GetObjectItemCaseSensitive(json, "consumption_kwh");
+
+    if (!cJSON_IsNumber(jLat) || !cJSON_IsNumber(jLon) || !cJSON_IsString(jRegion))
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "Missing required fields: latitude, longitude, region");
+        cJSON_Delete(json);
+        return;
+    }
+
+    UserConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.userId, claims->subject, sizeof(cfg.userId) - 1);
+    cfg.latitude        = jLat->valuedouble;
+    cfg.longitude       = jLon->valuedouble;
+    strncpy(cfg.region, jRegion->valuestring, sizeof(cfg.region) - 1);
+    cfg.solarAreaM2     = cJSON_IsNumber(jArea)        ? jArea->valuedouble        : 0.0;
+    cfg.solarEfficiency = cJSON_IsNumber(jEff)         ? jEff->valuedouble         : 0.0;
+    cfg.consumptionKwh  = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
+
+    cJSON_Delete(json);
+
+    if (UserConfigDB_Upsert(&app->db, &cfg) != 0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Failed to save config");
+        return;
+    }
+
+    LOG_INFO("ClientHandler: Saved config for user=%s lat=%.4f lon=%.4f region=%s",
+             cfg.userId, cfg.latitude, cfg.longitude, cfg.region);
+    HTTPResponse_SendJson(fd, "{\"status\":\"ok\"}");
 }
 
 // ---------------------------------------------------------------------------
@@ -111,15 +212,14 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
     {
         HandleForecast(fd, app, &claims);
     }
-    else if (strcmp(request.path, "/weather") == 0)
+    else if (strcmp(request.path, "/user/config") == 0)
     {
-        // TODO Fas 3: fetch real weather data for claims->subject's location
-        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Not implemented yet");
-    }
-    else if (strcmp(request.path, "/spotprice") == 0)
-    {
-        // TODO Fas 3: fetch real spot prices for claims->subject's region
-        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Not implemented yet");
+        if (strcmp(request.method, "GET") == 0)
+            HandleGetUserConfig(fd, app, &claims);
+        else if (strcmp(request.method, "PUT") == 0)
+            HandlePutUserConfig(fd, app, &claims, &request);
+        else
+            HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Method not allowed");
     }
     else
     {

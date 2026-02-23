@@ -13,22 +13,6 @@
 #include <stdio.h>
 #include <time.h>
 
-// Map EnergyAction to BUY / SELL / IDLE signal string
-static const char *ActionToSignal(EnergyAction action)
-{
-    switch (action)
-    {
-        case ACTION_BUY_FROM_GRID:
-        case ACTION_CHARGE_BATTERY:
-            return "BUY";
-        case ACTION_SELL_TO_GRID:
-        case ACTION_DISCHARGE_BATTERY:
-            return "SELL";
-        default:
-            return "IDLE";
-    }
-}
-
 // Serialize EnergyData to JSON into the WorkCompletion buffer.
 // Returns 0 on success, -1 if buffer too small.
 static int SerializeEnergyPlan(const EnergyData *plan,
@@ -52,6 +36,7 @@ static int SerializeEnergyPlan(const EnergyData *plan,
         return -1;
 
     int pos = written;
+    int first = 1;
 
     for (int i = 0; i < plan->count; i++)
     {
@@ -65,18 +50,20 @@ static int SerializeEnergyPlan(const EnergyData *plan,
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%SZ", &tm_info);
 
         int n = snprintf(buf + pos, bufSize - pos,
-            "%s{\"time\":\"%s\",\"action\":\"%s\","
-            "\"price_sek_kwh\":%.4f,\"solar_kwh\":%.3f}",
-            (i > 0) ? "," : "",
+            "%s{\"time\":\"%s\",\"signal\":\"%s\","
+            "\"price_sek_kwh\":%.4f,\"solar_kwh\":%.3f,\"consumption_kwh\":%.3f}",
+            first ? "" : ",",
             timeStr,
-            ActionToSignal(e->action),
+            EnergyAction_ToString(e->action),
             e->spotPrice,
-            e->productionKwh);
+            e->productionKwh,
+            e->consumptionKwh);
 
         if (n < 0 || (size_t)(pos + n) >= bufSize)
             return -1;
 
         pos += n;
+        first = 0;
     }
 
     int tail = snprintf(buf + pos, bufSize - pos, "]}");
@@ -104,13 +91,21 @@ void *ComputeWorker_Run(void *arg)
         }
 
         ParseResult *parseData = (ParseResult *)item.data;
-        LOG_INFO("ComputeWorker: Processing %s/%s", parseData->location, parseData->region);
+        LOG_INFO("ComputeWorker: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)",
+                 parseData->location, parseData->region,
+                 parseData->solarAreaM2,
+                 parseData->solarEfficiency * 100.0,
+                 parseData->consumptionKwh);
 
-        // WorkCompletion pointer from the original WorkRequest
         WorkCompletion *channel = parseData->completion;
 
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(&app->compute, &parseData->forecastData, &plan) != 0)
+        if (Compute_GenerateEnergyPlan(&app->compute,
+                                       &parseData->forecastData,
+                                       parseData->solarAreaM2,
+                                       parseData->solarEfficiency,
+                                       parseData->consumptionKwh,
+                                       &plan) != 0)
         {
             LOG_ERROR("ComputeWorker: Failed to generate energy plan");
             if (channel)
@@ -119,13 +114,11 @@ void *ComputeWorker_Run(void *arg)
             continue;
         }
 
-        LOG_INFO("ComputeWorker: Plan ready — %d entries, %.2f SEK total",
-                 plan.count, plan.totalCostSek);
+        LOG_INFO("ComputeWorker: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh",
+                 plan.count, plan.totalGridImportKwh, plan.totalGridExportKwh);
 
         char json[WORK_COMPLETION_BUFFER_SIZE];
-        if (SerializeEnergyPlan(&plan,
-                                parseData->location,
-                                parseData->region,
+        if (SerializeEnergyPlan(&plan, parseData->location, parseData->region,
                                 json, sizeof(json)) != 0)
         {
             LOG_ERROR("ComputeWorker: JSON serialization failed (buffer too small?)");
@@ -135,7 +128,6 @@ void *ComputeWorker_Run(void *arg)
             continue;
         }
 
-        // Signal the waiting HTTP worker thread with the result
         if (channel)
             WorkCompletion_Signal(channel, json);
 

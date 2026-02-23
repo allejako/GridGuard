@@ -11,6 +11,9 @@ typedef struct
     char            location[64];
     char            region[16];
     int             clientFd;
+    double          solarAreaM2;
+    double          solarEfficiency;
+    double          consumptionKwh;
     WorkCompletion *completion; // Passed through pipeline, signalled by ComputeWorker
 } ParseResult;
 

@@ -41,12 +41,15 @@ void *FetchWorker_Run(void *arg)
 
         strncpy(result->location, request->location, sizeof(result->location) - 1);
         strncpy(result->region, request->region, sizeof(result->region) - 1);
-        result->clientFd = request->clientFd;
-        result->completion = request->completion;
+        result->clientFd        = request->clientFd;
+        result->solarAreaM2     = request->solarAreaM2;
+        result->solarEfficiency = request->solarEfficiency;
+        result->consumptionKwh  = request->consumptionKwh;
+        result->completion      = request->completion;
 
         // --- SMHI weather data: key = "smhi_lat_lon" ---
         char smhiKey[JSON_CACHE_KEY_MAX];
-        snprintf(smhiKey, sizeof(smhiKey), "smhi_%s_%s", WEATHER_LAT, WEATHER_LON);
+        snprintf(smhiKey, sizeof(smhiKey), "smhi_%s_%s", request->lat, request->lon);
 
         if (JsonCache_Lookup(&app->weatherCache, smhiKey,
                              result->smhiJson, sizeof(result->smhiJson)) == 0)
@@ -56,7 +59,7 @@ void *FetchWorker_Run(void *arg)
         else
         {
             char smhiUrl[512];
-            BuildSMHIApiUrl(smhiUrl, sizeof(smhiUrl), WEATHER_LAT, WEATHER_LON);
+            BuildSMHIApiUrl(smhiUrl, sizeof(smhiUrl), request->lat, request->lon);
 
             FetchResponse smhiResp;
             if (Fetcher_Fetch(&app->fetcher, smhiUrl, &smhiResp) == 0)
@@ -74,7 +77,7 @@ void *FetchWorker_Run(void *arg)
 
         // --- Open-Meteo weather data: key = "openmeteo_lat_lon" ---
         char weatherKey[JSON_CACHE_KEY_MAX];
-        snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", WEATHER_LAT, WEATHER_LON);
+        snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request->lat, request->lon);
 
         if (JsonCache_Lookup(&app->weatherCache, weatherKey,
                              result->openMeteoJson, sizeof(result->openMeteoJson)) == 0)
@@ -84,7 +87,7 @@ void *FetchWorker_Run(void *arg)
         else
         {
             char openMeteoUrl[512];
-            BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), WEATHER_LAT, WEATHER_LON);
+            BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request->lat, request->lon);
 
             FetchResponse omResp;
             if (Fetcher_Fetch(&app->fetcher, openMeteoUrl, &omResp) == 0)
