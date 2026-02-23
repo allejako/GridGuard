@@ -30,6 +30,9 @@ config/*.conf
 # External libraries
 cJSON/
 
+# Database
+*.db
+
 # OS files
 .DS_Store
 Thumbs.db

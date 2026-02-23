@@ -102,7 +102,7 @@ static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
-    char json[256];
+    char json[512];
     snprintf(json, sizeof(json),
              "{\"latitude\":%.4f,\"longitude\":%.4f,"
              "\"region\":\"%s\",\"solar_area_m2\":%.2f,"
@@ -140,15 +140,51 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
+    double lat = jLat->valuedouble;
+    double lon = jLon->valuedouble;
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "Invalid coordinates: latitude must be -90..90, longitude -180..180");
+        cJSON_Delete(json);
+        return;
+    }
+
+    double area = cJSON_IsNumber(jArea) ? jArea->valuedouble : 0.0;
+    double eff  = cJSON_IsNumber(jEff)  ? jEff->valuedouble  : 0.0;
+    double load = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
+
+    if (area < 0.0 || area > 10000.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "Invalid solar_area_m2: must be 0..10000");
+        cJSON_Delete(json);
+        return;
+    }
+    if (eff < 0.0 || eff > 1.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "Invalid solar_efficiency: must be 0.0..1.0");
+        cJSON_Delete(json);
+        return;
+    }
+    if (load < 0.0 || load > 1000.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
+                               "Invalid consumption_kwh: must be 0..1000");
+        cJSON_Delete(json);
+        return;
+    }
+
     UserConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.userId, claims->subject, sizeof(cfg.userId) - 1);
-    cfg.latitude        = jLat->valuedouble;
-    cfg.longitude       = jLon->valuedouble;
+    cfg.latitude        = lat;
+    cfg.longitude       = lon;
     strncpy(cfg.region, jRegion->valuestring, sizeof(cfg.region) - 1);
-    cfg.solarAreaM2     = cJSON_IsNumber(jArea)        ? jArea->valuedouble        : 0.0;
-    cfg.solarEfficiency = cJSON_IsNumber(jEff)         ? jEff->valuedouble         : 0.0;
-    cfg.consumptionKwh  = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
+    cfg.solarAreaM2     = area;
+    cfg.solarEfficiency = eff;
+    cfg.consumptionKwh  = load;
 
     cJSON_Delete(json);
 

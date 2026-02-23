@@ -129,15 +129,17 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("GridGuard: Failed to create parse worker thread");
         app->isRunning = false;
+        // Shutdown queues first to unblock fetchThread blocked in Queue_Pop,
+        // then join — otherwise pthread_join deadlocks.
+        Queue_Shutdown(&app->requestQueue);
+        Queue_Shutdown(&app->fetchQueue);
+        Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
         JsonCache_Shutdown(&app->priceCache);
         JsonCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
         Database_Shutdown(&app->db);
         return -1;
     }
@@ -146,6 +148,10 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("GridGuard: Failed to create compute worker thread");
         app->isRunning = false;
+        // Shutdown all queues before joining to unblock threads in Queue_Pop.
+        Queue_Shutdown(&app->requestQueue);
+        Queue_Shutdown(&app->fetchQueue);
+        Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
         pthread_join(app->parseThread, NULL);
         JsonCache_Shutdown(&app->priceCache);
@@ -153,9 +159,6 @@ int GridGuard_Initiate(GridGuard *app)
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
         Database_Shutdown(&app->db);
         return -1;
     }
