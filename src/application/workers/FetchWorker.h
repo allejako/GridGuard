@@ -3,9 +3,8 @@
 
 typedef struct
 {
-    char smhiJson[8192];
+    char smhiJson[1000000];
     char openMeteoJson[8192];
-    char weatherJson[32768];
     char priceJson[16384];
     char location[64];
     char region[16];
