@@ -20,6 +20,9 @@ APPLICATION_DIR = $(SRC_DIR)/application
 APP_CORE_DIR = $(APPLICATION_DIR)/core
 APP_WORKERS_DIR = $(APPLICATION_DIR)/workers
 APP_MODELS_DIR = $(APPLICATION_DIR)/models
+APP_MODELS_APIS_DIR = $(APP_MODELS_DIR)/apis
+APP_MODELS_DOMAIN_DIR = $(APP_MODELS_DIR)/domain
+APP_MODELS_CONFIG_DIR = $(APP_MODELS_DIR)/config
 APP_SERVICES_DIR = $(APPLICATION_DIR)/services
 APP_API_DIR = $(APPLICATION_DIR)/api
 APP_CONFIGS_DIR = $(APPLICATION_DIR)/configs
@@ -51,6 +54,9 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(APP_CORE_DIR) \
            -I$(APP_WORKERS_DIR) \
            -I$(APP_MODELS_DIR) \
+           -I$(APP_MODELS_APIS_DIR) \
+           -I$(APP_MODELS_DOMAIN_DIR) \
+           -I$(APP_MODELS_CONFIG_DIR) \
            -I$(APP_SERVICES_DIR) \
            -I$(APP_API_DIR) \
            -I$(APP_CONFIGS_DIR) \
@@ -74,6 +80,7 @@ CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 # Output binaries
 SERVER_BIN = $(BIN_DIR)/GridGuard-server
 CLIENT_BIN = $(BIN_DIR)/GridGuard-client
+WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
 
 # Source files
 SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
@@ -84,7 +91,7 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(APP_CORE_DIR)/*.c) \
                 $(wildcard $(APP_WORKERS_DIR)/*.c) \
-                $(wildcard $(APP_MODELS_DIR)/*.c) \
+                $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
                 $(wildcard $(SYNC_DIR)/*.c) \
@@ -108,6 +115,14 @@ TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 # Test binary
 TEST_BIN = $(BIN_DIR)/test_runner
 
+# Watchdog source files
+WATCHDOG_SRCS = $(WATCHDOG_DIR)/main.c \
+                $(WATCHDOG_DIR)/Watchdog.c \
+                $(DAEMON_DIR)/PidFile.c \
+                $(LOGGING_DIR)/Logger.c
+
+WATCHDOG_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(WATCHDOG_SRCS))
+
 # Default target
 .PHONY: all
 all: directories server client
@@ -127,7 +142,9 @@ directories:
 	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
-	@mkdir -p $(BUILD_DIR)/application/models
+	@mkdir -p $(BUILD_DIR)/application/models/apis
+	@mkdir -p $(BUILD_DIR)/application/models/domain
+	@mkdir -p $(BUILD_DIR)/application/models/config
 	@mkdir -p $(BUILD_DIR)/application/services
 	@mkdir -p $(BUILD_DIR)/application/api
 	@mkdir -p $(BUILD_DIR)/application/configs
@@ -170,6 +187,15 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@echo "Compiling $<..."
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# Build watchdog
+.PHONY: watchdog
+watchdog: directories $(WATCHDOG_BIN)
+
+$(WATCHDOG_BIN): $(WATCHDOG_OBJS)
+	@echo "Linking watchdog..."
+	$(CC) -o $@ $^ $(LDFLAGS)
+	@echo "Watchdog built successfully: $@"
+
 # Debug build with additional flags
 .PHONY: debug
 debug: CFLAGS += -DDEBUG -O0
@@ -204,7 +230,7 @@ $(TEST_BIN): $(TEST_OBJS)
 
 # Run all tests
 .PHONY: test
-test: test-api test-logger test-pipeline
+test: test-api test-logger test-pipeline test-weather
 	@echo ""
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -214,12 +240,13 @@ test: test-api test-logger test-pipeline
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
+TEST_WEATHER_BIN = $(BIN_DIR)/test_multi_source_weather
 
 # Test dependencies
 TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
-                $(wildcard $(APP_MODELS_DIR)/*.c) \
+                $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
 TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
@@ -230,8 +257,14 @@ TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
                      $(wildcard $(LOGGING_DIR)/*.c) \
-                     $(wildcard $(APP_MODELS_DIR)/*.c) \
+                     $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                      $(wildcard $(LIBS_DIR)/*.c)
+
+TEST_WEATHER_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
+                    $(wildcard $(LOGGING_DIR)/*.c) \
+                    $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                    $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
+                    $(wildcard $(LIBS_DIR)/*.c)
 
 # Build API test
 $(TEST_API_BIN): $(TEST_DIR)/integration/test_api_fetch.c $(TEST_API_DEPS)
@@ -269,6 +302,18 @@ test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@echo "Running Pipeline test..."
 	@$(TEST_PIPELINE_BIN)
 
+# Build Multi-Source Weather test
+$(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS)
+	@echo "Building Multi-Source Weather test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS) $(LDFLAGS)
+	@echo "Multi-Source Weather test built: $@"
+
+# Run Multi-Source Weather test
+.PHONY: test-weather
+test-weather: directories $(TEST_WEATHER_BIN)
+	@echo "Running Multi-Source Weather test..."
+	@$(TEST_WEATHER_BIN)
+
 # Run server
 .PHONY: run-server
 run-server: server
@@ -280,6 +325,12 @@ run-server: server
 run-client: client
 	@echo "Starting client..."
 	@$(CLIENT_BIN)
+
+# Run watchdog (starts daemon automatically)
+.PHONY: run-watchdog
+run-watchdog: server watchdog
+	@echo "Starting watchdog..."
+	@$(WATCHDOG_BIN)
 
 # Run both (server in background, client in foreground)
 .PHONY: run

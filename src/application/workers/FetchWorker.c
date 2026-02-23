@@ -13,7 +13,7 @@
 void *FetchWorker_Run(void *arg)
 {
     GridGuard *app = (GridGuard *)arg;
-    LOG_INFO("FetchWorker: Thread started");
+    LOG_INFO("FetchWorker: Thread started (multi-source mode: SMHI + Open-Meteo)");
 
     while (app->isRunning)
     {
@@ -43,32 +43,67 @@ void *FetchWorker_Run(void *arg)
         strncpy(result->region, request->region, sizeof(result->region) - 1);
         result->clientFd = request->clientFd;
 
-        // --- Weather data: key = "lat_lon" ---
-        char weatherKey[JSON_CACHE_KEY_MAX];
-        snprintf(weatherKey, sizeof(weatherKey), "%s_%s", WEATHER_LAT, WEATHER_LON);
+        // --- SMHI weather data: key = "smhi_lat_lon" ---
+        char smhiKey[JSON_CACHE_KEY_MAX];
+        snprintf(smhiKey, sizeof(smhiKey), "smhi_%s_%s", WEATHER_LAT, WEATHER_LON);
 
-        if (JsonCache_Lookup(&app->weatherCache, weatherKey,
-                             result->weatherJson, sizeof(result->weatherJson)) == 0)
+        if (JsonCache_Lookup(&app->weatherCache, smhiKey,
+                             result->smhiJson, sizeof(result->smhiJson)) == 0)
         {
-            LOG_INFO("FetchWorker: Weather cache HIT (%s)", weatherKey);
+            LOG_INFO("FetchWorker: SMHI cache HIT (%s)", smhiKey);
         }
         else
         {
-            char weatherUrl[512];
-            BuildWeatherApiUrl(weatherUrl, sizeof(weatherUrl), WEATHER_LAT, WEATHER_LON);
+            char smhiUrl[512];
+            BuildSMHIApiUrl(smhiUrl, sizeof(smhiUrl), WEATHER_LAT, WEATHER_LON);
 
-            FetchResponse weatherResp;
-            if (Fetcher_Fetch(&app->fetcher, weatherUrl, &weatherResp) == 0)
+            FetchResponse smhiResp;
+            if (Fetcher_Fetch(&app->fetcher, smhiUrl, &smhiResp) == 0)
             {
-                strncpy(result->weatherJson, weatherResp.data, sizeof(result->weatherJson) - 1);
-                JsonCache_Store(&app->weatherCache, weatherKey, weatherResp.data);
-                Fetcher_FreeResponse(&weatherResp);
-                LOG_INFO("FetchWorker: Got weather data (%zu bytes)", strlen(result->weatherJson));
+                strncpy(result->smhiJson, smhiResp.data, sizeof(result->smhiJson) - 1);
+                JsonCache_Store(&app->weatherCache, smhiKey, smhiResp.data);
+                Fetcher_FreeResponse(&smhiResp);
+                LOG_INFO("FetchWorker: Got SMHI data (%zu bytes)", strlen(result->smhiJson));
             }
             else
             {
-                LOG_ERROR("FetchWorker: Failed to get weather data");
+                LOG_WARNING("FetchWorker: SMHI fetch failed - will use Open-Meteo as fallback");
             }
+        }
+
+        // --- Open-Meteo weather data: key = "openmeteo_lat_lon" ---
+        char weatherKey[JSON_CACHE_KEY_MAX];
+        snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", WEATHER_LAT, WEATHER_LON);
+
+        if (JsonCache_Lookup(&app->weatherCache, weatherKey,
+                             result->openMeteoJson, sizeof(result->openMeteoJson)) == 0)
+        {
+            LOG_INFO("FetchWorker: Open-Meteo cache HIT (%s)", weatherKey);
+            strncpy(result->weatherJson, result->openMeteoJson, sizeof(result->weatherJson) - 1);
+        }
+        else
+        {
+            char openMeteoUrl[512];
+            BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), WEATHER_LAT, WEATHER_LON);
+
+            FetchResponse omResp;
+            if (Fetcher_Fetch(&app->fetcher, openMeteoUrl, &omResp) == 0)
+            {
+                strncpy(result->openMeteoJson, omResp.data, sizeof(result->openMeteoJson) - 1);
+                strncpy(result->weatherJson, omResp.data, sizeof(result->weatherJson) - 1);
+                JsonCache_Store(&app->weatherCache, weatherKey, omResp.data);
+                Fetcher_FreeResponse(&omResp);
+                LOG_INFO("FetchWorker: Got Open-Meteo data (%zu bytes)", strlen(result->openMeteoJson));
+            }
+            else
+            {
+                LOG_WARNING("FetchWorker: Open-Meteo fetch failed");
+            }
+        }
+
+        if (strlen(result->smhiJson) == 0 && strlen(result->openMeteoJson) == 0)
+        {
+            LOG_ERROR("FetchWorker: CRITICAL - Both weather sources failed!");
         }
 
         // --- Price data: key = "region_YYYY-MM-DD" ---

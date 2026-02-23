@@ -5,10 +5,10 @@
 #define _COMPUTE_H_
 
 #include <pthread.h>
-#include "ForecastData.h"
-#include "EnergyData.h"
-#include "OpenMeteoData.h"
-#include "ElprisetData.h"
+#include "Forecast.h"
+#include "Energy.h"
+#include "OpenMeteoResponse.h"
+#include "ElprisetResponse.h"
 
 typedef struct
 {

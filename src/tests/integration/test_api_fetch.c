@@ -5,8 +5,8 @@
 #include "Fetcher.h"
 #include "APIEndpoints.h"
 #include "Parser.h"
-#include "OpenMeteoData.h"
-#include "ElprisetData.h"
+#include "OpenMeteoResponse.h"
+#include "ElprisetResponse.h"
 #include "Config.h"
 
 void print_separator(const char *title)

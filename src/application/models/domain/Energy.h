@@ -3,8 +3,10 @@
 
 #include <time.h>
 #include <stdbool.h>
+#include "Solar.h"
+#include "Battery.h"
+#include "Consumption.h"
 
-// Solar production calculation
 typedef struct
 {
     time_t timestamp;
@@ -13,7 +15,6 @@ typedef struct
     bool valid;
 } SolarProduction;
 
-// Energy plan actions
 typedef enum
 {
     ACTION_BUY_FROM_GRID,
@@ -24,7 +25,6 @@ typedef enum
     ACTION_IDLE
 } EnergyAction;
 
-// Energy plan entry for 15-minute interval
 typedef struct
 {
     time_t timestamp;
@@ -39,7 +39,6 @@ typedef struct
     bool valid;
 } EnergyDataEntry;
 
-// Complete energy plan for 24-72 hours
 typedef struct
 {
     EnergyDataEntry entries[288];  // 72h with 15-min intervals
@@ -51,37 +50,6 @@ typedef struct
     double totalBatteryCycles;
 } EnergyData;
 
-// Solar panel configuration
-typedef struct
-{
-    double panelEfficiency;       // 0-1, typically 0.15-0.22
-    double panelAreaM2;
-    double orientationDegrees;    // 0=north, 90=east, 180=south, 270=west
-    double tiltDegrees;           // 0-90
-    double peakPowerKw;
-} SolarConfig;
-
-// Battery configuration
-typedef struct
-{
-    double capacityKwh;
-    double maxChargeRateKw;
-    double maxDischargeRateKw;
-    double minSocPercent;
-    double maxSocPercent;
-    double currentSocPercent;
-    double efficiency;            // 0-1
-} BatteryConfig;
-
-// Household consumption profile
-typedef struct
-{
-    double baseLoadKw;
-    double peakLoadKw;
-    double averageDailyKwh;
-} ConsumptionProfile;
-
-// Utility functions
 const char* EnergyAction_ToString(EnergyAction action);
 bool EnergyDataEntry_IsValid(const EnergyDataEntry *entry);
 

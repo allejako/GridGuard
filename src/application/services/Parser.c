@@ -16,6 +16,152 @@ int Parser_Initiate(Parser *parser)
     return 0;
 }
 
+int Parser_ParseSMHI(Parser *parser, const char *jsonData, SMHIResponse *response)
+{
+    if (!parser || !parser->isInitialized || !jsonData || !response)
+    {
+        LOG_ERROR("Invalid parameters for Parser_ParseSMHI");
+        return -1;
+    }
+
+    pthread_mutex_lock(&parser->mutex);
+
+    cJSON *root = cJSON_Parse(jsonData);
+    if (!root)
+    {
+        LOG_ERROR("Failed to parse SMHI JSON: %s", cJSON_GetErrorPtr());
+        pthread_mutex_unlock(&parser->mutex);
+        return -1;
+    }
+
+    memset(response, 0, sizeof(SMHIResponse));
+
+    // Parse metadata
+    cJSON *approvedTime = cJSON_GetObjectItem(root, "approvedTime");
+    if (cJSON_IsString(approvedTime))
+    {
+        strncpy(response->approvedTime, approvedTime->valuestring, sizeof(response->approvedTime) - 1);
+    }
+
+    cJSON *referenceTime = cJSON_GetObjectItem(root, "referenceTime");
+    if (cJSON_IsString(referenceTime))
+    {
+        strncpy(response->referenceTime, referenceTime->valuestring, sizeof(response->referenceTime) - 1);
+    }
+
+    // Parse geometry coordinates
+    cJSON *geometry = cJSON_GetObjectItem(root, "geometry");
+    if (cJSON_IsObject(geometry))
+    {
+        cJSON *coordinates = cJSON_GetObjectItem(geometry, "coordinates");
+        if (cJSON_IsArray(coordinates) && cJSON_GetArraySize(coordinates) > 0)
+        {
+            cJSON *coordPair = cJSON_GetArrayItem(coordinates, 0);
+            if (cJSON_IsArray(coordPair) && cJSON_GetArraySize(coordPair) == 2)
+            {
+                response->longitude = cJSON_GetArrayItem(coordPair, 0)->valuedouble;
+                response->latitude = cJSON_GetArrayItem(coordPair, 1)->valuedouble;
+            }
+        }
+    }
+
+    // Parse timeSeries array
+    cJSON *timeSeries = cJSON_GetObjectItem(root, "timeSeries");
+    if (!cJSON_IsArray(timeSeries))
+    {
+        LOG_ERROR("SMHI JSON missing 'timeSeries' array");
+        cJSON_Delete(root);
+        pthread_mutex_unlock(&parser->mutex);
+        return -1;
+    }
+
+    int arraySize = cJSON_GetArraySize(timeSeries);
+    int parsedCount = 0;
+
+    for (int i = 0; i < arraySize && parsedCount < 168; i++)
+    {
+        cJSON *timeEntry = cJSON_GetArrayItem(timeSeries, i);
+        if (!cJSON_IsObject(timeEntry))
+            continue;
+
+        SMHITimeEntry *entry = &response->timeSeries[parsedCount];
+
+        // Parse validTime
+        cJSON *validTime = cJSON_GetObjectItem(timeEntry, "validTime");
+        if (cJSON_IsString(validTime))
+        {
+            strncpy(entry->validTime, validTime->valuestring, sizeof(entry->validTime) - 1);
+        }
+
+        // Parse parameters array
+        cJSON *parameters = cJSON_GetObjectItem(timeEntry, "parameters");
+        if (cJSON_IsArray(parameters))
+        {
+            int paramArraySize = cJSON_GetArraySize(parameters);
+            entry->paramCount = 0;
+
+            for (int j = 0; j < paramArraySize && entry->paramCount < SMHI_MAX_PARAMETERS; j++)
+            {
+                cJSON *param = cJSON_GetArrayItem(parameters, j);
+                if (!cJSON_IsObject(param))
+                    continue;
+
+                SMHIParameter *p = &entry->parameters[entry->paramCount];
+
+                // Parse name
+                cJSON *name = cJSON_GetObjectItem(param, "name");
+                if (cJSON_IsString(name))
+                {
+                    strncpy(p->name, name->valuestring, sizeof(p->name) - 1);
+                }
+
+                // Parse levelType
+                cJSON *levelType = cJSON_GetObjectItem(param, "levelType");
+                if (cJSON_IsString(levelType))
+                {
+                    strncpy(p->levelType, levelType->valuestring, sizeof(p->levelType) - 1);
+                }
+
+                // Parse level
+                cJSON *level = cJSON_GetObjectItem(param, "level");
+                if (cJSON_IsNumber(level))
+                {
+                    p->level = level->valueint;
+                }
+
+                // Parse unit
+                cJSON *unit = cJSON_GetObjectItem(param, "unit");
+                if (cJSON_IsString(unit))
+                {
+                    strncpy(p->unit, unit->valuestring, sizeof(p->unit) - 1);
+                }
+
+                // Parse values array (SMHI wraps value in array)
+                cJSON *values = cJSON_GetObjectItem(param, "values");
+                if (cJSON_IsArray(values) && cJSON_GetArraySize(values) > 0)
+                {
+                    cJSON *value = cJSON_GetArrayItem(values, 0);
+                    if (cJSON_IsNumber(value))
+                    {
+                        p->value = value->valuedouble;
+                    }
+                }
+
+                entry->paramCount++;
+            }
+        }
+
+        parsedCount++;
+    }
+
+    response->count = parsedCount;
+
+    cJSON_Delete(root);
+    LOG_INFO("Parsed %d SMHI forecast entries", parsedCount);
+    pthread_mutex_unlock(&parser->mutex);
+    return 0;
+}
+
 int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoResponse *forecast)
 {
     if (!parser || !parser->isInitialized || !jsonData || !forecast)

@@ -1,7 +1,7 @@
 // MOCK IMPLEMENTATION - Not yet fully implemented
 // This file contains minimal utility functions for EnergyData
 
-#include "EnergyData.h"
+#include "Energy.h"
 #include <string.h>
 
 const char* EnergyAction_ToString(EnergyAction action)
