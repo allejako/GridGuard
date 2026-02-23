@@ -1,5 +1,5 @@
-#ifndef WORK_COMPLETION_H
-#define WORK_COMPLETION_H
+#ifndef _WORK_COMPLETION_H
+#define _WORK_COMPLETION_H
 
 #include <pthread.h>
 
@@ -32,4 +32,4 @@ void WorkCompletion_SignalError(WorkCompletion *wc);
 // Returns 0 on success, -1 on error or timeout.
 int  WorkCompletion_Wait(WorkCompletion *wc);
 
-#endif // WORK_COMPLETION_H
+#endif // _WORK_COMPLETION_H

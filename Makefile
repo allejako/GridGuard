@@ -4,7 +4,18 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lcurl -lssl -lcrypto
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto
+
+# Kontrollera att mbedtls-devel är installerat
+ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)
+$(info )
+$(info Fel: mbedtls-devel saknas.)
+$(info Installera med:)
+$(info   Fedora/RHEL:  sudo dnf install mbedtls-devel)
+$(info   Ubuntu/Debian: sudo apt install libmbedtls-dev)
+$(info )
+$(error Avbryter bygget — mbedtls-devel måste installeras först)
+endif
 
 # Directories
 SRC_DIR = src
@@ -94,6 +105,7 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(AUTH_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
+                $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                 $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(APP_CORE_DIR)/*.c) \
                 $(wildcard $(APP_WORKERS_DIR)/*.c) \
@@ -257,6 +269,7 @@ TEST_HTTP_RESP_BIN = $(BIN_DIR)/test_http_response
 TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
@@ -265,6 +278,7 @@ TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
 TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(APP_WORKERS_DIR)/*.c) \
                      $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                     $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
                      $(wildcard $(LOGGING_DIR)/*.c) \
@@ -274,6 +288,7 @@ TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
 TEST_WEATHER_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                     $(wildcard $(LOGGING_DIR)/*.c) \
                     $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                    $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                     $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                     $(wildcard $(LIBS_DIR)/*.c)
 
@@ -335,7 +350,7 @@ test-weather: directories $(TEST_WEATHER_BIN)
 # Build JWT Validator test
 $(TEST_JWT_BIN): $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS)
 	@echo "Building JWT Validator test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS) $(LDFLAGS) -lssl -lcrypto
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS) $(LDFLAGS)
 	@echo "JWT Validator test built: $@"
 
 # Build HTTP Request test
