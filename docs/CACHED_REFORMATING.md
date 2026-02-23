@@ -86,7 +86,7 @@ Both cache instances share the same `JsonCache` type:
 ## Modified Files
 
 | File | Change |
-|------|--------|
+    |------|--------|
 | `src/application/core/GridGuard.h` | Replaced `Cache`/`cacheThread`/`computeQueue` with two `JsonCache` fields |
 | `src/application/core/GridGuard.c` | Updated init/shutdown; 3-thread log message |
 | `src/application/workers/FetchWorker.h` | `weatherJson` buffer increased from 8 192 → 32 768 bytes |
