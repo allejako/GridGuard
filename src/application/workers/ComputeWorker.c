@@ -1,10 +1,8 @@
 #include "ComputeWorker.h"
 #include "ParseWorker.h"
-#include "CacheWorker.h"
 #include "GridGuard.h"
 #include "Queue.h"
 #include "Compute.h"
-#include "Cache.h"
 #include "EnergyData.h"
 #include "Logger.h"
 #include <stdlib.h>
@@ -32,58 +30,48 @@ void *ComputeWorker_Run(void *arg)
         ParseResult *parseData = (ParseResult *)item.data;
         LOG_INFO("ComputeWorker: Processing data for %s/%s", parseData->location, parseData->region);
 
-        // Check cache first - if we have a valid cached plan, skip computation
-        EnergyData cachedPlan;
-        if (Cache_Lookup(&app->cache, parseData->location, parseData->region, &cachedPlan) == 0)
-        {
-            LOG_INFO("ComputeWorker: Cache HIT for %s/%s, skipping computation", parseData->location, parseData->region);
-
-            // Push cached result to cache worker for sending to client
-            ComputeResult *result = malloc(sizeof(ComputeResult));
-            if (result)
-            {
-                result->plan = cachedPlan;
-                strncpy(result->location, parseData->location, sizeof(result->location) - 1);
-                result->location[sizeof(result->location) - 1] = '\0';
-                strncpy(result->region, parseData->region, sizeof(result->region) - 1);
-                result->region[sizeof(result->region) - 1] = '\0';
-                result->clientFd = parseData->clientFd;
-
-                Queue_Push(&app->computeQueue, result, sizeof(ComputeResult), DATA_TYPE_ENERGY_PLAN);
-                free(result);
-            }
-
-            free(item.data);
-            continue;
-        }
-
-        // Cache MISS - generate energy plan
+        // Generate energy plan
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(&app->compute, &parseData->forecastData, &plan) == 0)
-        {
-            LOG_INFO("ComputeWorker: Generated plan with %d entries, cost: %.2f SEK",
-                     plan.count, plan.totalCostSek);
-
-            // Push result to cache worker
-            ComputeResult *result = malloc(sizeof(ComputeResult));
-            if (result)
-            {
-                result->plan = plan;
-                strncpy(result->location, parseData->location, sizeof(result->location) - 1);
-                result->location[sizeof(result->location) - 1] = '\0';
-                strncpy(result->region, parseData->region, sizeof(result->region) - 1);
-                result->region[sizeof(result->region) - 1] = '\0';
-                result->clientFd = parseData->clientFd;
-
-                Queue_Push(&app->computeQueue, result, sizeof(ComputeResult), DATA_TYPE_ENERGY_PLAN);
-                free(result);
-            }
-        }
-        else
+        if (Compute_GenerateEnergyPlan(&app->compute, &parseData->forecastData, &plan) != 0)
         {
             LOG_ERROR("ComputeWorker: Failed to generate energy plan");
             const char *error = "ERROR: Failed to generate energy plan\n";
             send(parseData->clientFd, error, strlen(error), 0);
+            free(item.data);
+            continue;
+        }
+
+        LOG_INFO("ComputeWorker: Generated plan with %d entries, cost: %.2f SEK",
+                 plan.count, plan.totalCostSek);
+
+        // Format and send response directly to client
+        char response[4096];
+        int len = snprintf(response, sizeof(response),
+            "\n=== Energy Plan for %s/%s ===\n"
+            "Entries: %d\n"
+            "Total Cost: %.2f SEK\n"
+            "Grid Import: %.2f kWh\n"
+            "Grid Export: %.2f kWh\n"
+            "\nFirst 10 hours:\n",
+            parseData->location, parseData->region,
+            plan.count, plan.totalCostSek,
+            plan.totalGridImportKwh, plan.totalGridExportKwh);
+
+        int entriesToShow = plan.count < 10 ? plan.count : 10;
+        for (int i = 0; i < entriesToShow; i++)
+        {
+            EnergyDataEntry *e = &plan.entries[i];
+            len += snprintf(response + len, sizeof(response) - len,
+                "[%d] Production: %.2f kWh, Price: %.2f SEK/kWh, Action: %s\n",
+                i, e->productionKwh, e->spotPrice,
+                EnergyAction_ToString(e->action));
+        }
+
+        len += snprintf(response + len, sizeof(response) - len, "\n");
+
+        if (send(parseData->clientFd, response, len, 0) < 0)
+        {
+            LOG_ERROR("ComputeWorker: Failed to send response to client");
         }
 
         free(item.data);

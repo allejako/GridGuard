@@ -2,7 +2,6 @@
 #include "FetchWorker.h"
 #include "ParseWorker.h"
 #include "ComputeWorker.h"
-#include "CacheWorker.h"
 #include "Queue.h"
 #include "Logger.h"
 
@@ -32,16 +31,8 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->fetchQueue);
         return -1;
     }
-    if (Queue_Initiate(&app->computeQueue) != 0)
-    {
-        LOG_ERROR("GridGuard: Failed to initiate compute queue");
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
-        return -1;
-    }
 
-    // Initialize services/components 
+    // Initialize services/components
     if (Fetcher_Initiate(&app->fetcher) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate APIFetcher");
@@ -96,21 +87,32 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
-        Queue_Shutdown(&app->computeQueue);
         return -1;
     }
 
-    // Initialize Cache with 15 minute TTL
-    if (Cache_Initiate(&app->cache, CACHE_DEFAULT_TTL_SECONDS) != 0)
+    // Initialize fetch-level caches
+    if (JsonCache_Initiate(&app->weatherCache, JSON_CACHE_DEFAULT_TTL_SEC) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to initiate Cache");
+        LOG_ERROR("GridGuard: Failed to initiate weather cache");
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
-        Queue_Shutdown(&app->computeQueue);
+        return -1;
+    }
+
+    if (JsonCache_Initiate(&app->priceCache, JSON_CACHE_DEFAULT_TTL_SEC) != 0)
+    {
+        LOG_ERROR("GridGuard: Failed to initiate price cache");
+        JsonCache_Shutdown(&app->weatherCache);
+        Compute_Shutdown(&app->compute);
+        Parser_Shutdown(&app->parser);
+        Fetcher_Shutdown(&app->fetcher);
+        Queue_Shutdown(&app->requestQueue);
+        Queue_Shutdown(&app->fetchQueue);
+        Queue_Shutdown(&app->parseQueue);
         return -1;
     }
 
@@ -121,6 +123,8 @@ int GridGuard_Initiate(GridGuard *app)
     if (pthread_create(&app->fetchThread, NULL, FetchWorker_Run, app) != 0)
     {
         LOG_ERROR("GridGuard: Failed to create fetch worker thread");
+        JsonCache_Shutdown(&app->priceCache);
+        JsonCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -135,6 +139,8 @@ int GridGuard_Initiate(GridGuard *app)
         LOG_ERROR("GridGuard: Failed to create parse worker thread");
         app->isRunning = false;
         pthread_join(app->fetchThread, NULL);
+        JsonCache_Shutdown(&app->priceCache);
+        JsonCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -150,36 +156,18 @@ int GridGuard_Initiate(GridGuard *app)
         app->isRunning = false;
         pthread_join(app->fetchThread, NULL);
         pthread_join(app->parseThread, NULL);
-        Cache_Shutdown(&app->cache);
+        JsonCache_Shutdown(&app->priceCache);
+        JsonCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
-        Queue_Shutdown(&app->computeQueue);
         return -1;
     }
 
-    if (pthread_create(&app->cacheThread, NULL, CacheWorker_Run, app) != 0)
-    {
-        LOG_ERROR("GridGuard: Failed to create cache worker thread");
-        app->isRunning = false;
-        pthread_join(app->fetchThread, NULL);
-        pthread_join(app->parseThread, NULL);
-        pthread_join(app->computeThread, NULL);
-        Cache_Shutdown(&app->cache);
-        Compute_Shutdown(&app->compute);
-        Parser_Shutdown(&app->parser);
-        Fetcher_Shutdown(&app->fetcher);
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
-        Queue_Shutdown(&app->computeQueue);
-        return -1;
-    }
-
-    LOG_INFO("GridGuard: Application core initiated with 4 worker threads");
+    LOG_INFO("GridGuard: Application core initiated with 3 worker threads");
     return 0;
 }
 
@@ -207,16 +195,15 @@ void GridGuard_Shutdown(GridGuard *app)
     Queue_Shutdown(&app->requestQueue);
     Queue_Shutdown(&app->fetchQueue);
     Queue_Shutdown(&app->parseQueue);
-    Queue_Shutdown(&app->computeQueue);
 
     // Wait for all threads to finish
     pthread_join(app->fetchThread, NULL);
     pthread_join(app->parseThread, NULL);
     pthread_join(app->computeThread, NULL);
-    pthread_join(app->cacheThread, NULL);
 
     // Cleanup components
-    Cache_Shutdown(&app->cache);
+    JsonCache_Shutdown(&app->priceCache);
+    JsonCache_Shutdown(&app->weatherCache);
     Compute_Shutdown(&app->compute);
     Parser_Shutdown(&app->parser);
     Fetcher_Shutdown(&app->fetcher);

@@ -7,7 +7,7 @@
 #include "Fetcher.h"
 #include "Parser.h"
 #include "Compute.h"
-#include "Cache.h"
+#include "JsonCache.h"
 
 // Work request from client
 typedef struct
@@ -24,19 +24,20 @@ typedef struct GridGuard
     pthread_t fetchThread;
     pthread_t parseThread;
     pthread_t computeThread;
-    pthread_t cacheThread;
 
     // Producer-consumer queues
     Queue requestQueue;  // Client requests -> Fetch
     Queue fetchQueue;    // Fetch -> Parse
     Queue parseQueue;    // Parse -> Compute
-    Queue computeQueue;  // Compute -> Cache
 
     // Application services
     Fetcher fetcher;
     Parser parser;
     Compute compute;
-    Cache cache;
+
+    // Fetch-level caches (shared across clients)
+    JsonCache weatherCache;
+    JsonCache priceCache;
 
     // Control
     bool isRunning;

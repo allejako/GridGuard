@@ -7,6 +7,8 @@
 #include "Logger.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
 
 void *FetchWorker_Run(void *arg)
 {
@@ -41,36 +43,69 @@ void *FetchWorker_Run(void *arg)
         strncpy(result->region, request->region, sizeof(result->region) - 1);
         result->clientFd = request->clientFd;
 
-        // Build URLs
-        char weatherUrl[512];
-        char priceUrl[256];
-        BuildWeatherApiUrl(weatherUrl, sizeof(weatherUrl), WEATHER_LAT, WEATHER_LON);
-        BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request->region, NULL);
+        // --- Weather data: key = "lat_lon" ---
+        char weatherKey[JSON_CACHE_KEY_MAX];
+        snprintf(weatherKey, sizeof(weatherKey), "%s_%s", WEATHER_LAT, WEATHER_LON);
 
-        // Fetch weather data
-        FetchResponse weatherResp;
-        if (Fetcher_Fetch(&app->fetcher, weatherUrl, &weatherResp) == 0)
+        if (JsonCache_Lookup(&app->weatherCache, weatherKey,
+                             result->weatherJson, sizeof(result->weatherJson)) == 0)
         {
-            strncpy(result->weatherJson, weatherResp.data, sizeof(result->weatherJson) - 1);
-            Fetcher_FreeResponse(&weatherResp);
-            LOG_INFO("FetchWorker: Got weather data (%zu bytes)", strlen(result->weatherJson));
+            LOG_INFO("FetchWorker: Weather cache HIT (%s)", weatherKey);
         }
         else
         {
-            LOG_ERROR("FetchWorker: Failed to get weather data");
+            char weatherUrl[512];
+            BuildWeatherApiUrl(weatherUrl, sizeof(weatherUrl), WEATHER_LAT, WEATHER_LON);
+
+            FetchResponse weatherResp;
+            if (Fetcher_Fetch(&app->fetcher, weatherUrl, &weatherResp) == 0)
+            {
+                strncpy(result->weatherJson, weatherResp.data, sizeof(result->weatherJson) - 1);
+                JsonCache_Store(&app->weatherCache, weatherKey, weatherResp.data);
+                Fetcher_FreeResponse(&weatherResp);
+                LOG_INFO("FetchWorker: Got weather data (%zu bytes)", strlen(result->weatherJson));
+            }
+            else
+            {
+                LOG_ERROR("FetchWorker: Failed to get weather data");
+            }
         }
 
-        // Fetch price data
-        FetchResponse priceResp;
-        if (Fetcher_Fetch(&app->fetcher, priceUrl, &priceResp) == 0)
+        // --- Price data: key = "region_YYYY-MM-DD" ---
+        char priceKey[JSON_CACHE_KEY_MAX];
         {
-            strncpy(result->priceJson, priceResp.data, sizeof(result->priceJson) - 1);
-            Fetcher_FreeResponse(&priceResp);
-            LOG_INFO("FetchWorker: Got price data (%zu bytes)", strlen(result->priceJson));
+            time_t now = time(NULL);
+            struct tm today;
+            localtime_r(&now, &today);
+            snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
+                     request->region,
+                     today.tm_year + 1900,
+                     today.tm_mon + 1,
+                     today.tm_mday);
+        }
+
+        if (JsonCache_Lookup(&app->priceCache, priceKey,
+                             result->priceJson, sizeof(result->priceJson)) == 0)
+        {
+            LOG_INFO("FetchWorker: Price cache HIT (%s)", priceKey);
         }
         else
         {
-            LOG_ERROR("FetchWorker: Failed to get price data");
+            char priceUrl[256];
+            BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request->region, NULL);
+
+            FetchResponse priceResp;
+            if (Fetcher_Fetch(&app->fetcher, priceUrl, &priceResp) == 0)
+            {
+                strncpy(result->priceJson, priceResp.data, sizeof(result->priceJson) - 1);
+                JsonCache_Store(&app->priceCache, priceKey, priceResp.data);
+                Fetcher_FreeResponse(&priceResp);
+                LOG_INFO("FetchWorker: Got price data (%zu bytes)", strlen(result->priceJson));
+            }
+            else
+            {
+                LOG_ERROR("FetchWorker: Failed to get price data");
+            }
         }
 
         // Push to parse queue
