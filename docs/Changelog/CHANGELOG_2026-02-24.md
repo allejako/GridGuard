@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS user_configs (
 
 ## Omskriven beslutslogik i Compute
 
+> **Testversion.** Compute är i nuläget en scaffolding-implementation vars primära syfte är att verifiera att hela flödet fungerar — från API-svar (SMHI, Open-Meteo, Elpriset) via parsning och SQLite user config till ett komplett forecast-svar. Algoritmen är inte kalibrerad och ska inte ses som den slutgiltiga beslutslogiken. Den designas om när flödet är stabilt och C++-klienten är på plats.
+
 Den gamla `Compute` hade hårdkodade `SolarConfig`, `BatteryConfig` och `ConsumptionProfile`-structs. Nu skickas per-användardata direkt in som parametrar i `Compute_GenerateEnergyPlan`.
 
 Algoritmen arbetar i två pass. Första passet räknar ut genomsnittligt spotpris för dagen och sätter köptröskel till 80 % av snittet. Andra passet beräknar per timme:
@@ -52,7 +54,7 @@ solarKwh = (irradiance / 1000) × area × efficiency × 0.75
 netKwh   = solarKwh − consumptionKwh
 ```
 
-Om `netKwh > 0.05`: sälj till nätet. Om pris under köptröskel: köp (t.ex. ladda varmvattenberedare, starta diskmaskin). Annars: IDLE. Prestandafaktorn 0.75 täcker kabelförluster, temperaturpåverkan och inverterverkningsgrad.
+Om `netKwh > 0.05`: sälj till nätet. Om pris under köptröskel: köp. Annars: IDLE. Prestandafaktorn 0.75 täcker kabelförluster, temperaturpåverkan och inverterverkningsgrad.
 
 Per-användarvärdena (`solarAreaM2`, `solarEfficiency`, `consumptionKwh`) flödar nu hela vägen genom pipeline: ClientHandler läser från SQLite → WorkRequest → FetchResult → ParseResult → Compute.
 
@@ -81,31 +83,6 @@ Alla tre externa API:er (SMHI, Open-Meteo, Elpriset) svarar med `Transfer-Encodi
 Kör från projektroten: `bash scripts/test_e2e.sh`
 
 Testresultat från körning 2026-02-24: **20/20 godkända**. Pipeline producerade 76 poster (SMHI), 96 poster (Open-Meteo), 96 priser (Elpriset), avg pris 0.086 SEK/kWh, BUY/SELL/IDLE per timme.
-
----
-
-## Ändrade filer
-
-| Fil | Ändring |
-|-----|---------|
-| `src/application/models/config/UserConfig.h` | Ny — per-användarkonfigurationsstruktur |
-| `src/infrastructure/database/Database.h/c` | Ny — SQLite-wrapper med fullmutex |
-| `src/infrastructure/database/UserConfigDB.h/c` | Ny — Get/Upsert mot user_configs |
-| `src/server/ClientHandler.c` | HandleGetUserConfig, HandlePutUserConfig, HandleForecast läser från SQLite |
-| `src/application/core/GridGuard.h/c` | lat/lon/solar-fält i WorkRequest, Database i GridGuard-struct |
-| `src/application/workers/FetchWorker.h/c` | Använder request->lat/lon istf hårdkodade konstanter |
-| `src/application/workers/ParseWorker.h/c` | Vidarebefordrar per-användardata i ParseResult |
-| `src/application/workers/ComputeWorker.c` | Anropar Compute med per-användarparametrar |
-| `src/application/services/Compute.h/c` | Omskriven — inga config-structs, bara per-request-parametrar |
-| `src/application/models/domain/Energy.h/c` | Omskriven — bara BUY/SELL/IDLE, inga batterifält |
-| `src/network/client/HTTPClient.c` | decode_chunked + str_istr |
-| `src/concurrency/sync/WorkCompletion.h` | Buffer 8 KiB → 32 KiB |
-| `src/application/configs/Config.h` | DB_PATH tillagt, batteri/solar-konstanter borttagna |
-| `Makefile` | DATABASE_DIR, -lsqlite3, mkdir för database build-dir |
-| `scripts/test_e2e.sh` | Ny — komplett E2E-testskript |
-| `src/application/models/config/Battery.h` | Borttagen |
-| `src/application/models/config/Consumption.h` | Borttagen |
-| `src/application/models/config/Solar.h` | Borttagen |
 
 ---
 
