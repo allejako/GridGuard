@@ -4,7 +4,7 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3
 
 # Kontrollera att mbedtls-devel är installerat
 ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)
@@ -15,6 +15,17 @@ $(info   Fedora/RHEL:  sudo dnf install mbedtls-devel)
 $(info   Ubuntu/Debian: sudo apt install libmbedtls-dev)
 $(info )
 $(error Avbryter bygget — mbedtls-devel måste installeras först)
+endif
+
+# Kontrollera att sqlite-devel är installerat
+ifeq ($(wildcard /usr/include/sqlite3.h),)
+$(info )
+$(info Fel: sqlite-devel saknas.)
+$(info Installera med:)
+$(info   Fedora/RHEL:  sudo dnf install sqlite-devel)
+$(info   Ubuntu/Debian: sudo apt install libsqlite3-dev)
+$(info )
+$(error Avbryter bygget — sqlite-devel måste installeras först)
 endif
 
 # Directories
@@ -45,6 +56,7 @@ SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
 DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
 WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
 AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
+DATABASE_DIR = $(INFRASTRUCTURE_DIR)/database
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
@@ -79,6 +91,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(DAEMON_DIR) \
            -I$(WATCHDOG_DIR) \
            -I$(AUTH_DIR) \
+           -I$(DATABASE_DIR) \
            -I$(NETWORK_DIR) \
            -I$(NETWORK_SERVER_DIR) \
            -I$(NETWORK_CLIENT_DIR) \
@@ -103,6 +116,7 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
                 $(wildcard $(AUTH_DIR)/*.c) \
+                $(wildcard $(DATABASE_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
                 $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
@@ -171,6 +185,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
 	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
 	@mkdir -p $(BUILD_DIR)/infrastructure/auth
+	@mkdir -p $(BUILD_DIR)/infrastructure/database
 	@mkdir -p $(BUILD_DIR)/network/server
 	@mkdir -p $(BUILD_DIR)/network/client
 	@mkdir -p $(BUILD_DIR)/network/http

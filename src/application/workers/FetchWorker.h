@@ -10,7 +10,10 @@ typedef struct
     char priceJson[16384];
     char location[64];
     char region[16];
-    int clientFd;
+    int  clientFd;
+    double solarAreaM2;
+    double solarEfficiency;
+    double consumptionKwh;
     WorkCompletion *completion; // Passed through pipeline, signalled by ComputeWorker
 } FetchResult;
 

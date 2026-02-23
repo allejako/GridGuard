@@ -7,12 +7,67 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <ctype.h>
+#include <strings.h>
 
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 
 #include "HTTPClient.h"
+
+// Decode HTTP/1.1 chunked transfer encoding.
+// src/srcLen: raw chunked body.  *out: malloc'd decoded body, caller frees.
+// Returns 0 on success, -1 on error.
+static int decode_chunked(const char *src, size_t srcLen,
+                           char **out, size_t *outLen)
+{
+    char *buf = malloc(srcLen + 1); // decoded is always <= encoded
+    if (!buf) return -1;
+
+    size_t      written = 0;
+    const char *p       = src;
+    const char *end     = src + srcLen;
+
+    while (p < end)
+    {
+        // Find end of chunk-size line (may have extensions: "800;ext=...\r\n")
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        if (!nl) break;
+
+        unsigned long sz = strtoul(p, NULL, 16);
+        p = nl + 1; // advance past '\n'
+
+        if (sz == 0) break; // final zero-length chunk
+
+        if (p + sz > end) { free(buf); return -1; }
+
+        memcpy(buf + written, p, sz);
+        written += sz;
+        p += sz;
+
+        // Consume the mandatory CRLF that follows each chunk body
+        if (p < end && *p == '\r') p++;
+        if (p < end && *p == '\n') p++;
+    }
+
+    buf[written] = '\0';
+    *out    = buf;
+    *outLen = written;
+    return 0;
+}
+
+// Case-insensitive substring search (portable, no _GNU_SOURCE needed).
+static const char *str_istr(const char *haystack, const char *needle)
+{
+    size_t nlen = strlen(needle);
+    for (; *haystack; haystack++)
+    {
+        if (strncasecmp(haystack, needle, nlen) == 0)
+            return haystack;
+    }
+    return NULL;
+}
 
 static int parse_url(const char *url,
                      char *host, size_t hostLen,
@@ -269,13 +324,43 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
 
     char *bodyStart = strstr(buf, "\r\n\r\n");
     if (!bodyStart) { free(buf); return -1; }
-    bodyStart += 4;
 
-    size_t bodyLen = total - (size_t)(bodyStart - buf);
-    char  *body    = malloc(bodyLen + 1);
-    if (!body) { free(buf); return -1; }
-    memcpy(body, bodyStart, bodyLen);
-    body[bodyLen] = '\0';
+    // Detect chunked encoding by looking in the headers section only
+    size_t headerLen = (size_t)(bodyStart - buf);
+    int    chunked   = 0;
+    {
+        char *hdr = malloc(headerLen + 1);
+        if (hdr)
+        {
+            memcpy(hdr, buf, headerLen);
+            hdr[headerLen] = '\0';
+            chunked = str_istr(hdr, "transfer-encoding: chunked") != NULL;
+            free(hdr);
+        }
+    }
+
+    bodyStart += 4; // skip past \r\n\r\n
+    size_t rawBodyLen = total - (size_t)(bodyStart - buf);
+
+    char  *body;
+    size_t bodyLen;
+
+    if (chunked)
+    {
+        if (decode_chunked(bodyStart, rawBodyLen, &body, &bodyLen) != 0)
+        {
+            free(buf);
+            return -1;
+        }
+    }
+    else
+    {
+        body = malloc(rawBodyLen + 1);
+        if (!body) { free(buf); return -1; }
+        memcpy(body, bodyStart, rawBodyLen);
+        body[rawBodyLen] = '\0';
+        bodyLen = rawBodyLen;
+    }
 
     free(buf);
 

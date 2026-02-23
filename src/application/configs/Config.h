@@ -5,6 +5,10 @@
 #define SERVER_PORT "8080"
 #define SERVER_HOST "localhost"
 
+// ============== DATABASE ========================
+#define DB_PATH     "gridguard.db"
+
+
 // ============== WEATHER API =====================
 // SMHI - Primary source for Swedish weather data
 #define SMHI_API_BASE_URL       "https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2"

@@ -3,54 +3,34 @@
 
 #include <time.h>
 #include <stdbool.h>
-#include "Solar.h"
-#include "Battery.h"
-#include "Consumption.h"
-
-typedef struct
-{
-    time_t timestamp;
-    double productionKwh;
-    double efficiencyFactor;   // 0-1
-    bool valid;
-} SolarProduction;
 
 typedef enum
 {
-    ACTION_BUY_FROM_GRID,
-    ACTION_SELL_TO_GRID,
-    ACTION_CHARGE_BATTERY,
-    ACTION_DISCHARGE_BATTERY,
-    ACTION_DIRECT_USE,
-    ACTION_IDLE
+    ACTION_BUY_FROM_GRID,   // Low price, no/little solar → buy cheap energy
+    ACTION_SELL_TO_GRID,    // Solar surplus → sell to grid
+    ACTION_IDLE             // Price normal, no surplus
 } EnergyAction;
 
 typedef struct
 {
-    time_t timestamp;
+    time_t       timestamp;
     EnergyAction action;
-    double productionKwh;
-    double consumptionKwh;
-    double gridPowerKwh;
-    double batteryPowerKwh;
-    double spotPrice;
-    double estimatedCostSek;
-    double batterySocPercent;
-    bool valid;
+    double       productionKwh;   // Estimated solar production for this hour
+    double       consumptionKwh;  // User's base load for this hour
+    double       spotPrice;       // SEK/kWh
+    bool         valid;
 } EnergyDataEntry;
 
 typedef struct
 {
-    EnergyDataEntry entries[288];  // 72h with 15-min intervals
-    int count;
+    EnergyDataEntry entries[96]; // up to 96h hourly forecast
+    int    count;
     time_t generatedAt;
     double totalCostSek;
     double totalGridImportKwh;
     double totalGridExportKwh;
-    double totalBatteryCycles;
 } EnergyData;
 
-const char* EnergyAction_ToString(EnergyAction action);
-bool EnergyDataEntry_IsValid(const EnergyDataEntry *entry);
+const char *EnergyAction_ToString(EnergyAction action);
 
 #endif // ENERGY_DATA_H
