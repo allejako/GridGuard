@@ -1,30 +1,27 @@
 #ifndef _THREADPOOL_H_
 #define _THREADPOOL_H_
 
-#include <pthread.h>
-#include <stdbool.h>
-
-#include "Config.h"
-#include "ClientHandler.h"
 #include "WorkerPool.h"
+#include "Queue.h"
 
 struct GridGuard;
-struct ThreadPool;
 
-// Context for each worker thread - contains client-specific data
+// Shared context given to every HTTP worker thread.
+// Workers compete for fds from the work queue — no scheduler needed.
 typedef struct
 {
-    Client clients[MAX_CLIENTS_PER_THREAD];
-    int clientCount;
-    struct ThreadPool *threadPool;   
-} ThreadWorkerContext;
+    Queue          *workQueue;
+    struct GridGuard *app;
+} WorkerSharedContext;
 
-// Thread pool - specialized worker pool for handling network I/O
+// Thread pool: N workers pulling HTTP connections from a shared work queue.
+// Replaces the old select-loop multiplexing model.
 typedef struct ThreadPool
 {
-    WorkerPool pool;                  // Generic worker pool (lifecycle + scheduling)
-    ThreadWorkerContext *contexts;    // Context for each worker
-    struct GridGuard *app;            // Reference to main application for accessing queues and services
+    WorkerPool         pool;
+    Queue              workQueue;
+    WorkerSharedContext sharedCtx;
+    struct GridGuard   *app;
 } ThreadPool;
 
 int ThreadPool_Initiate(ThreadPool *threadPool, int numOfThreads, struct GridGuard *app);

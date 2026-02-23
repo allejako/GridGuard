@@ -42,6 +42,7 @@ void *FetchWorker_Run(void *arg)
         strncpy(result->location, request->location, sizeof(result->location) - 1);
         strncpy(result->region, request->region, sizeof(result->region) - 1);
         result->clientFd = request->clientFd;
+        result->completion = request->completion;
 
         // --- SMHI weather data: key = "smhi_lat_lon" ---
         char smhiKey[JSON_CACHE_KEY_MAX];
