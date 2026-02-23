@@ -4,7 +4,7 @@
 // Result from fetch worker - passed to parse worker
 typedef struct
 {
-    char weatherJson[8192];
+    char weatherJson[32768];
     char priceJson[16384];
     char location[64];
     char region[16];
