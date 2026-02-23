@@ -8,7 +8,7 @@ Fas 3 är implementerad. Servern lagrar nu per-användarkonfiguration i SQLite o
 
 ## Fas 3 — SQLite user config + GET/PUT /user/config
 
-Servern behöver veta var användaren bor och hur stora solpaneler hen har. Det finns inget konfigurationssystem utanför själva enheten — konfigurationen sätts av användaren via HTTP och lagras lokalt i SQLite. Plattformen (Next.js) rör aldrig den här datan.
+Servern behöver veta var användaren bor och hur stora solpaneler hen har. Det finns inget konfigurationssystem utanför själva enheten — konfigurationen sätts av användaren via HTTP och lagras lokalt i SQLite. Plattformen rör aldrig den här datan.
 
 `Database` i `src/infrastructure/database/` öppnar SQLite med `SQLITE_OPEN_FULLMUTEX` — det betyder att SQLite sköter trådsäkerheten internt och att flera worker-trådar kan anropa `sqlite3_prepare_v2` och `sqlite3_step` utan extern synkronisering.
 
