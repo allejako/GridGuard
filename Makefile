@@ -4,7 +4,7 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lcurl
+LDFLAGS = -pthread -lcurl -lssl -lcrypto
 
 # Directories
 SRC_DIR = src
@@ -33,11 +33,13 @@ LOGGING_DIR = $(INFRASTRUCTURE_DIR)/logging
 SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
 DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
 WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
+AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
 NETWORK_SERVER_DIR = $(NETWORK_DIR)/server
 NETWORK_CLIENT_DIR = $(NETWORK_DIR)/client
+NETWORK_HTTP_DIR = $(NETWORK_DIR)/http
 
 # Concurrency directories (OS primitives)
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
@@ -65,9 +67,11 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(SIGNALS_DIR) \
            -I$(DAEMON_DIR) \
            -I$(WATCHDOG_DIR) \
+           -I$(AUTH_DIR) \
            -I$(NETWORK_DIR) \
            -I$(NETWORK_SERVER_DIR) \
            -I$(NETWORK_CLIENT_DIR) \
+           -I$(NETWORK_HTTP_DIR) \
            -I$(CONCURRENCY_DIR) \
            -I$(THREADS_DIR) \
            -I$(SYNC_DIR) \
@@ -87,14 +91,16 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
+                $(wildcard $(AUTH_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
+                $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
                 $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(APP_CORE_DIR)/*.c) \
                 $(wildcard $(APP_WORKERS_DIR)/*.c) \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
-                $(wildcard $(SYNC_DIR)/*.c) \
+                $(filter-out $(SYNC_DIR)/Scheduler.c, $(wildcard $(SYNC_DIR)/*.c)) \
                 $(wildcard $(IPC_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
@@ -152,8 +158,10 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/signals
 	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
 	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
+	@mkdir -p $(BUILD_DIR)/infrastructure/auth
 	@mkdir -p $(BUILD_DIR)/network/server
 	@mkdir -p $(BUILD_DIR)/network/client
+	@mkdir -p $(BUILD_DIR)/network/http
 	@mkdir -p $(BUILD_DIR)/concurrency/threads
 	@mkdir -p $(BUILD_DIR)/concurrency/sync
 	@mkdir -p $(BUILD_DIR)/concurrency/ipc
@@ -230,7 +238,7 @@ $(TEST_BIN): $(TEST_OBJS)
 
 # Run all tests
 .PHONY: test
-test: test-api test-logger test-pipeline test-weather
+test: test-api test-logger test-pipeline test-weather test-jwt test-http-request test-http-response
 	@echo ""
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -241,6 +249,9 @@ TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 TEST_WEATHER_BIN = $(BIN_DIR)/test_multi_source_weather
+TEST_JWT_BIN = $(BIN_DIR)/test_jwt_validator
+TEST_HTTP_REQ_BIN = $(BIN_DIR)/test_http_request
+TEST_HTTP_RESP_BIN = $(BIN_DIR)/test_http_response
 
 # Test dependencies
 TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
@@ -265,6 +276,13 @@ TEST_WEATHER_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                     $(wildcard $(APP_SERVICES_DIR)/*.c) \
                     $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                     $(wildcard $(LIBS_DIR)/*.c)
+
+TEST_JWT_DEPS = $(AUTH_DIR)/JWTValidator.c \
+                $(LOGGING_DIR)/Logger.c
+
+TEST_HTTP_REQ_DEPS = $(NETWORK_HTTP_DIR)/HTTPRequest.c
+
+TEST_HTTP_RESP_DEPS = $(NETWORK_HTTP_DIR)/HTTPResponse.c
 
 # Build API test
 $(TEST_API_BIN): $(TEST_DIR)/integration/test_api_fetch.c $(TEST_API_DEPS)
@@ -313,6 +331,42 @@ $(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_
 test-weather: directories $(TEST_WEATHER_BIN)
 	@echo "Running Multi-Source Weather test..."
 	@$(TEST_WEATHER_BIN)
+
+# Build JWT Validator test
+$(TEST_JWT_BIN): $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS)
+	@echo "Building JWT Validator test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS) $(LDFLAGS) -lssl -lcrypto
+	@echo "JWT Validator test built: $@"
+
+# Build HTTP Request test
+$(TEST_HTTP_REQ_BIN): $(TEST_DIR)/unit/test_http_request.c $(TEST_HTTP_REQ_DEPS)
+	@echo "Building HTTP Request test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_http_request.c $(TEST_HTTP_REQ_DEPS) $(LDFLAGS)
+	@echo "HTTP Request test built: $@"
+
+# Build HTTP Response test
+$(TEST_HTTP_RESP_BIN): $(TEST_DIR)/unit/test_http_response.c $(TEST_HTTP_RESP_DEPS)
+	@echo "Building HTTP Response test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_http_response.c $(TEST_HTTP_RESP_DEPS) $(LDFLAGS)
+	@echo "HTTP Response test built: $@"
+
+# Run JWT Validator test
+.PHONY: test-jwt
+test-jwt: directories $(TEST_JWT_BIN)
+	@echo "Running JWT Validator test..."
+	@GRIDGUARD_JWT_SECRET=gridguard-test-secret $(TEST_JWT_BIN)
+
+# Run HTTP Request test
+.PHONY: test-http-request
+test-http-request: directories $(TEST_HTTP_REQ_BIN)
+	@echo "Running HTTP Request test..."
+	@$(TEST_HTTP_REQ_BIN)
+
+# Run HTTP Response test
+.PHONY: test-http-response
+test-http-response: directories $(TEST_HTTP_RESP_BIN)
+	@echo "Running HTTP Response test..."
+	@$(TEST_HTTP_RESP_BIN)
 
 # Run server
 .PHONY: run-server

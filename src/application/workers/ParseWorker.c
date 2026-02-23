@@ -206,6 +206,7 @@ void *ParseWorker_Run(void *arg)
         strncpy(result->location, fetchData->location, sizeof(result->location) - 1);
         strncpy(result->region, fetchData->region, sizeof(result->region) - 1);
         result->clientFd = fetchData->clientFd;
+        result->completion = fetchData->completion;
 
         // Parse all sources
         SMHIResponse smhiData = {0};

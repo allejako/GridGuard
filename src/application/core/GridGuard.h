@@ -8,13 +8,17 @@
 #include "Parser.h"
 #include "Compute.h"
 #include "JsonCache.h"
+#include "WorkCompletion.h"
 
-// Work request from client
+// Work request submitted by an HTTP worker thread.
+// completion points to a WorkCompletion on the HTTP worker's stack —
+// valid for the lifetime of the request since the worker blocks on it.
 typedef struct
 {
     int clientFd;
-    char location[64]; // TEMP LÖSNING
-    char region[16]; // TEMP LÖSNING
+    char location[64];
+    char region[16];
+    WorkCompletion *completion; // Result delivery back to HTTP worker
 } WorkRequest;
 
 // Multi-threaded application core

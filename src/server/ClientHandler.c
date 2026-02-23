@@ -1,87 +1,130 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <string.h>
+#include <unistd.h>
+
 #include "ClientHandler.h"
 #include "GridGuard.h"
+#include "HTTPRequest.h"
+#include "HTTPResponse.h"
+#include "WorkCompletion.h"
+#include "JWTValidator.h"
 #include "Logger.h"
-#include <string.h>
-#include <sys/socket.h>
 
-void Client_HandleState(Client *client, struct GridGuard *app)
+// ---------------------------------------------------------------------------
+// Route handlers
+// ---------------------------------------------------------------------------
+
+// GET /health — public, no auth required
+static void HandleHealth(int fd)
 {
-    switch (client->state)
-    {
-    case CLIENT_CONNECTED:
-    {
-        // Send welcome message
-        const char *welcome = "GridGuard LEOP Server\nCommands: forecast [location] [region]\nExample: forecast stockholm SE3\n\n> ";
-        send(client->fd, welcome, strlen(welcome), 0);
-        client->state = CLIENT_READY;
+    HTTPResponse_SendJson(fd, "{\"status\":\"ok\",\"service\":\"GridGuard\"}");
+}
 
-        // If buffer has data, process it immediately
-        if (client->bufferLen > 0)
-        {
-            Client_HandleState(client, app);  // Recursive call to handle the command
-        }
-        break;
+// GET /forecast — requires valid JWT.
+// WorkCompletion lives on this thread's stack; safe because this thread
+// blocks in WorkCompletion_Wait for the entire pipeline duration.
+static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claims)
+{
+    WorkCompletion wc;
+    if (WorkCompletion_Initiate(&wc) != 0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Internal error");
+        return;
     }
 
-    case CLIENT_READY:
+    WorkRequest req = {
+        .clientFd   = fd,
+        .completion = &wc
+    };
+    // TODO Fas 3: replace hardcoded location/region with user config from SQLite
+    //             looked up by claims->subject (user_id).
+    strncpy(req.location, "stockholm", sizeof(req.location) - 1);
+    strncpy(req.region,   "SE3",       sizeof(req.region) - 1);
+
+    LOG_INFO("ClientHandler: Forecast for user=%s location=%s region=%s",
+             claims->subject, req.location, req.region);
+
+    if (GridGuard_SubmitRequest(app, &req) != 0)
     {
-        // Parse command from client
-        char command[32] = {0};
-        char location[64] = "stockholm";  // Default
-        char region[16] = "SE3";          // Default
-
-        sscanf(client->buffer, "%31s %63s %15s", command, location, region); // Bör också innehålla klientens solcells parametrar som ska finnas i klient config.
-
-        if (strcmp(command, "forecast") == 0)
-        {
-            LOG_INFO("ClientHandler: Client FD %d requested forecast for %s/%s", client->fd, location, region);
-
-            // Submit to GridGuard application
-            WorkRequest request = {
-                .clientFd = client->fd
-            };
-            strncpy(request.location, location, sizeof(request.location) - 1);
-            strncpy(request.region, region, sizeof(request.region) - 1);
-
-            if (GridGuard_SubmitRequest(app, &request) == 0)
-            {
-                const char *processing = "Processing request...\n";
-                send(client->fd, processing, strlen(processing), 0);
-                client->state = CLIENT_PROCESSING;
-            }
-            else
-            {
-                const char *error = "ERROR: Request queue full, try again later\n> ";
-                send(client->fd, error, strlen(error), 0);
-            }
-        }
-        else if (strcmp(command, "help") == 0 || strlen(client->buffer) == 0)
-        {
-            const char *help =
-                "Available commands:\n"
-                "  forecast [location] [region] - Get energy forecast\n"
-                "  help                         - Show this help\n"
-                "\n> ";
-            send(client->fd, help, strlen(help), 0);
-        }
-        else
-        {
-            const char *unknown = "Unknown command. Type 'help' for available commands\n> ";
-            send(client->fd, unknown, strlen(unknown), 0);
-        }
-        break;
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Queue full, try again later");
+        WorkCompletion_Destroy(&wc);
+        return;
     }
 
-    case CLIENT_PROCESSING:
-        // Client is waiting for pipeline response
-        // Response will be sent directly from pipeline
-        // Set back to READY state after a moment
-        client->state = CLIENT_READY;
-        break;
+    if (WorkCompletion_Wait(&wc) == 0)
+        HTTPResponse_SendJson(fd, wc.json);
+    else
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
+                               "Pipeline error or timeout");
 
-    default:
-        break;
+    WorkCompletion_Destroy(&wc);
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point — called once per HTTP connection by a ThreadPool worker.
+// ---------------------------------------------------------------------------
+void Client_HandleRequest(int fd, struct GridGuard *app)
+{
+    HTTPRequest request;
+
+    if (HTTPRequest_Parse(fd, &request) != 0)
+    {
+        LOG_WARNING("ClientHandler: Failed to parse HTTP request on fd %d", fd);
+        close(fd);
+        return;
     }
+
+    LOG_INFO("ClientHandler: %s %s (fd=%d)", request.method, request.path, fd);
+
+    // -----------------------------------------------------------------------
+    // Public endpoints — no auth required.
+    // -----------------------------------------------------------------------
+    if (strcmp(request.path, "/health") == 0)
+    {
+        HandleHealth(fd);
+        close(fd);
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Auth gate — all other endpoints require a valid JWT.
+    // -----------------------------------------------------------------------
+    const char *token = HTTPRequest_GetBearerToken(&request);
+    JWTClaims claims;
+
+    if (!token || JWT_Validate(token, &claims) != 0)
+    {
+        LOG_WARNING("ClientHandler: Unauthorized request to %s (fd=%d)",
+                    request.path, fd);
+        HTTPResponse_SendError(fd, HTTP_STATUS_401_UNAUTHORIZED, "Unauthorized");
+        close(fd);
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Protected endpoints.
+    // -----------------------------------------------------------------------
+    if (strcmp(request.path, "/forecast") == 0)
+    {
+        HandleForecast(fd, app, &claims);
+    }
+    else if (strcmp(request.path, "/weather") == 0)
+    {
+        // TODO Fas 3: fetch real weather data for claims->subject's location
+        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Not implemented yet");
+    }
+    else if (strcmp(request.path, "/spotprice") == 0)
+    {
+        // TODO Fas 3: fetch real spot prices for claims->subject's region
+        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Not implemented yet");
+    }
+    else
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Not found");
+    }
+
+    close(fd);
 }
