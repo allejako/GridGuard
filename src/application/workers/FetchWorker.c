@@ -79,7 +79,6 @@ void *FetchWorker_Run(void *arg)
                              result->openMeteoJson, sizeof(result->openMeteoJson)) == 0)
         {
             LOG_INFO("FetchWorker: Open-Meteo cache HIT (%s)", weatherKey);
-            strncpy(result->weatherJson, result->openMeteoJson, sizeof(result->weatherJson) - 1);
         }
         else
         {
@@ -90,7 +89,6 @@ void *FetchWorker_Run(void *arg)
             if (Fetcher_Fetch(&app->fetcher, openMeteoUrl, &omResp) == 0)
             {
                 strncpy(result->openMeteoJson, omResp.data, sizeof(result->openMeteoJson) - 1);
-                strncpy(result->weatherJson, omResp.data, sizeof(result->weatherJson) - 1);
                 JsonCache_Store(&app->weatherCache, weatherKey, omResp.data);
                 Fetcher_FreeResponse(&omResp);
                 LOG_INFO("FetchWorker: Got Open-Meteo data (%zu bytes)", strlen(result->openMeteoJson));
