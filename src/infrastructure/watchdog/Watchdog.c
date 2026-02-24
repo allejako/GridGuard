@@ -226,6 +226,7 @@ static int RestartTracker_CanRestart(RestartTracker *rt)
         LOG_INFO("Watchdog: Restart window expired, resetting counter");
         rt->count = 0;
     }
+    
 
     if (rt->count >= MAX_RESTARTS)
     {
