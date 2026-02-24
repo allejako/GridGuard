@@ -4,7 +4,6 @@
 #include "Queue.h"
 #include "Parser.h"
 #include "Logger.h"
-#include "SMHIResponse.h"
 #include "OpenMeteoResponse.h"
 #include "ElprisetResponse.h"
 #include "Weather.h"
@@ -28,76 +27,33 @@ static time_t ParseISO8601(const char *timeStr)
     return mktime(&tm);
 }
 
-// Helper to find SMHI parameter by name
-static const SMHIParameter* FindSMHIParameter(const SMHITimeEntry *entry, const char *name)
-{
-    for (int i = 0; i < entry->paramCount; i++)
-    {
-        if (strcmp(entry->parameters[i].name, name) == 0)
-        {
-            return &entry->parameters[i];
-        }
-    }
-    return NULL;
-}
-
-// Step 1: Combine SMHI + OpenMeteo into WeatherData
-static void CombineWeatherData(const SMHIResponse *smhi, const OpenMeteoResponse *openmeteo, WeatherData *weather)
+// Step 1: Build WeatherData from Open-Meteo (single weather source)
+// To add a new weather source in the future: implement a similar function
+// and map its fields to WeatherEntry (temperature, humidity, cloudCover,
+// windSpeed, solarIrradiance). The rest of the pipeline is source-agnostic.
+static void WeatherFromOpenMeteo(const OpenMeteoResponse *openmeteo, WeatherData *weather)
 {
     memset(weather, 0, sizeof(WeatherData));
     weather->lastUpdated = time(NULL);
 
     int count = 0;
-
-    // Primary source: SMHI (use all its time entries)
-    for (int i = 0; i < smhi->count && count < 96; i++)
+    for (int i = 0; i < openmeteo->count && count < 96; i++)
     {
-        const SMHITimeEntry *smhiEntry = &smhi->timeSeries[i];
+        const OpenMeteoEntry *src = &openmeteo->entries[i];
         WeatherEntry *entry = &weather->entries[count];
 
-        // Parse timestamp
-        entry->timestamp = ParseISO8601(smhiEntry->validTime);
-
-        // Extract SMHI parameters
-        const SMHIParameter *temp = FindSMHIParameter(smhiEntry, "t");
-        if (temp) entry->temperature = temp->value;
-
-        const SMHIParameter *humidity = FindSMHIParameter(smhiEntry, "r");
-        if (humidity) entry->humidity = humidity->value;
-
-        const SMHIParameter *windSpeed = FindSMHIParameter(smhiEntry, "ws");
-        if (windSpeed) entry->windSpeed = windSpeed->value;  // Already in m/s
-
-        const SMHIParameter *cloudCover = FindSMHIParameter(smhiEntry, "tcc_mean");
-        if (cloudCover)
-        {
-            // Convert octas (0-8) to percent (0-100)
-            entry->cloudCover = (cloudCover->value / 8.0) * 100.0;
-        }
-
-        // Find matching Open-Meteo entry for solar irradiance
-        entry->solarIrradiance = 0.0;  // Default if not found
-        for (int j = 0; j < openmeteo->count; j++)
-        {
-            const OpenMeteoEntry *omEntry = &openmeteo->entries[j];
-            time_t omTime = ParseISO8601(omEntry->time);
-
-            // Match if exact same hour (60 sec tolerance for clock skew only)
-            // Both APIs give hourly data (14:00, 15:00, etc), timestamps should match exactly
-            if (abs((int)difftime(entry->timestamp, omTime)) < 60)
-            {
-                entry->solarIrradiance = omEntry->shortwave_radiation;
-                break;
-            }
-        }
-
-        entry->valid = true;
+        entry->timestamp       = ParseISO8601(src->time);
+        entry->temperature     = src->temperature_2m;
+        entry->humidity        = src->humidity_2m;
+        entry->cloudCover      = src->cloud_cover;    // already %, no octas conversion
+        entry->windSpeed       = src->wind_speed_10m;
+        entry->solarIrradiance = src->shortwave_radiation;
+        entry->valid           = true;
         count++;
     }
 
     weather->count = count;
-    LOG_INFO("Combined weather data: %d entries (SMHI=%d, OpenMeteo solar=%d)",
-             count, smhi->count, openmeteo->count);
+    LOG_INFO("ParseWorker: Built weather data from Open-Meteo: %d entries", count);
 }
 
 // Step 1.5: Convert ElprisetResponse to SpotPrice domain model
@@ -177,7 +133,7 @@ static void CombineForecastData(const WeatherData *weather, const SpotPrice *spo
 void *ParseWorker_Run(void *arg)
 {
     GridGuard *app = (GridGuard *)arg;
-    LOG_INFO("ParseWorker: Thread started (SMHI + OpenMeteo solar mode)");
+    LOG_INFO("ParseWorker: Thread started (Open-Meteo weather mode)");
 
     while (app->isRunning)
     {
@@ -212,39 +168,18 @@ void *ParseWorker_Run(void *arg)
         result->completion      = fetchData->completion;
 
         // Parse all sources
-        SMHIResponse smhiData = {0};
         OpenMeteoResponse omData = {0};
         ElprisetResponse ElprisetPrices = {0};
 
-        bool smhiParsed = false;
         bool omParsed = false;
         bool pricesParsed = false;
 
-        // Parse SMHI (primary weather source)
-        if (strlen(fetchData->smhiJson) > 0)
-        {
-            if (Parser_ParseSMHI(&app->parser, fetchData->smhiJson, &smhiData) == 0)
-            {
-                LOG_INFO("ParseWorker: Parsed %d SMHI entries", smhiData.count);
-                smhiParsed = true;
-            }
-            else
-            {
-                LOG_ERROR("ParseWorker: SMHI parse failed");
-            }
-        }
-        else
-        {
-            LOG_WARNING("ParseWorker: No SMHI data available");
-        }
-
-        // Parse Open-Meteo (solar irradiance source)
+        // Parse Open-Meteo (weather + solar irradiance)
         if (strlen(fetchData->openMeteoJson) > 0)
         {
             if (Parser_ParseOpenMeteo(&app->parser, fetchData->openMeteoJson, &omData) == 0)
             {
-                LOG_INFO("ParseWorker: Parsed %d Open-Meteo entries (solar irradiance)",
-                        omData.count);
+                LOG_INFO("ParseWorker: Parsed %d Open-Meteo entries", omData.count);
                 omParsed = true;
             }
             else
@@ -271,20 +206,15 @@ void *ParseWorker_Run(void *arg)
             }
         }
 
-        // Step 1: Combine SMHI + OpenMeteo into WeatherData
+        // Step 1: Build WeatherData from Open-Meteo
         WeatherData weatherData = {0};
-        if (smhiParsed)
+        if (omParsed)
         {
-            if (!omParsed)
-            {
-                LOG_WARNING("ParseWorker: Missing solar irradiance data from Open-Meteo!");
-            }
-
-            CombineWeatherData(&smhiData, &omData, &weatherData);
+            WeatherFromOpenMeteo(&omData, &weatherData);
         }
         else
         {
-            LOG_ERROR("ParseWorker: Cannot create weather data without SMHI!");
+            LOG_ERROR("ParseWorker: Cannot create weather data without Open-Meteo!");
         }
 
         // Step 1.5: Convert ElprisetResponse to SpotPrice domain model

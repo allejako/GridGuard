@@ -134,7 +134,8 @@ SERVER_SRCS_CPP = $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
 
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) \
               $(wildcard $(LOGGING_DIR)/*.c) \
-              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
+              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp) \
+              $(wildcard $(LIBS_DIR)/*.c)
 
 TEST_SRCS = $(wildcard $(TEST_DIR)/unit/*.c) \
             $(wildcard $(TEST_DIR)/integration/*.c)
@@ -275,7 +276,7 @@ test: test-api test-logger test-pipeline test-weather test-jwt test-http-request
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
-TEST_WEATHER_BIN = $(BIN_DIR)/test_multi_source_weather
+TEST_WEATHER_BIN = $(BIN_DIR)/test_openmeteo_parser
 TEST_JWT_BIN = $(BIN_DIR)/test_jwt_validator
 TEST_HTTP_REQ_BIN = $(BIN_DIR)/test_http_request
 TEST_HTTP_RESP_BIN = $(BIN_DIR)/test_http_response
@@ -350,16 +351,16 @@ test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@echo "Running Pipeline test..."
 	@$(TEST_PIPELINE_BIN)
 
-# Build Multi-Source Weather test
-$(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS)
-	@echo "Building Multi-Source Weather test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS) $(LDFLAGS)
-	@echo "Multi-Source Weather test built: $@"
+# Build Open-Meteo + Elpriset parser test
+$(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_openmeteo_parser.c $(TEST_WEATHER_DEPS)
+	@echo "Building Open-Meteo parser test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_openmeteo_parser.c $(TEST_WEATHER_DEPS) $(LDFLAGS)
+	@echo "Open-Meteo parser test built: $@"
 
-# Run Multi-Source Weather test
+# Run Open-Meteo + Elpriset parser test
 .PHONY: test-weather
 test-weather: directories $(TEST_WEATHER_BIN)
-	@echo "Running Multi-Source Weather test..."
+	@echo "Running Open-Meteo parser test..."
 	@$(TEST_WEATHER_BIN)
 
 # Build JWT Validator test
@@ -404,26 +405,65 @@ run-server: server
 	@echo "Starting server..."
 	@$(SERVER_BIN)
 
-# Run client
+# Run client (visa usage)
 .PHONY: run-client
 run-client: client
-	@echo "Starting client..."
 	@$(CLIENT_BIN)
 
-# Run watchdog (starts daemon automatically)
+# Kör klienten med forecast-kommandot
+.PHONY: forecast
+forecast: client
+	@$(CLIENT_BIN) forecast
+
+# Starta watchdog i bakgrunden (watchdog startar och övervakar servern)
+# GRIDGUARD_JWT_SECRET måste vara satt i miljön.
 .PHONY: run-watchdog
 run-watchdog: server watchdog
-	@echo "Starting watchdog..."
-	@$(WATCHDOG_BIN)
+	@if [ -z "$$GRIDGUARD_JWT_SECRET" ]; then \
+	    echo "Fel: GRIDGUARD_JWT_SECRET inte satt."; \
+	    echo "  export GRIDGUARD_JWT_SECRET=<din-hemliga-nyckel>"; \
+	    exit 1; \
+	fi
+	@echo "Startar watchdog (server övervakas automatiskt)..."
+	@setsid env GRIDGUARD_JWT_SECRET="$$GRIDGUARD_JWT_SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard-watchdog.pid
+	@echo "Watchdog igång. Loggar: logs/watchdog.log  ·  logs/server.log"
 
-# Run both (server in background, client in foreground)
-.PHONY: run
-run: all
-	@echo "Starting server in background..."
-	@$(SERVER_BIN) &
-	@sleep 1
-	@echo "Starting client..."
-	@$(CLIENT_BIN)
+# Fullständigt dev-flöde: bygg allt → watchdog → server → vänta → kör forecast.
+# Sätt GRIDGUARD_JWT_SECRET i miljön eller kör med:
+#   make dev GRIDGUARD_JWT_SECRET=<nyckel>
+.PHONY: dev
+dev: all watchdog
+	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
+	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
+	fuser -k -9 8080/tcp 2>/dev/null; sleep 0.5; true
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-dev-secret}; \
+	if [ "$$SECRET" = "gridguard-dev-secret" ]; then \
+	    echo "Varning: GRIDGUARD_JWT_SECRET inte satt, använder dev-default."; \
+	fi; \
+	DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard-watchdog.pid; \
+	printf "Väntar på server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; \
+	done; \
+	echo " redo!"; \
+	$(CLIENT_BIN) login "$$DEV_TOKEN" 2>/dev/null; \
+	$(CLIENT_BIN) forecast; \
+	echo ""; \
+	echo "  Server kör i bakgrunden. Stoppa med: make stop"
+
+# Stoppa server och watchdog
+.PHONY: stop
+stop:
+	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
+	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
+	fuser -k -9 8080/tcp 2>/dev/null; true
+	@echo "GridGuard stoppad."
 
 # Memory leak check with Valgrind
 .PHONY: valgrind-server

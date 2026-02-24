@@ -5,7 +5,6 @@
 
 typedef struct
 {
-    char smhiJson[1000000];
     char openMeteoJson[8192];
     char priceJson[16384];
     char location[64];

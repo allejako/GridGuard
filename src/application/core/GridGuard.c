@@ -6,6 +6,8 @@
 #include "Logger.h"
 #include "Config.h"
 
+#include <stdlib.h>
+
 int GridGuard_Initiate(GridGuard *app)
 {
     if (!app)
@@ -13,8 +15,13 @@ int GridGuard_Initiate(GridGuard *app)
 
     LOG_INFO("GridGuard: Initiating application core...");
 
-    // Initialize database
-    if (Database_Initiate(&app->db, DB_PATH) != 0)
+    // Initialize database — allow runtime override for daemon environments
+    // where the daemon has chdir("/") making relative paths unusable.
+    const char *dbPath = getenv("GRIDGUARD_DB_PATH");
+    if (!dbPath || dbPath[0] == '\0')
+        dbPath = DB_PATH;
+
+    if (Database_Initiate(&app->db, dbPath) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate database");
         return -1;

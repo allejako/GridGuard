@@ -5,26 +5,6 @@
 #include "APIEndpoints.h"
 #include "Config.h"
 
-int BuildSMHIApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon)
-{
-    if (!buffer || bufferSize < 512 || !lat || !lon)
-        return -1;
-
-    // SMHI Point Forecast API
-    // Endpoint: /api/category/pmp3g/version/2/geotype/point/lon/{lon}/lat/{lat}/data.json
-    // IMPORTANT: SMHI uses lon/lat order (opposite of most APIs)
-    int written = snprintf(buffer, bufferSize,
-        "%s/geotype/point/lon/%s/lat/%s/data.json",
-        SMHI_API_BASE_URL,
-        lon,  // Note: lon before lat!
-        lat);
-
-    if (written < 0 || (size_t)written >= bufferSize)
-        return -1;
-
-    return 0;
-}
-
 int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon)
 {
     if (!buffer || bufferSize < 512 || !lat || !lon)
@@ -47,12 +27,6 @@ int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const
         return -1;
 
     return 0;
-}
-
-// DEPRECATED: Kept for backward compatibility
-int BuildWeatherApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon)
-{
-    return BuildOpenMeteoApiUrl(buffer, bufferSize, lat, lon);
 }
 
 int BuildSpotPriceApiUrl(char *buffer, size_t bufferSize, const char *region, const struct tm *date)
