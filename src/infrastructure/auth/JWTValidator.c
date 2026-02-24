@@ -12,10 +12,8 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/constant_time.h>
 
-// ---------------------------------------------------------------------------
-// Internal: base64url → standard base64, then decode with mbedtls_base64_decode.
+// base64url → standard base64, then decode with mbedtls_base64_decode.
 // Returns decoded byte count on success, -1 on error.
-// ---------------------------------------------------------------------------
 static int base64url_decode(const char *src, size_t srcLen,
                              unsigned char *dst, size_t dstBufLen)
 {
@@ -52,11 +50,8 @@ static int base64url_decode(const char *src, size_t srcLen,
     return (int)olen;
 }
 
-// ---------------------------------------------------------------------------
-// Internal: extract a string value from a minimal JSON object.
-// Finds the first occurrence of "field":"<value>" and copies <value> into out.
+// Extracts a string value from a minimal JSON object ("field":"value").
 // Returns 0 on success, -1 if not found or too long.
-// ---------------------------------------------------------------------------
 static int json_get_string(const char *json, const char *field,
                             char *out, size_t outSize)
 {
@@ -82,11 +77,8 @@ static int json_get_string(const char *json, const char *field,
     return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Internal: extract a numeric (long) value from a minimal JSON object.
-// Finds the first occurrence of "field":<number>.
+// Extracts a numeric (long) value from a minimal JSON object ("field":<number>).
 // Returns 0 on success, -1 if not found or not a valid number.
-// ---------------------------------------------------------------------------
 static int json_get_long(const char *json, const char *field, long *out)
 {
     char needle[64];
@@ -107,9 +99,6 @@ static int json_get_long(const char *json, const char *field, long *out)
     return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 int JWT_Validate(const char *token, JWTClaims *claims)
 {
     if (!token || !claims)
@@ -123,10 +112,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
         return -1;
     }
 
-    // -----------------------------------------------------------------------
-    // 1. Split "header.payload.signature" at '.' — expect exactly 3 parts.
-    // -----------------------------------------------------------------------
-    // Work on a copy so we can null-terminate parts.
+    // Split "header.payload.signature" — work on a copy to null-terminate parts.
     size_t tokenLen = strlen(token);
     char *copy = malloc(tokenLen + 1);
     if (!copy)
@@ -152,9 +138,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     char *payloadB64 = rest;
     char *sigB64     = dot2 + 1;
 
-    // -----------------------------------------------------------------------
-    // 2. Decode header JSON and verify algorithm is HS256.
-    // -----------------------------------------------------------------------
+    // Decode header and verify algorithm is HS256.
     size_t headerB64Len = strlen(headerB64);
     unsigned char headerJson[512];
     int headerLen = base64url_decode(headerB64, headerB64Len,
@@ -176,9 +160,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
         return -1;
     }
 
-    // -----------------------------------------------------------------------
-    // 3. Decode payload JSON.
-    // -----------------------------------------------------------------------
+    // Decode payload.
     size_t payloadB64Len = strlen(payloadB64);
     unsigned char payloadJson[1024];
     int payloadLen = base64url_decode(payloadB64, payloadB64Len,
@@ -191,10 +173,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     }
     payloadJson[payloadLen] = '\0';
 
-    // -----------------------------------------------------------------------
-    // 4. Verify HMAC-SHA256 signature.
-    //    Compute HMAC over "header.payload" (raw bytes from original token).
-    // -----------------------------------------------------------------------
+    // Verify signature — HMAC-SHA256 over "header.payload" from the original token.
     unsigned char computedSig[32];
 
     const mbedtls_md_info_t *mdInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
@@ -228,9 +207,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
         return -1;
     }
 
-    // -----------------------------------------------------------------------
-    // 5. Extract and validate claims.
-    // -----------------------------------------------------------------------
+    // Extract and validate claims.
     long exp = 0;
     if (json_get_long((char *)payloadJson, "exp", &exp) != 0)
     {
@@ -251,9 +228,6 @@ int JWT_Validate(const char *token, JWTClaims *claims)
         return -1;
     }
 
-    // -----------------------------------------------------------------------
-    // 6. Populate output.
-    // -----------------------------------------------------------------------
     strncpy(claims->subject, sub, JWT_SUBJECT_MAX - 1);
     claims->subject[JWT_SUBJECT_MAX - 1] = '\0';
     claims->expiresAt = exp;

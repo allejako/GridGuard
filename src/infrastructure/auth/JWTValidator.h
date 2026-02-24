@@ -12,12 +12,14 @@ typedef struct
 } JWTClaims;
 
 // Validate a JWT token string (without "Bearer " prefix).
+
 // Verifies:
 //   - Structure: three base64url-encoded parts separated by '.'
 //   - Algorithm: HS256 (HMAC-SHA256)
 //   - Signature: recomputed using GRIDGUARD_JWT_SECRET env var
 //   - Expiry:    exp > current time
 //
+
 // On success: populates *claims and returns 0.
 // On failure: returns -1 (logs reason internally).
 int JWT_Validate(const char *token, JWTClaims *claims);
