@@ -4,13 +4,13 @@
 #include <time.h>
 
 static const char *GET_SQL =
-    "SELECT latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at"
+    "SELECT location, latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at"
     "  FROM user_configs WHERE user_id = ?;";
 
 static const char *UPSERT_SQL =
     "INSERT OR REPLACE INTO user_configs"
-    "  (user_id, latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at)"
-    "  VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+    "  (user_id, location, latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at)"
+    "  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
 int UserConfigDB_Get(Database *db, const char *userId, UserConfig *out)
 {
@@ -31,15 +31,18 @@ int UserConfigDB_Get(Database *db, const char *userId, UserConfig *out)
     {
         memset(out, 0, sizeof(*out));
         strncpy(out->userId, userId, sizeof(out->userId) - 1);
-        out->latitude        = sqlite3_column_double(stmt, 0);
-        out->longitude       = sqlite3_column_double(stmt, 1);
-        const char *region   = (const char *)sqlite3_column_text(stmt, 2);
+        const char *location = (const char *)sqlite3_column_text(stmt, 0);
+        if (location)
+            strncpy(out->location, location, sizeof(out->location) - 1);
+        out->latitude        = sqlite3_column_double(stmt, 1);
+        out->longitude       = sqlite3_column_double(stmt, 2);
+        const char *region   = (const char *)sqlite3_column_text(stmt, 3);
         if (region)
             strncpy(out->region, region, sizeof(out->region) - 1);
-        out->solarAreaM2     = sqlite3_column_double(stmt, 3);
-        out->solarEfficiency = sqlite3_column_double(stmt, 4);
-        out->consumptionKwh  = sqlite3_column_double(stmt, 5);
-        out->updatedAt       = (long)sqlite3_column_int64(stmt, 6);
+        out->solarAreaM2     = sqlite3_column_double(stmt, 4);
+        out->solarEfficiency = sqlite3_column_double(stmt, 5);
+        out->consumptionKwh  = sqlite3_column_double(stmt, 6);
+        out->updatedAt       = (long)sqlite3_column_int64(stmt, 7);
         sqlite3_finalize(stmt);
         return 0;
     }
@@ -68,13 +71,14 @@ int UserConfigDB_Upsert(Database *db, const UserConfig *config)
 
     long now = (long)time(NULL);
     sqlite3_bind_text(stmt,   1, config->userId, -1, SQLITE_STATIC);
-    sqlite3_bind_double(stmt, 2, config->latitude);
-    sqlite3_bind_double(stmt, 3, config->longitude);
-    sqlite3_bind_text(stmt,   4, config->region, -1, SQLITE_STATIC);
-    sqlite3_bind_double(stmt, 5, config->solarAreaM2);
-    sqlite3_bind_double(stmt, 6, config->solarEfficiency);
-    sqlite3_bind_double(stmt, 7, config->consumptionKwh);
-    sqlite3_bind_int64(stmt,  8, (sqlite3_int64)now);
+    sqlite3_bind_text(stmt,   2, config->location, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 3, config->latitude);
+    sqlite3_bind_double(stmt, 4, config->longitude);
+    sqlite3_bind_text(stmt,   5, config->region, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 6, config->solarAreaM2);
+    sqlite3_bind_double(stmt, 7, config->solarEfficiency);
+    sqlite3_bind_double(stmt, 8, config->consumptionKwh);
+    sqlite3_bind_int64(stmt,  9, (sqlite3_int64)now);
 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

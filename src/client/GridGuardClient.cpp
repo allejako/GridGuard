@@ -86,6 +86,7 @@ ForecastResponse GridGuardClient::forecast(const std::string& token)
         return (item && cJSON_IsNumber(item)) ? item->valuedouble : 0.0;
     };
 
+    resp.userId       = str(root, "user_id");
     resp.location     = str(root, "location");
     resp.region       = str(root, "region");
 

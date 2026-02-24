@@ -105,3 +105,25 @@ gridguard login <token>       # Sparar JWT till ~/.gridguard/token
 gridguard forecast            # Hämtar och formaterar prognos
 gridguard config              # Öppnar webbläsaren till http://localhost:8080/config#token=...
 ```
+
+---
+
+## Semantisk namngivning: userId, location och region
+
+**Problem:** Fältet `location` användes för att lagra JWT subject (userId), vilket var semantiskt inkorrekt.
+
+**Lösning:**
+- Bytte namn på `location` till `userId` i alla pipeline-structs (WorkRequest, FetchResult, ParseResult)
+- Lade till nytt `location`-fält för användarvänligt visningsnamn (t.ex. "Linköping")
+- JSON API uppdaterat: `user_id`, `location` och `region` returneras nu korrekt
+- CLI visar nu: "test_user · Linköping · SE3"
+
+**Tekniska ändringar:**
+- Database: ny kolumn `location` i user_configs
+- UserConfig model utökad med location-fält
+- Dataflöde genom hela pipeline (ClientHandler → FetchWorker → ParseWorker → ComputeWorker)
+- C++ klient parsear och visar alla tre fält
+
+**Bonus:**
+- `make dev` kör nu automatiskt med JWT-secret (ingen manuell GRIDGUARD_JWT_SECRET behövs)
+- Default test-användare sätts upp med Linköping som location

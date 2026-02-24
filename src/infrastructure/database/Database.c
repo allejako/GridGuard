@@ -5,6 +5,7 @@
 static const char *CREATE_TABLE_SQL =
     "CREATE TABLE IF NOT EXISTS user_configs ("
     "  user_id          TEXT PRIMARY KEY,"
+    "  location         TEXT,"
     "  latitude         REAL NOT NULL,"
     "  longitude        REAL NOT NULL,"
     "  region           TEXT NOT NULL,"

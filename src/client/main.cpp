@@ -83,8 +83,11 @@ static int cmdForecast()
             maxSolar = std::max(maxSolar, e.solarKwh);
 
         printLogo();
-        std::cout << "  " << C::Bold << resp.location << C::Reset
-                  << C::Gray << "  ·  " << C::Reset << resp.region << "\n";
+        std::cout << "  " << C::Bold << resp.userId << C::Reset;
+        if (!resp.location.empty()) {
+            std::cout << C::Gray << "  ·  " << C::Reset << resp.location;
+        }
+        std::cout << C::Gray << "  ·  " << C::Reset << resp.region << "\n";
         std::cout << C::Gray
                   << "  ─────────────────────────────────────────────────────────────\n"
                   << "  Tid     Signal    Pris kr/kWh    Sol\n"

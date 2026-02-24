@@ -12,6 +12,7 @@ struct ForecastEntry {
 };
 
 struct ForecastResponse {
+    std::string userId;
     std::string location;
     std::string region;
     double      totalCostSek  = 0;

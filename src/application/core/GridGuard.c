@@ -180,7 +180,7 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request)
         return -1;
 
     LOG_INFO("GridGuard: Submitting work request for %s/%s from client FD %d",
-             request->location, request->region, request->clientFd);
+             request->userId, request->region, request->clientFd);
 
     return Queue_Push(&app->requestQueue, (void *)request, sizeof(WorkRequest), DATA_TYPE_REQUEST);
 }

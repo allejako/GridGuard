@@ -15,19 +15,15 @@
 
 // Serialize EnergyData to JSON into the WorkCompletion buffer.
 // Returns 0 on success, -1 if buffer too small.
-static int SerializeEnergyPlan(const EnergyData *plan,
-                                const char *location,
-                                const char *region,
-                                char *buf,
-                                size_t bufSize)
+static int SerializeEnergyPlan(const EnergyData *plan, const char *userId, const char *location, const char *region, char *buf, size_t bufSize)
 {
     int written = snprintf(buf, bufSize,
-        "{\"location\":\"%s\",\"region\":\"%s\","
+        "{\"user_id\":\"%s\",\"location\":\"%s\",\"region\":\"%s\","
         "\"generated_at\":%ld,"
         "\"summary\":{\"entries\":%d,\"total_cost_sek\":%.2f,"
         "\"grid_import_kwh\":%.2f,\"grid_export_kwh\":%.2f},"
         "\"forecast\":[",
-        location, region,
+        userId, location, region,
         (long)plan->generatedAt,
         plan->count, plan->totalCostSek,
         plan->totalGridImportKwh, plan->totalGridExportKwh);
@@ -92,7 +88,7 @@ void *ComputeWorker_Run(void *arg)
 
         ParseResult *parseData = (ParseResult *)item.data;
         LOG_INFO("ComputeWorker: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)",
-                 parseData->location, parseData->region,
+                 parseData->userId, parseData->region,
                  parseData->solarAreaM2,
                  parseData->solarEfficiency * 100.0,
                  parseData->consumptionKwh);
@@ -118,7 +114,7 @@ void *ComputeWorker_Run(void *arg)
                  plan.count, plan.totalGridImportKwh, plan.totalGridExportKwh);
 
         char json[WORK_COMPLETION_BUFFER_SIZE];
-        if (SerializeEnergyPlan(&plan, parseData->location, parseData->region,
+        if (SerializeEnergyPlan(&plan, parseData->userId, parseData->location, parseData->region,
                                 json, sizeof(json)) != 0)
         {
             LOG_ERROR("ComputeWorker: JSON serialization failed (buffer too small?)");

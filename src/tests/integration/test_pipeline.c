@@ -40,10 +40,10 @@ int main(void)
     WorkRequest request1 = {
         .clientFd = -1  // Mock client FD (no real socket)
     };
-    strncpy(request1.location, "stockholm", sizeof(request1.location) - 1);
+    strncpy(request1.userId, "stockholm", sizeof(request1.userId) - 1);
     strncpy(request1.region, "SE3", sizeof(request1.region) - 1);
 
-    printf("Submitting request for %s/%s...\n", request1.location, request1.region);
+    printf("Submitting request for %s/%s...\n", request1.userId, request1.region);
     if (GridGuard_SubmitRequest(&app, &request1) == 0)
     {
         printf("SUCCESS: Request submitted to pipeline\n");
@@ -68,10 +68,10 @@ int main(void)
     for (int i = 0; i < 3; i++)
     {
         WorkRequest req = {.clientFd = -1};
-        strncpy(req.location, locations[i], sizeof(req.location) - 1);
+        strncpy(req.userId, locations[i], sizeof(req.userId) - 1);
         strncpy(req.region, regions[i], sizeof(req.region) - 1);
 
-        printf("Submitting request %d: %s/%s\n", i + 1, req.location, req.region);
+        printf("Submitting request %d: %s/%s\n", i + 1, req.userId, req.region);
         if (GridGuard_SubmitRequest(&app, &req) != 0)
         {
             printf("FAILED: Could not submit request %d\n", i + 1);
@@ -92,7 +92,7 @@ int main(void)
     for (int i = 0; i < 10; i++)
     {
         WorkRequest req = {.clientFd = -1};
-        snprintf(req.location, sizeof(req.location), "city%d", i);
+        snprintf(req.userId, sizeof(req.userId), "city%d", i);
         strncpy(req.region, "SE3", sizeof(req.region) - 1);
 
         if (GridGuard_SubmitRequest(&app, &req) != 0)

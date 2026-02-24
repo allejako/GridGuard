@@ -8,7 +8,8 @@
 typedef struct
 {
     ForecastData    forecastData;
-    char            location[64];
+    char            userId[64];  // from JWT claims.subject
+    char            location[64]; // user-friendly display name/city
     char            region[16];
     int             clientFd;
     double          solarAreaM2;

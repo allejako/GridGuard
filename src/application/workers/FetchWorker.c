@@ -28,7 +28,7 @@ void *FetchWorker_Run(void *arg)
         }
 
         WorkRequest *request = (WorkRequest *)item.data;
-        LOG_INFO("FetchWorker: Processing request for %s/%s", request->location, request->region);
+        LOG_INFO("FetchWorker: Processing request for %s/%s", request->userId, request->region);
 
         // Allocate result
         FetchResult *result = calloc(1, sizeof(FetchResult));
@@ -39,6 +39,7 @@ void *FetchWorker_Run(void *arg)
             continue;
         }
 
+        strncpy(result->userId, request->userId, sizeof(result->userId) - 1);
         strncpy(result->location, request->location, sizeof(result->location) - 1);
         strncpy(result->region, request->region, sizeof(result->region) - 1);
         result->clientFd        = request->clientFd;

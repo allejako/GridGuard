@@ -455,9 +455,9 @@ dev: all watchdog
 	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
 	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
 	fuser -k -9 8080/tcp 2>/dev/null; sleep 0.5; true
-	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-dev-secret}; \
-	if [ "$$SECRET" = "gridguard-dev-secret" ]; then \
-	    echo "Varning: GRIDGUARD_JWT_SECRET inte satt, använder dev-default."; \
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
+	if [ "$$SECRET" = "gridguard-test-secret" ]; then \
+	    echo "Varning: GRIDGUARD_JWT_SECRET inte satt, använder test-default (gridguard-test-secret)."; \
 	fi; \
 	DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
@@ -472,7 +472,7 @@ dev: all watchdog
 	curl -s -X PUT http://localhost:8080/user/config \
 	    -H "Authorization: Bearer $$DEV_TOKEN" \
 	    -H "Content-Type: application/json" \
-	    -d '{"latitude":57.70,"longitude":11.97,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
+	    -d '{"location":"Linköping","latitude":58.41,"longitude":15.62,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
 	    > /dev/null 2>&1 || echo "  Varning: Kunde inte seeda test_user config"; \
 	$(CLIENT_BIN) forecast; \
 	echo ""; \

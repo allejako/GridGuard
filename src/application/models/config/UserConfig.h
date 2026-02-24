@@ -3,6 +3,7 @@
 
 typedef struct {
     char   userId[128];
+    char   location[64];     // user-friendly display name/city
     double latitude;
     double longitude;
     char   region[16];
