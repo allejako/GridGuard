@@ -177,19 +177,19 @@ static void test_multiple_keys(void)
     JsonCache cache;
     JsonCache_Initiate(&cache, 60);
 
-    JsonCache_Store(&cache, "smhi_59.33_18.07",     "{\"smhi\":true}");
     JsonCache_Store(&cache, "openmeteo_59.33_18.07", "{\"openmeteo\":true}");
+    JsonCache_Store(&cache, "openmeteo_57.70_11.97", "{\"openmeteo2\":true}");
     JsonCache_Store(&cache, "SE3_2026-02-23",        "{\"price\":0.89}");
 
     char out[256];
 
     memset(out, 0, sizeof(out));
-    JsonCache_Lookup(&cache, "smhi_59.33_18.07", out, sizeof(out));
-    ASSERT("SMHI-nyckel ger rätt data", strcmp(out, "{\"smhi\":true}") == 0);
+    JsonCache_Lookup(&cache, "openmeteo_59.33_18.07", out, sizeof(out));
+    ASSERT("Open-Meteo nyckel 1 ger rätt data", strcmp(out, "{\"openmeteo\":true}") == 0);
 
     memset(out, 0, sizeof(out));
-    JsonCache_Lookup(&cache, "openmeteo_59.33_18.07", out, sizeof(out));
-    ASSERT("Open-Meteo-nyckel ger rätt data", strcmp(out, "{\"openmeteo\":true}") == 0);
+    JsonCache_Lookup(&cache, "openmeteo_57.70_11.97", out, sizeof(out));
+    ASSERT("Open-Meteo nyckel 2 ger rätt data", strcmp(out, "{\"openmeteo2\":true}") == 0);
 
     memset(out, 0, sizeof(out));
     JsonCache_Lookup(&cache, "SE3_2026-02-23", out, sizeof(out));
