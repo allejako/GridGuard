@@ -266,7 +266,7 @@ $(TEST_BIN): $(TEST_OBJS)
 
 # Run all tests
 .PHONY: test
-test: test-api test-logger test-pipeline test-weather test-jwt test-http-request test-http-response
+test: test-api test-logger test-cache test-pipeline test-weather test-jwt test-http-request test-http-response
 	@echo ""
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -275,6 +275,7 @@ test: test-api test-logger test-pipeline test-weather test-jwt test-http-request
 # Test binaries
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
+TEST_CACHE_BIN = $(BIN_DIR)/test_cache
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 TEST_WEATHER_BIN = $(BIN_DIR)/test_openmeteo_parser
 TEST_JWT_BIN = $(BIN_DIR)/test_jwt_validator
@@ -291,6 +292,9 @@ TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
 
 TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
 
+TEST_CACHE_DEPS = $(APP_SERVICES_DIR)/JsonCache.c \
+                  $(LOGGING_DIR)/Logger.c
+
 TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(APP_WORKERS_DIR)/*.c) \
                      $(wildcard $(APP_SERVICES_DIR)/*.c) \
@@ -298,6 +302,7 @@ TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
                      $(wildcard $(LOGGING_DIR)/*.c) \
+                     $(wildcard $(DATABASE_DIR)/*.c) \
                      $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                      $(wildcard $(LIBS_DIR)/*.c)
 
@@ -326,6 +331,18 @@ $(TEST_LOGGER_BIN): $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS)
 	@echo "Building Logger test..."
 	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS) $(LDFLAGS)
 	@echo "Logger test built: $@"
+
+# Build Cache test
+$(TEST_CACHE_BIN): $(TEST_DIR)/unit/test_cache.c $(TEST_CACHE_DEPS)
+	@echo "Building Cache test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_cache.c $(TEST_CACHE_DEPS) $(LDFLAGS)
+	@echo "Cache test built: $@"
+
+# Run Cache test
+.PHONY: test-cache
+test-cache: directories $(TEST_CACHE_BIN)
+	@echo "Running Cache test..."
+	@$(TEST_CACHE_BIN)
 
 # Build Pipeline test
 $(TEST_PIPELINE_BIN): $(TEST_DIR)/integration/test_pipeline.c $(TEST_PIPELINE_DEPS)
