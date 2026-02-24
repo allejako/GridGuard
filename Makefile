@@ -452,6 +452,11 @@ dev: all watchdog
 	done; \
 	echo " redo!"; \
 	$(CLIENT_BIN) login "$$DEV_TOKEN" 2>/dev/null; \
+	curl -s -X PUT http://localhost:8080/user/config \
+	    -H "Authorization: Bearer $$DEV_TOKEN" \
+	    -H "Content-Type: application/json" \
+	    -d '{"latitude":57.70,"longitude":11.97,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
+	    > /dev/null 2>&1 || echo "  Varning: Kunde inte seeda test_user config"; \
 	$(CLIENT_BIN) forecast; \
 	echo ""; \
 	echo "  Server kör i bakgrunden. Stoppa med: make stop"
