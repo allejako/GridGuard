@@ -17,10 +17,11 @@
 typedef struct
 {
     int  clientFd;
-    char location[64]; // display/logging (userId)
+    char userId[64];   // from JWT claims.subject
+    char location[64]; // user-friendly display name/city
     char lat[16];      // latitude string, e.g. "59.3300"
-    char lon[16];      // longitude string, e.g. "18.0700"
-    char region[16];
+    char lon[16];              // longitude string, e.g. "18.0700"
+    char region[16];          // grid region code, e.g. "SE3"
     double solarAreaM2;      // from UserConfig
     double solarEfficiency;  // from UserConfig
     double consumptionKwh;   // from UserConfig (hourly base load)

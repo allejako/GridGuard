@@ -148,7 +148,7 @@ void *ParseWorker_Run(void *arg)
         }
 
         FetchResult *fetchData = (FetchResult *)item.data;
-        LOG_INFO("ParseWorker: Processing data for %s/%s", fetchData->location, fetchData->region);
+        LOG_INFO("ParseWorker: Processing data for %s/%s", fetchData->userId, fetchData->region);
 
         // Allocate result
         ParseResult *result = calloc(1, sizeof(ParseResult));
@@ -159,6 +159,7 @@ void *ParseWorker_Run(void *arg)
             continue;
         }
 
+        strncpy(result->userId, fetchData->userId, sizeof(result->userId) - 1);
         strncpy(result->location, fetchData->location, sizeof(result->location) - 1);
         strncpy(result->region, fetchData->region, sizeof(result->region) - 1);
         result->clientFd        = fetchData->clientFd;

@@ -33,22 +33,19 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
     if (found == -1)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Database error");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Database error");
         return;
     }
     if (found == 1)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "User config not set. Use PUT /user/config first.");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "User config not set. Use PUT /user/config first.");
         return;
     }
 
     WorkCompletion wc;
     if (WorkCompletion_Initiate(&wc) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Internal error");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Internal error");
         return;
     }
 
@@ -58,20 +55,18 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     };
     snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
     snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
-    strncpy(req.region,   cfg.region,      sizeof(req.region)   - 1);
-    strncpy(req.location, claims->subject, sizeof(req.location) - 1);
+    strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
+    strncpy(req.userId, claims->subject, sizeof(req.userId) - 1);
+    strncpy(req.location, cfg.location,  sizeof(req.location) - 1);
     req.solarAreaM2     = cfg.solarAreaM2;
     req.solarEfficiency = cfg.solarEfficiency;
     req.consumptionKwh  = cfg.consumptionKwh;
 
-    LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h",
-             claims->subject, req.lat, req.lon, req.region,
-             req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
+    LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h", claims->subject, req.lat, req.lon, req.region, req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
 
     if (GridGuard_SubmitRequest(app, &req) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Queue full, try again later");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Queue full, try again later");
         WorkCompletion_Destroy(&wc);
         return;
     }
@@ -79,8 +74,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     if (WorkCompletion_Wait(&wc) == 0)
         HTTPResponse_SendJson(fd, wc.json);
     else
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Pipeline error or timeout");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Pipeline error or timeout");
 
     WorkCompletion_Destroy(&wc);
 }
@@ -92,8 +86,7 @@ static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
     if (found == -1)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Database error");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Database error");
         return;
     }
     if (found == 1)
@@ -104,19 +97,18 @@ static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *
 
     char json[512];
     snprintf(json, sizeof(json),
-             "{\"latitude\":%.4f,\"longitude\":%.4f,"
+             "{\"location\":\"%s\",\"latitude\":%.4f,\"longitude\":%.4f,"
              "\"region\":\"%s\",\"solar_area_m2\":%.2f,"
              "\"solar_efficiency\":%.3f,\"consumption_kwh\":%.3f,"
              "\"updated_at\":%ld}",
-             cfg.latitude, cfg.longitude, cfg.region,
+             cfg.location, cfg.latitude, cfg.longitude, cfg.region,
              cfg.solarAreaM2, cfg.solarEfficiency,
              cfg.consumptionKwh, cfg.updatedAt);
     HTTPResponse_SendJson(fd, json);
 }
 
 // PUT /user/config — persist lat/lon/region/solar for the authenticated user.
-static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims,
-                                const HTTPRequest *request)
+static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims, const HTTPRequest *request)
 {
     cJSON *json = cJSON_Parse(request->body);
     if (!json)
@@ -125,6 +117,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
+    cJSON *jLocation    = cJSON_GetObjectItemCaseSensitive(json, "location");
     cJSON *jLat         = cJSON_GetObjectItemCaseSensitive(json, "latitude");
     cJSON *jLon         = cJSON_GetObjectItemCaseSensitive(json, "longitude");
     cJSON *jRegion      = cJSON_GetObjectItemCaseSensitive(json, "region");
@@ -144,8 +137,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     double lon = jLon->valuedouble;
     if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid coordinates: latitude must be -90..90, longitude -180..180");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid coordinates: latitude must be -90..90, longitude -180..180");
         cJSON_Delete(json);
         return;
     }
@@ -156,22 +148,19 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
 
     if (area < 0.0 || area > 10000.0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid solar_area_m2: must be 0..10000");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,"Invalid solar_area_m2: must be 0..10000");
         cJSON_Delete(json);
         return;
     }
     if (eff < 0.0 || eff > 1.0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid solar_efficiency: must be 0.0..1.0");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid solar_efficiency: must be 0.0..1.0");
         cJSON_Delete(json);
         return;
     }
     if (load < 0.0 || load > 1000.0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid consumption_kwh: must be 0..1000");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid consumption_kwh: must be 0..1000");
         cJSON_Delete(json);
         return;
     }
@@ -179,6 +168,8 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     UserConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.userId, claims->subject, sizeof(cfg.userId) - 1);
+    if (cJSON_IsString(jLocation) && jLocation->valuestring)
+        strncpy(cfg.location, jLocation->valuestring, sizeof(cfg.location) - 1);
     cfg.latitude        = lat;
     cfg.longitude       = lon;
     strncpy(cfg.region, jRegion->valuestring, sizeof(cfg.region) - 1);
@@ -190,8 +181,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
 
     if (UserConfigDB_Upsert(&app->db, &cfg) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Failed to save config");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Failed to save config");
         return;
     }
 
@@ -234,8 +224,7 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
 
     if (!token || JWT_Validate(token, &claims) != 0)
     {
-        LOG_WARNING("ClientHandler: Unauthorized request to %s (fd=%d)",
-                    request.path, fd);
+        LOG_WARNING("ClientHandler: Unauthorized request to %s (fd=%d)", request.path, fd);
         HTTPResponse_SendError(fd, HTTP_STATUS_401_UNAUTHORIZED, "Unauthorized");
         close(fd);
         return;

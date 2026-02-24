@@ -169,8 +169,7 @@ int HTTPClient_Initiate(HTTPClient *client)
     mbedtls_entropy_init(&client->entropy);
     mbedtls_ctr_drbg_init(&client->ctrDrbg);
 
-    if (mbedtls_ctr_drbg_seed(&client->ctrDrbg, mbedtls_entropy_func,
-                               &client->entropy, NULL, 0) != 0)
+    if (mbedtls_ctr_drbg_seed(&client->ctrDrbg, mbedtls_entropy_func, &client->entropy, NULL, 0) != 0)
     {
         mbedtls_ctr_drbg_free(&client->ctrDrbg);
         mbedtls_entropy_free(&client->entropy);
