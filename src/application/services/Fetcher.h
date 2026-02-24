@@ -4,23 +4,24 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include "HTTPClient.h"
 
 typedef struct
 {
-	void *curl;
-	bool isInitialized;
-	pthread_mutex_t mutex;
+    bool            isInitialized;
+    pthread_mutex_t mutex;
+    HTTPClient      httpClient;
 } Fetcher;
 
 typedef struct
 {
-	char *data;
-	size_t size;
-	int status;
+    char  *data;
+    size_t size;
+    int    status;
 } FetchResponse;
 
-int Fetcher_Initiate(Fetcher *fetcher);
-int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response);
+int  Fetcher_Initiate(Fetcher *fetcher);
+int  Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response);
 void Fetcher_FreeResponse(FetchResponse *response);
 void Fetcher_Shutdown(Fetcher *fetcher);
 

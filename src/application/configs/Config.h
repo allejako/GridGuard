@@ -5,21 +5,18 @@
 #define SERVER_PORT "8080"
 #define SERVER_HOST "localhost"
 
-// ============== WEATHER API =====================
-// SMHI - Primary source for Swedish weather data
-#define SMHI_API_BASE_URL       "https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2"
+// ============== DATABASE ========================
+#define DB_PATH     "gridguard.db"
 
-// Open-Meteo - Backup source + solar irradiance data
+
+// ============== WEATHER API =====================
+// Open-Meteo: temperature, humidity, cloud cover, wind, solar irradiance
 #define OPENMETEO_API_BASE_URL  "https://api.open-meteo.com/v1/forecast"
 
-// Location configuration
-#define WEATHER_LAT             "59.33"   // Stockholm
+// Fallback coordinates used when user config is not yet set (Stockholm)
+#define WEATHER_LAT             "59.33"
 #define WEATHER_LON             "18.07"
 #define WEATHER_TIMEZONE        "Europe/Stockholm"
-
-// Multi-source configuration
-#define WEATHER_PRIMARY_SOURCE  "SMHI"
-#define WEATHER_BACKUP_SOURCE   "OpenMeteo"
 
 // ============== SPOT PRICE API ==================
 // Format: /api/v1/prices/{year}/{month}-{day}_{region}.json

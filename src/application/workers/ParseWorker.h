@@ -2,14 +2,19 @@
 #define _PARSE_WORKER_H_
 
 #include "Forecast.h"
+#include "WorkCompletion.h"
 
 // Result from parse worker - passed to compute worker
 typedef struct
 {
-    ForecastData forecastData;
-    char location[64];
-    char region[16];
-    int clientFd;
+    ForecastData    forecastData;
+    char            location[64];
+    char            region[16];
+    int             clientFd;
+    double          solarAreaM2;
+    double          solarEfficiency;
+    double          consumptionKwh;
+    WorkCompletion *completion; // Passed through pipeline, signalled by ComputeWorker
 } ParseResult;
 
 // Parse worker thread function (pthread-compatible) expects GridGuard* as argument
