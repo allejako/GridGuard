@@ -73,7 +73,7 @@ int test_weather(Fetcher *fetcher, Parser *parser)
     print_separator("VÄDERDATA (Open-Meteo)");
 
     char url[512];
-    if (BuildWeatherApiUrl(url, sizeof(url), WEATHER_LAT, WEATHER_LON) != 0)
+    if (BuildOpenMeteoApiUrl(url, sizeof(url), WEATHER_LAT, WEATHER_LON) != 0)
     {
         printf("ERROR: Kunde inte bygga väder-URL\n");
         return -1;
