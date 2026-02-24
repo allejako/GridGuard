@@ -8,13 +8,23 @@
 #include "Parser.h"
 #include "Compute.h"
 #include "JsonCache.h"
+#include "WorkCompletion.h"
+#include "Database.h"
 
-// Work request from client
+// Work request submitted by an HTTP worker thread.
+// completion points to a WorkCompletion on the HTTP worker's stack —
+// valid for the lifetime of the request since the worker blocks on it.
 typedef struct
 {
-    int clientFd;
-    char location[64]; // TEMP LÖSNING
-    char region[16]; // TEMP LÖSNING
+    int  clientFd;
+    char location[64]; // display/logging (userId)
+    char lat[16];      // latitude string, e.g. "59.3300"
+    char lon[16];      // longitude string, e.g. "18.0700"
+    char region[16];
+    double solarAreaM2;      // from UserConfig
+    double solarEfficiency;  // from UserConfig
+    double consumptionKwh;   // from UserConfig (hourly base load)
+    WorkCompletion *completion; // Result delivery back to HTTP worker
 } WorkRequest;
 
 // Multi-threaded application core
@@ -38,6 +48,9 @@ typedef struct GridGuard
     // Fetch-level caches (shared across clients)
     JsonCache weatherCache;
     JsonCache priceCache;
+
+    // Persistent user configuration
+    Database db;
 
     // Control
     bool isRunning;

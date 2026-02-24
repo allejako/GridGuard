@@ -4,7 +4,29 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lcurl
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3
+
+# Kontrollera att mbedtls-devel är installerat
+ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)
+$(info )
+$(info Fel: mbedtls-devel saknas.)
+$(info Installera med:)
+$(info   Fedora/RHEL:  sudo dnf install mbedtls-devel)
+$(info   Ubuntu/Debian: sudo apt install libmbedtls-dev)
+$(info )
+$(error Avbryter bygget — mbedtls-devel måste installeras först)
+endif
+
+# Kontrollera att sqlite-devel är installerat
+ifeq ($(wildcard /usr/include/sqlite3.h),)
+$(info )
+$(info Fel: sqlite-devel saknas.)
+$(info Installera med:)
+$(info   Fedora/RHEL:  sudo dnf install sqlite-devel)
+$(info   Ubuntu/Debian: sudo apt install libsqlite3-dev)
+$(info )
+$(error Avbryter bygget — sqlite-devel måste installeras först)
+endif
 
 # Directories
 SRC_DIR = src
@@ -33,11 +55,14 @@ LOGGING_DIR = $(INFRASTRUCTURE_DIR)/logging
 SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
 DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
 WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
+AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
+DATABASE_DIR = $(INFRASTRUCTURE_DIR)/database
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
 NETWORK_SERVER_DIR = $(NETWORK_DIR)/server
 NETWORK_CLIENT_DIR = $(NETWORK_DIR)/client
+NETWORK_HTTP_DIR = $(NETWORK_DIR)/http
 
 # Concurrency directories (OS primitives)
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
@@ -65,9 +90,12 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(SIGNALS_DIR) \
            -I$(DAEMON_DIR) \
            -I$(WATCHDOG_DIR) \
+           -I$(AUTH_DIR) \
+           -I$(DATABASE_DIR) \
            -I$(NETWORK_DIR) \
            -I$(NETWORK_SERVER_DIR) \
            -I$(NETWORK_CLIENT_DIR) \
+           -I$(NETWORK_HTTP_DIR) \
            -I$(CONCURRENCY_DIR) \
            -I$(THREADS_DIR) \
            -I$(SYNC_DIR) \
@@ -87,14 +115,18 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
+                $(wildcard $(AUTH_DIR)/*.c) \
+                $(wildcard $(DATABASE_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
+                $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
+                $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                 $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(APP_CORE_DIR)/*.c) \
                 $(wildcard $(APP_WORKERS_DIR)/*.c) \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
-                $(wildcard $(SYNC_DIR)/*.c) \
+                $(filter-out $(SYNC_DIR)/Scheduler.c, $(wildcard $(SYNC_DIR)/*.c)) \
                 $(wildcard $(IPC_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
@@ -102,7 +134,8 @@ SERVER_SRCS_CPP = $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
 
 CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) \
               $(wildcard $(LOGGING_DIR)/*.c) \
-              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
+              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp) \
+              $(wildcard $(LIBS_DIR)/*.c)
 
 TEST_SRCS = $(wildcard $(TEST_DIR)/unit/*.c) \
             $(wildcard $(TEST_DIR)/integration/*.c)
@@ -152,8 +185,11 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/signals
 	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
 	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
+	@mkdir -p $(BUILD_DIR)/infrastructure/auth
+	@mkdir -p $(BUILD_DIR)/infrastructure/database
 	@mkdir -p $(BUILD_DIR)/network/server
 	@mkdir -p $(BUILD_DIR)/network/client
+	@mkdir -p $(BUILD_DIR)/network/http
 	@mkdir -p $(BUILD_DIR)/concurrency/threads
 	@mkdir -p $(BUILD_DIR)/concurrency/sync
 	@mkdir -p $(BUILD_DIR)/concurrency/ipc
@@ -230,7 +266,7 @@ $(TEST_BIN): $(TEST_OBJS)
 
 # Run all tests
 .PHONY: test
-test: test-api test-logger test-pipeline test-weather
+test: test-api test-logger test-pipeline test-weather test-jwt test-http-request test-http-response
 	@echo ""
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -240,12 +276,16 @@ test: test-api test-logger test-pipeline test-weather
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
-TEST_WEATHER_BIN = $(BIN_DIR)/test_multi_source_weather
+TEST_WEATHER_BIN = $(BIN_DIR)/test_openmeteo_parser
+TEST_JWT_BIN = $(BIN_DIR)/test_jwt_validator
+TEST_HTTP_REQ_BIN = $(BIN_DIR)/test_http_request
+TEST_HTTP_RESP_BIN = $(BIN_DIR)/test_http_response
 
 # Test dependencies
 TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
@@ -254,6 +294,7 @@ TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
 TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(APP_WORKERS_DIR)/*.c) \
                      $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                     $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
                      $(wildcard $(LOGGING_DIR)/*.c) \
@@ -263,8 +304,16 @@ TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
 TEST_WEATHER_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                     $(wildcard $(LOGGING_DIR)/*.c) \
                     $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                    $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                     $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                     $(wildcard $(LIBS_DIR)/*.c)
+
+TEST_JWT_DEPS = $(AUTH_DIR)/JWTValidator.c \
+                $(LOGGING_DIR)/Logger.c
+
+TEST_HTTP_REQ_DEPS = $(NETWORK_HTTP_DIR)/HTTPRequest.c
+
+TEST_HTTP_RESP_DEPS = $(NETWORK_HTTP_DIR)/HTTPResponse.c
 
 # Build API test
 $(TEST_API_BIN): $(TEST_DIR)/integration/test_api_fetch.c $(TEST_API_DEPS)
@@ -302,17 +351,53 @@ test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@echo "Running Pipeline test..."
 	@$(TEST_PIPELINE_BIN)
 
-# Build Multi-Source Weather test
-$(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS)
-	@echo "Building Multi-Source Weather test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_multi_source_weather.c $(TEST_WEATHER_DEPS) $(LDFLAGS)
-	@echo "Multi-Source Weather test built: $@"
+# Build Open-Meteo + Elpriset parser test
+$(TEST_WEATHER_BIN): $(TEST_DIR)/integration/test_openmeteo_parser.c $(TEST_WEATHER_DEPS)
+	@echo "Building Open-Meteo parser test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/integration/test_openmeteo_parser.c $(TEST_WEATHER_DEPS) $(LDFLAGS)
+	@echo "Open-Meteo parser test built: $@"
 
-# Run Multi-Source Weather test
+# Run Open-Meteo + Elpriset parser test
 .PHONY: test-weather
 test-weather: directories $(TEST_WEATHER_BIN)
-	@echo "Running Multi-Source Weather test..."
+	@echo "Running Open-Meteo parser test..."
 	@$(TEST_WEATHER_BIN)
+
+# Build JWT Validator test
+$(TEST_JWT_BIN): $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS)
+	@echo "Building JWT Validator test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_jwt_validator.c $(TEST_JWT_DEPS) $(LDFLAGS)
+	@echo "JWT Validator test built: $@"
+
+# Build HTTP Request test
+$(TEST_HTTP_REQ_BIN): $(TEST_DIR)/unit/test_http_request.c $(TEST_HTTP_REQ_DEPS)
+	@echo "Building HTTP Request test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_http_request.c $(TEST_HTTP_REQ_DEPS) $(LDFLAGS)
+	@echo "HTTP Request test built: $@"
+
+# Build HTTP Response test
+$(TEST_HTTP_RESP_BIN): $(TEST_DIR)/unit/test_http_response.c $(TEST_HTTP_RESP_DEPS)
+	@echo "Building HTTP Response test..."
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_http_response.c $(TEST_HTTP_RESP_DEPS) $(LDFLAGS)
+	@echo "HTTP Response test built: $@"
+
+# Run JWT Validator test
+.PHONY: test-jwt
+test-jwt: directories $(TEST_JWT_BIN)
+	@echo "Running JWT Validator test..."
+	@GRIDGUARD_JWT_SECRET=gridguard-test-secret $(TEST_JWT_BIN)
+
+# Run HTTP Request test
+.PHONY: test-http-request
+test-http-request: directories $(TEST_HTTP_REQ_BIN)
+	@echo "Running HTTP Request test..."
+	@$(TEST_HTTP_REQ_BIN)
+
+# Run HTTP Response test
+.PHONY: test-http-response
+test-http-response: directories $(TEST_HTTP_RESP_BIN)
+	@echo "Running HTTP Response test..."
+	@$(TEST_HTTP_RESP_BIN)
 
 # Run server
 .PHONY: run-server
@@ -320,26 +405,65 @@ run-server: server
 	@echo "Starting server..."
 	@$(SERVER_BIN)
 
-# Run client
+# Run client (visa usage)
 .PHONY: run-client
 run-client: client
-	@echo "Starting client..."
 	@$(CLIENT_BIN)
 
-# Run watchdog (starts daemon automatically)
+# Kör klienten med forecast-kommandot
+.PHONY: forecast
+forecast: client
+	@$(CLIENT_BIN) forecast
+
+# Starta watchdog i bakgrunden (watchdog startar och övervakar servern)
+# GRIDGUARD_JWT_SECRET måste vara satt i miljön.
 .PHONY: run-watchdog
 run-watchdog: server watchdog
-	@echo "Starting watchdog..."
-	@$(WATCHDOG_BIN)
+	@if [ -z "$$GRIDGUARD_JWT_SECRET" ]; then \
+	    echo "Fel: GRIDGUARD_JWT_SECRET inte satt."; \
+	    echo "  export GRIDGUARD_JWT_SECRET=<din-hemliga-nyckel>"; \
+	    exit 1; \
+	fi
+	@echo "Startar watchdog (server övervakas automatiskt)..."
+	@setsid env GRIDGUARD_JWT_SECRET="$$GRIDGUARD_JWT_SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard-watchdog.pid
+	@echo "Watchdog igång. Loggar: logs/watchdog.log  ·  logs/server.log"
 
-# Run both (server in background, client in foreground)
-.PHONY: run
-run: all
-	@echo "Starting server in background..."
-	@$(SERVER_BIN) &
-	@sleep 1
-	@echo "Starting client..."
-	@$(CLIENT_BIN)
+# Fullständigt dev-flöde: bygg allt → watchdog → server → vänta → kör forecast.
+# Sätt GRIDGUARD_JWT_SECRET i miljön eller kör med:
+#   make dev GRIDGUARD_JWT_SECRET=<nyckel>
+.PHONY: dev
+dev: all watchdog
+	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
+	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
+	fuser -k -9 8080/tcp 2>/dev/null; sleep 0.5; true
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-dev-secret}; \
+	if [ "$$SECRET" = "gridguard-dev-secret" ]; then \
+	    echo "Varning: GRIDGUARD_JWT_SECRET inte satt, använder dev-default."; \
+	fi; \
+	DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard-watchdog.pid; \
+	printf "Väntar på server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; \
+	done; \
+	echo " redo!"; \
+	$(CLIENT_BIN) login "$$DEV_TOKEN" 2>/dev/null; \
+	$(CLIENT_BIN) forecast; \
+	echo ""; \
+	echo "  Server kör i bakgrunden. Stoppa med: make stop"
+
+# Stoppa server och watchdog
+.PHONY: stop
+stop:
+	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
+	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
+	fuser -k -9 8080/tcp 2>/dev/null; true
+	@echo "GridGuard stoppad."
 
 # Memory leak check with Valgrind
 .PHONY: valgrind-server

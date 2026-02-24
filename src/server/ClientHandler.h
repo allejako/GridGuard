@@ -1,30 +1,11 @@
-#ifndef _CLIENT_HANDLER_H_
-#define _CLIENT_HANDLER_H_
+#ifndef CLIENT_HANDLER_H
+#define CLIENT_HANDLER_H
 
-#include <stdbool.h>
-#include "Config.h"
-
-// Forward declaration
 struct GridGuard;
 
-// Client connection states
-typedef enum {
-    CLIENT_DISCONNECTED = 0,
-    CLIENT_CONNECTED,
-    CLIENT_AUTHENTICATING,
-    CLIENT_READY,
-    CLIENT_PROCESSING
-} ClientState;
+// Handle a single HTTP connection end-to-end:
+// parse request → route → process → send response → close(fd).
+// Called by an HTTP worker thread. Blocks until response is sent.
+void Client_HandleRequest(int fd, struct GridGuard *app);
 
-// Client connection data
-typedef struct {
-    int fd;
-    ClientState state;
-    char buffer[CLIENT_BUFFER_SIZE];
-    int bufferLen;
-} Client;
-
-// Handle client state machine - processes commands and updates state
-void Client_HandleState(Client *client, struct GridGuard *app);
-
-#endif // _CLIENT_HANDLER_H_
+#endif // CLIENT_HANDLER_H

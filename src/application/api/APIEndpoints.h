@@ -3,31 +3,40 @@
 
 #include <time.h>
 
-// ============== WEATHER APIs ==============
+// ── Weather API URL builders ──────────────────────────────────────────────────
+// One function per weather source. FetchWorker calls these to build the URL
+// before fetching. The response is parsed in Parser.c and mapped to WeatherData
+// in ParseWorker via a WeatherFrom<Source>() function.
+//
+// To add a new weather source:
+//   1. Add Build<Source>ApiUrl() here and implement it in APIEndpoints.c
+//   2. Add <Source>Response.h to models/apis/ and Parser_Parse<Source>() to Parser.h/c
+//   3. Add WeatherFrom<Source>() in ParseWorker.c
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Bygger URL för SMHI meteorological forecast API
-// Returnerar 0 vid success, -1 vid fel
-// buffer måste vara minst 512 bytes
-// IMPORTANT: SMHI uses lon/lat order (not lat/lon)
-int BuildSMHIApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon);
-
-// Bygger URL för Open-Meteo forecast API
-// Returnerar 0 vid success, -1 vid fel
-// buffer måste vara minst 512 bytes
+// Open-Meteo: temperature, humidity, cloud cover, wind speed, solar irradiance
+// Requires: lat/lon as decimal strings, buffer >= 512 bytes
+// Returns: 0 on success, -1 on error
 int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon);
 
-// DEPRECATED: Use BuildOpenMeteoApiUrl instead (kept for backward compatibility)
-int BuildWeatherApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon);
+// ── Spot price API URL builders ───────────────────────────────────────────────
+// One function per spot price source. FetchWorker calls these to build the URL.
+// The response is parsed in Parser.c and mapped to SpotPrice in ParseWorker
+// via ConvertToSpotPrice().
+//
+// To add a new spot price source:
+//   1. Add Build<Source>ApiUrl() here and implement it in APIEndpoints.c
+//   2. Add <Source>Response.h to models/apis/ and Parser_Parse<Source>() to Parser.h/c
+//   3. Add a ConvertFrom<Source>() in ParseWorker.c or extend ConvertToSpotPrice()
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ============== SPOT PRICE API ==============
-
-// Bygger URL för elprisetjustnu.se spotpris API
-// Returnerar 0 vid success, -1 vid fel
-// buffer måste vara minst 128 bytes
-// Om date är NULL används dagens datum
+// Elpriset.se: Swedish spot prices per region (SE1–SE4), today or given date
+// Requires: region string (e.g. "SE3"), buffer >= 128 bytes
+// date == NULL uses today's date
+// Returns: 0 on success, -1 on error
 int BuildSpotPriceApiUrl(char *buffer, size_t bufferSize, const char *region, const struct tm *date);
 
-// Bygger URL för morgondagens spotpriser (publiceras ca kl 13:00)
+// Convenience wrapper for tomorrow's prices (published ~13:00 each day)
 int BuildSpotPriceTomorrowUrl(char *buffer, size_t bufferSize, const char *region);
 
 #endif

@@ -4,6 +4,9 @@
 #include "ComputeWorker.h"
 #include "Queue.h"
 #include "Logger.h"
+#include "Config.h"
+
+#include <stdlib.h>
 
 int GridGuard_Initiate(GridGuard *app)
 {
@@ -12,16 +15,30 @@ int GridGuard_Initiate(GridGuard *app)
 
     LOG_INFO("GridGuard: Initiating application core...");
 
+    // Initialize database — allow runtime override for daemon environments
+    // where the daemon has chdir("/") making relative paths unusable.
+    const char *dbPath = getenv("GRIDGUARD_DB_PATH");
+    if (!dbPath || dbPath[0] == '\0')
+        dbPath = DB_PATH;
+
+    if (Database_Initiate(&app->db, dbPath) != 0)
+    {
+        LOG_ERROR("GridGuard: Failed to initiate database");
+        return -1;
+    }
+
     // Initialize queues
     if (Queue_Initiate(&app->requestQueue) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate request queue");
+        Database_Shutdown(&app->db);
         return -1;
     }
     if (Queue_Initiate(&app->fetchQueue) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate fetch queue");
         Queue_Shutdown(&app->requestQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
     if (Queue_Initiate(&app->parseQueue) != 0)
@@ -29,6 +46,7 @@ int GridGuard_Initiate(GridGuard *app)
         LOG_ERROR("GridGuard: Failed to initiate parse queue");
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -39,6 +57,7 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -49,37 +68,12 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
-    // Configure compute with default settings
-    // TODO: Replace with client config file
-    SolarConfig solar = {
-        .panelEfficiency = 0.18,
-        .panelAreaM2 = 20.0,
-        .orientationDegrees = 180.0,
-        .tiltDegrees = 35.0,
-        .peakPowerKw = 3.6
-    };
-
-    BatteryConfig battery = {
-        .capacityKwh = 10.0,
-        .maxChargeRateKw = 5.0,
-        .maxDischargeRateKw = 5.0,
-        .minSocPercent = 20.0,
-        .maxSocPercent = 95.0,
-        .currentSocPercent = 50.0,
-        .efficiency = 0.9
-    };
-
-    ConsumptionProfile consumption = {
-        .baseLoadKw = 0.5,
-        .peakLoadKw = 3.0,
-        .averageDailyKwh = 15.0
-    };
-
     // Initialize Compute
-    if (Compute_Initiate(&app->compute, &solar, &battery, &consumption) != 0)
+    if (Compute_Initiate(&app->compute) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate Compute");
         Parser_Shutdown(&app->parser);
@@ -87,6 +81,7 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -100,6 +95,7 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -113,6 +109,7 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -131,6 +128,7 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->requestQueue);
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -138,15 +136,18 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("GridGuard: Failed to create parse worker thread");
         app->isRunning = false;
+        // Shutdown queues first to unblock fetchThread blocked in Queue_Pop,
+        // then join — otherwise pthread_join deadlocks.
+        Queue_Shutdown(&app->requestQueue);
+        Queue_Shutdown(&app->fetchQueue);
+        Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
         JsonCache_Shutdown(&app->priceCache);
         JsonCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -154,6 +155,10 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("GridGuard: Failed to create compute worker thread");
         app->isRunning = false;
+        // Shutdown all queues before joining to unblock threads in Queue_Pop.
+        Queue_Shutdown(&app->requestQueue);
+        Queue_Shutdown(&app->fetchQueue);
+        Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
         pthread_join(app->parseThread, NULL);
         JsonCache_Shutdown(&app->priceCache);
@@ -161,9 +166,7 @@ int GridGuard_Initiate(GridGuard *app)
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
-        Queue_Shutdown(&app->requestQueue);
-        Queue_Shutdown(&app->fetchQueue);
-        Queue_Shutdown(&app->parseQueue);
+        Database_Shutdown(&app->db);
         return -1;
     }
 
@@ -207,6 +210,7 @@ void GridGuard_Shutdown(GridGuard *app)
     Compute_Shutdown(&app->compute);
     Parser_Shutdown(&app->parser);
     Fetcher_Shutdown(&app->fetcher);
+    Database_Shutdown(&app->db);
 
     pthread_mutex_destroy(&app->mutex);
 

@@ -1,0 +1,89 @@
+#include "UserConfigDB.h"
+#include "Logger.h"
+#include <string.h>
+#include <time.h>
+
+static const char *GET_SQL =
+    "SELECT latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at"
+    "  FROM user_configs WHERE user_id = ?;";
+
+static const char *UPSERT_SQL =
+    "INSERT OR REPLACE INTO user_configs"
+    "  (user_id, latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, updated_at)"
+    "  VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+
+int UserConfigDB_Get(Database *db, const char *userId, UserConfig *out)
+{
+    if (!db || !db->initialized || !userId || !out)
+        return -1;
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->db, GET_SQL, -1, &stmt, NULL) != SQLITE_OK)
+    {
+        LOG_ERROR("UserConfigDB_Get: prepare failed: %s", sqlite3_errmsg(db->db));
+        return -1;
+    }
+
+    sqlite3_bind_text(stmt, 1, userId, -1, SQLITE_STATIC);
+
+    int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW)
+    {
+        memset(out, 0, sizeof(*out));
+        strncpy(out->userId, userId, sizeof(out->userId) - 1);
+        out->latitude        = sqlite3_column_double(stmt, 0);
+        out->longitude       = sqlite3_column_double(stmt, 1);
+        const char *region   = (const char *)sqlite3_column_text(stmt, 2);
+        if (region)
+            strncpy(out->region, region, sizeof(out->region) - 1);
+        out->solarAreaM2     = sqlite3_column_double(stmt, 3);
+        out->solarEfficiency = sqlite3_column_double(stmt, 4);
+        out->consumptionKwh  = sqlite3_column_double(stmt, 5);
+        out->updatedAt       = (long)sqlite3_column_int64(stmt, 6);
+        sqlite3_finalize(stmt);
+        return 0;
+    }
+    else if (rc == SQLITE_DONE)
+    {
+        sqlite3_finalize(stmt);
+        return 1; // not found
+    }
+
+    LOG_ERROR("UserConfigDB_Get: step failed: %s", sqlite3_errmsg(db->db));
+    sqlite3_finalize(stmt);
+    return -1;
+}
+
+int UserConfigDB_Upsert(Database *db, const UserConfig *config)
+{
+    if (!db || !db->initialized || !config)
+        return -1;
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->db, UPSERT_SQL, -1, &stmt, NULL) != SQLITE_OK)
+    {
+        LOG_ERROR("UserConfigDB_Upsert: prepare failed: %s", sqlite3_errmsg(db->db));
+        return -1;
+    }
+
+    long now = (long)time(NULL);
+    sqlite3_bind_text(stmt,   1, config->userId, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 2, config->latitude);
+    sqlite3_bind_double(stmt, 3, config->longitude);
+    sqlite3_bind_text(stmt,   4, config->region, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 5, config->solarAreaM2);
+    sqlite3_bind_double(stmt, 6, config->solarEfficiency);
+    sqlite3_bind_double(stmt, 7, config->consumptionKwh);
+    sqlite3_bind_int64(stmt,  8, (sqlite3_int64)now);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE)
+    {
+        LOG_ERROR("UserConfigDB_Upsert: step failed: %s", sqlite3_errmsg(db->db));
+        return -1;
+    }
+
+    return 0;
+}
