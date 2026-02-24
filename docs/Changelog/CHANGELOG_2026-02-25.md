@@ -32,7 +32,18 @@ Alternativ 1 — allt-i-ett:
 make dev GRIDGUARD_JWT_SECRET=gridguard-test-secret
 ```
 
-Startar server via watchdog, loggar in automatiskt med dev-token och kör forecast. Servern lever kvar i bakgrunden efteråt. Stoppa med `make stop`.
+Startar server via watchdog, loggar in automatiskt med dev-token, seedar test_user-konfiguration och kör forecast. Servern lever kvar i bakgrunden efteråt. Stoppa med `make stop`.
+
+**OBS:** Om du får felmeddelandet `Fel: Ingen konfiguration sparad`, starta om från scratch:
+
+```bash
+make stop                                       # Stoppa gamla processer
+pkill -f GridGuard                              # Döda eventuella hängande processer
+rm -f /tmp/gridguard*.pid gridguard.db          # Rensa PID-filer och databas
+make dev GRIDGUARD_JWT_SECRET=gridguard-test-secret
+```
+
+Problemet uppstår om databasen raderas medan servern fortfarande har den öppen (`gridguard.db (deleted)`), vilket gör att SQLite inte kan skriva till den.
 
 Alternativ 2 — manuellt (två terminaler):
 
@@ -41,20 +52,20 @@ Terminal 1 — starta servern:
 make run-watchdog GRIDGUARD_JWT_SECRET=gridguard-test-secret
 ```
 
-Terminal 2 — logga in och hämta prognos:
+Terminal 2 — logga in, seeda config och hämta prognos:
 ```bash
 ./bin/GridGuard-client login "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"
+
+# Seeda användarkonfiguration
+curl -X PUT http://localhost:8080/user/config \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c" \
+  -H "Content-Type: application/json" \
+  -d '{"latitude":57.70,"longitude":11.97,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}'
+
 ./bin/GridGuard-client forecast
 ```
 
-Testtoken är signerad med `gridguard-test-secret` och giltig till 2030. `sub` är `test_user` — E2E-testskriptet seedar den användaren i databasen, men du kan också sätta config manuellt:
-
-```bash
-curl -X PUT http://localhost:8080/user/config \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"latitude":57.70,"longitude":11.97,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18}'
-```
+Testtoken är signerad med `gridguard-test-secret` och giltig till 2030. `sub` är `test_user`. `make dev` seedar automatiskt test_user-konfigurationen i databasen, men du kan också sätta config manuellt med curl-kommandot ovan.
 
 ---
 
