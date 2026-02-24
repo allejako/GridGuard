@@ -3,10 +3,16 @@
 #include <string.h>
 #include <time.h>
 
-// Performance ratio: accounts for wiring losses, temperature, inverter efficiency.
+// TODO: Replace with calibrated model.
+// Performance ratio accounts for wiring losses, temperature drift and inverter
+// efficiency. 0.75 is a rough industry default — real value depends on panel
+// orientation, shading, cable length and inverter spec.
 #define PERFORMANCE_RATIO 0.75
 
-// BUY threshold: buy when spot price is below this fraction of the day's average.
+// TODO: Replace with a proper price-signal strategy.
+// Buying at 80% of the day's average is a placeholder. A real strategy should
+// consider tomorrow's prices (when available), time-of-use tariffs, battery
+// state-of-charge and grid peak hours.
 #define BUY_PRICE_FRACTION 0.80
 
 int Compute_Initiate(Compute *compute)
@@ -22,12 +28,7 @@ int Compute_Initiate(Compute *compute)
     return 0;
 }
 
-int Compute_GenerateEnergyPlan(Compute *compute,
-                               const ForecastData *forecastData,
-                               double solarAreaM2,
-                               double solarEfficiency,
-                               double consumptionKwh,
-                               EnergyData *plan)
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastData, double solarAreaM2, double solarEfficiency, double consumptionKwh, EnergyData *plan)
 {
     if (!compute || !compute->isInitialized || !forecastData || !plan)
         return -1;
@@ -73,7 +74,10 @@ int Compute_GenerateEnergyPlan(Compute *compute,
         if (!fc->valid)
             continue;
 
-        // Solar production (kWh for this hour)
+        // TODO: Solar production model needs calibration.
+        // Current formula: (W/m² / 1000) × area × efficiency × performance_ratio
+        // Missing factors: panel tilt/azimuth correction, seasonal albedo,
+        // module temperature coefficient, shading from surroundings.
         double irradiance  = fc->solarIrradiance / 1000.0; // W/m² → kW/m²
         double production  = irradiance * solarAreaM2 * solarEfficiency * PERFORMANCE_RATIO;
 
@@ -81,22 +85,32 @@ int Compute_GenerateEnergyPlan(Compute *compute,
 
         // Decision
         EnergyAction action;
+        // TODO: Decision thresholds need proper calibration.
+        // 0.05 kWh surplus threshold is arbitrary — should depend on inverter
+        // minimum export limit and grid connection agreement.
         if (netKwh > 0.05)
         {
-            // Meaningful solar surplus → sell to grid
             action = ACTION_SELL_TO_GRID;
             totalExport += netKwh;
         }
         else if (fc->spotPriceSek < buyThreshold)
         {
-            // Price is cheap → buy from grid
+            // TODO: BUY should also consider whether there is capacity to store
+            // energy (battery) or a shiftable load available at this hour.
             action = ACTION_BUY_FROM_GRID;
-            totalImport  += (-netKwh);
-            totalCost    += (-netKwh) * fc->spotPriceSek;
         }
         else
         {
             action = ACTION_IDLE;
+        }
+
+        // Grid import and cost apply to all hours where consumption > production,
+        // regardless of signal (BUY means "run extra loads", IDLE means "baseline only",
+        // but both draw from the grid when netKwh < 0).
+        if (netKwh < 0)
+        {
+            totalImport += (-netKwh);
+            totalCost   += (-netKwh) * fc->spotPriceSek;
         }
 
         e->timestamp      = fc->timestamp;
