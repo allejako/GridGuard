@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <sys/socket.h>
 
 #include "Server.h"
 #include "SignalHandler.h"
@@ -60,14 +62,19 @@ int Server_Run(Server *server)
     while (*server->isRunning)
     {
         int clientSocket = TCPServer_Accept(&server->tcpServer);
-        if (clientSocket <= 0) 
+        if (clientSocket <= 0)
         {
             if (!*server->isRunning)
                 break;
-            if (clientSocket < 0) 
+            if (clientSocket < 0)
                 LOG_ERROR("Server: Failed to accept connection");
             continue;
         }
+
+        // Set socket timeout to prevent DoS attacks from slow clients
+        struct timeval timeout = { .tv_sec = 30, .tv_usec = 0 };
+        setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(clientSocket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
         if (ThreadPool_AddClient(&server->threadPool, clientSocket) != 0)
         {

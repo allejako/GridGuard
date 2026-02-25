@@ -158,7 +158,7 @@ WATCHDOG_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(WATCHDOG_SRCS))
 
 # Default target
 .PHONY: all
-all: directories server client
+all: directories server
 
 # Individual targets for CI
 .PHONY: server
@@ -446,37 +446,55 @@ run-watchdog: server watchdog
 	echo $$! > /tmp/gridguard-watchdog.pid
 	@echo "Watchdog igång. Loggar: logs/watchdog.log  ·  logs/server.log"
 
-# Fullständigt dev-flöde: bygg allt → watchdog → server → vänta → kör forecast.
+# Fullständigt dev-flöde: bygg server → watchdog → server → seed testdata
 # Sätt GRIDGUARD_JWT_SECRET i miljön eller kör med:
 #   make dev GRIDGUARD_JWT_SECRET=<nyckel>
 .PHONY: dev
-dev: all watchdog
+dev: server watchdog
 	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
 	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
 	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
 	fuser -k -9 8080/tcp 2>/dev/null; sleep 0.5; true
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
 	if [ "$$SECRET" = "gridguard-test-secret" ]; then \
-	    echo "Varning: GRIDGUARD_JWT_SECRET inte satt, använder test-default (gridguard-test-secret)."; \
+	    echo "⚠ Varning: GRIDGUARD_JWT_SECRET inte satt, använder test-default (gridguard-test-secret)."; \
 	fi; \
 	DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"; \
+	echo ""; \
+	echo "╔════════════════════════════════════════════════════════════╗"; \
+	echo "║              GridGuard Development Server                  ║"; \
+	echo "╚════════════════════════════════════════════════════════════╝"; \
+	echo ""; \
+	echo "→ Starting watchdog & server..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
 	echo $$! > /tmp/gridguard-watchdog.pid; \
-	printf "Väntar på server"; \
+	printf "→ Waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; \
 	done; \
-	echo " redo!"; \
-	$(CLIENT_BIN) login "$$DEV_TOKEN" 2>/dev/null; \
+	echo " ready!"; \
+	echo "→ Seeding test data for test_user..."; \
 	curl -s -X PUT http://localhost:8080/user/config \
 	    -H "Authorization: Bearer $$DEV_TOKEN" \
 	    -H "Content-Type: application/json" \
-	    -d '{"location":"Linköping","latitude":58.41,"longitude":15.62,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
-	    > /dev/null 2>&1 || echo "  Varning: Kunde inte seeda test_user config"; \
-	$(CLIENT_BIN) forecast; \
+	    -d '{"location":"Stockholm","latitude":59.3293,"longitude":18.0686,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
+	    > /dev/null 2>&1 && echo "✓ Test user configuration seeded" || echo "✗ Failed to seed test_user config"; \
 	echo ""; \
-	echo "  Server kör i bakgrunden. Stoppa med: make stop"
+	echo "╔════════════════════════════════════════════════════════════╗"; \
+	echo "║  Server running on http://localhost:8080                   ║"; \
+	echo "║  Test user: test_user (JWT: ******************)            ║"; \
+	echo "║                                                            ║"; \
+	echo "║  Test endpoints:                                           ║"; \
+	echo "║  • GET  /health                                            ║"; \
+	echo "║  • GET  /forecast  (requires Authorization header)         ║"; \
+	echo "║  • GET  /user/config                                       ║"; \
+	echo "║  • PUT  /user/config                                       ║"; \
+	echo "║                                                            ║"; \
+	echo "║  Logs: logs/server.log  ·  logs/watchdog.log               ║"; \
+	echo "║  Stop with: make stop                                      ║"; \
+	echo "╚════════════════════════════════════════════════════════════╝"; \
+	echo ""
 
 # Stoppa server och watchdog
 .PHONY: stop
