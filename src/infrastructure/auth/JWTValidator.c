@@ -12,6 +12,10 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/constant_time.h>
 
+// Maximum allowed JWT token size in bytes. Prevents attacks with excessively large tokens.
+// 5 KB matches AWS Cognito limits. GridGuard tokens are typically ~130 bytes.
+#define MAX_JWT_TOKEN_SIZE 5000
+
 // base64url → standard base64, then decode with mbedtls_base64_decode.
 // Returns decoded byte count on success, -1 on error.
 static int base64url_decode(const char *src, size_t srcLen, unsigned char *dst, size_t dstBufLen)
@@ -38,9 +42,8 @@ static int base64url_decode(const char *src, size_t srcLen, unsigned char *dst, 
         buf[i] = '=';
     buf[padded] = '\0';
 
-    size_t olen = 0;
-    int ret = mbedtls_base64_decode(dst, dstBufLen, &olen,
-                                    (const unsigned char *)buf, padded);
+    size_t olen = 0; // mbedtls_base64_decode returns 0 on success, non-zero on failure
+    int ret = mbedtls_base64_decode(dst, dstBufLen, &olen, (const unsigned char *)buf, padded);
     free(buf);
 
     if (ret != 0)
@@ -51,8 +54,7 @@ static int base64url_decode(const char *src, size_t srcLen, unsigned char *dst, 
 
 // Extracts a string value from a minimal JSON object ("field":"value").
 // Returns 0 on success, -1 if not found or too long.
-static int json_get_string(const char *json, const char *field,
-                            char *out, size_t outSize)
+static int json_get_string(const char *json, const char *field, char *out, size_t outSize)
 {
     // Build search needle: "field":"
     char needle[64];
@@ -111,8 +113,15 @@ int JWT_Validate(const char *token, JWTClaims *claims)
         return -1;
     }
 
-    // Split "header.payload.signature" — work on a copy to null-terminate parts.
+    // Validate token size to prevent DoS attacks
     size_t tokenLen = strlen(token);
+    if (tokenLen > MAX_JWT_TOKEN_SIZE)
+    {
+        LOG_WARNING("JWTValidator: Token too large (%zu bytes, max %d)", tokenLen, MAX_JWT_TOKEN_SIZE);
+        return -1;
+    }
+
+    // Split "header.payload.signature" — work on a copy to null-terminate parts.
     char *copy = malloc(tokenLen + 1);
     if (!copy)
         return -1;
@@ -140,8 +149,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     // Decode header and verify algorithm is HS256.
     size_t headerB64Len = strlen(headerB64);
     unsigned char headerJson[512];
-    int headerLen = base64url_decode(headerB64, headerB64Len,
-                                     headerJson, sizeof(headerJson) - 1);
+    int headerLen = base64url_decode(headerB64, headerB64Len, headerJson, sizeof(headerJson) - 1);
     if (headerLen < 0)
     {
         LOG_WARNING("JWTValidator: Failed to decode header");
@@ -151,8 +159,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     headerJson[headerLen] = '\0';
 
     char alg[16] = {0};
-    if (json_get_string((char *)headerJson, "alg", alg, sizeof(alg)) != 0
-        || strcmp(alg, "HS256") != 0)
+    if (json_get_string((char *)headerJson, "alg", alg, sizeof(alg)) != 0 || strcmp(alg, "HS256") != 0)
     {
         LOG_WARNING("JWTValidator: Unsupported algorithm '%s'", alg);
         free(copy);
@@ -162,8 +169,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     // Decode payload.
     size_t payloadB64Len = strlen(payloadB64);
     unsigned char payloadJson[1024];
-    int payloadLen = base64url_decode(payloadB64, payloadB64Len,
-                                      payloadJson, sizeof(payloadJson) - 1);
+    int payloadLen = base64url_decode(payloadB64, payloadB64Len, payloadJson, sizeof(payloadJson) - 1);
     if (payloadLen < 0)
     {
         LOG_WARNING("JWTValidator: Failed to decode payload");
@@ -176,10 +182,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     unsigned char computedSig[32];
 
     const mbedtls_md_info_t *mdInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (mbedtls_md_hmac(mdInfo,
-                        (const unsigned char *)secret, strlen(secret),
-                        (const unsigned char *)signingInput, signingLen,
-                        computedSig) != 0)
+    if (mbedtls_md_hmac(mdInfo, (const unsigned char *)secret, strlen(secret), (const unsigned char *)signingInput, signingLen, computedSig) != 0)
     {
         LOG_ERROR("JWTValidator: HMAC computation failed");
         free(copy);
@@ -189,8 +192,7 @@ int JWT_Validate(const char *token, JWTClaims *claims)
     // Decode signature from token
     size_t sigB64Len = strlen(sigB64);
     unsigned char tokenSig[64];
-    int tokenSigLen = base64url_decode(sigB64, sigB64Len,
-                                       tokenSig, sizeof(tokenSig));
+    int tokenSigLen = base64url_decode(sigB64, sigB64Len, tokenSig, sizeof(tokenSig));
     free(copy); // done with split copy
 
     if (tokenSigLen < 0 || tokenSigLen != 32)
