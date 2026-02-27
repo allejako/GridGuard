@@ -5,28 +5,31 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <poll.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
 
-// Restart policy
 #define MAX_RESTARTS        5
-#define RESTART_WINDOW_SEC  300   // 5 minutes
+#define RESTART_WINDOW_SEC  300
 #define BASE_BACKOFF_SEC    2
-#define HEARTBEAT_INTERVAL  5     // Daemon writes every 5s
-#define HEARTBEAT_TIMEOUT   15    // Watchdog considers daemon frozen after 15s
-#define MONITOR_POLL_SEC    2     // waitpid poll interval
+#define HEARTBEAT_INTERVAL  5
+#define HEARTBEAT_TIMEOUT   15
+#define MONITOR_POLL_SEC    2
+
+#define STATUS_FIFO_PATH    "/tmp/gridguard.status"
 
 static volatile sig_atomic_t watchdog_running = 1;
-static volatile sig_atomic_t got_sighup = 0;
 static volatile pid_t daemon_pid = -1;
 
-// Heartbeat pipe: daemon writes to pipe_fds[1], watchdog reads from pipe_fds[0]
 static int heartbeat_pipe[2] = {-1, -1};
+static int status_fd = -1;
 
 // ============================================================
 // Signal handling
@@ -38,21 +41,13 @@ static void Watchdog_SignalHandler(int signum)
     {
         watchdog_running = 0;
 
-        // Forward SIGTERM to daemon child
         if (daemon_pid > 0)
-        {
             kill(daemon_pid, SIGTERM);
-        }
     }
     else if (signum == SIGHUP)
     {
-        got_sighup = 1;
-
-        // Forward SIGHUP to daemon for config reload
         if (daemon_pid > 0)
-        {
             kill(daemon_pid, SIGHUP);
-        }
     }
 }
 
@@ -65,10 +60,9 @@ static void Watchdog_SetupSignals(void)
     sa.sa_flags = 0;
 
     sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGHUP, &sa, NULL);
+    sigaction(SIGINT,  &sa, NULL);
+    sigaction(SIGHUP,  &sa, NULL);
 
-    // Ignore SIGPIPE (broken pipe from heartbeat)
     signal(SIGPIPE, SIG_IGN);
 }
 
@@ -103,17 +97,13 @@ static void Watchdog_CloseHeartbeatPipe(void)
     }
 }
 
-// Check heartbeat pipe with timeout. Returns 1 if heartbeat received, 0 on timeout, -1 on error.
-// Uses poll() instead of select() to avoid the FD_SETSIZE (1024) fd limit.
 static int Watchdog_CheckHeartbeat(int timeout_sec)
 {
     if (heartbeat_pipe[0] < 0)
-    {
-        return 1; // No pipe = skip heartbeat check
-    }
+        return 1;
 
     struct pollfd pfd;
-    pfd.fd = heartbeat_pipe[0];
+    pfd.fd     = heartbeat_pipe[0];
     pfd.events = POLLIN;
 
     int ret = poll(&pfd, 1, timeout_sec * 1000);
@@ -121,25 +111,68 @@ static int Watchdog_CheckHeartbeat(int timeout_sec)
     if (ret < 0)
     {
         if (errno == EINTR)
-            return 1; // Interrupted by signal, not a timeout
-        LOG_ERROR("Watchdog: poll() on heartbeat pipe failed: %s", strerror(errno));
+            return 1;
+        LOG_ERROR("Watchdog: poll() failed: %s", strerror(errno));
         return -1;
     }
 
     if (ret == 0)
-    {
-        return 0; // Timeout - no heartbeat
-    }
+        return 0;
 
-    // Read and discard heartbeat data
     char buf[64];
     ssize_t n = read(heartbeat_pipe[0], buf, sizeof(buf));
     if (n <= 0)
+        return -1;
+
+    return 1;
+}
+
+// ============================================================
+// Status FIFO — named pipe for external readers (e.g. dashboard)
+// ============================================================
+
+static void status_open(void)
+{
+    if (mkfifo(STATUS_FIFO_PATH, 0600) < 0 && errno != EEXIST)
     {
-        return -1; // Pipe closed or error
+        LOG_WARNING("Watchdog: mkfifo failed: %s", strerror(errno));
+        return;
     }
 
-    return 1; // Heartbeat received
+    // O_RDWR keeps the write end open even without a reader on the other side
+    status_fd = open(STATUS_FIFO_PATH, O_RDWR | O_NONBLOCK);
+    if (status_fd < 0)
+    {
+        LOG_WARNING("Watchdog: could not open status fifo: %s", strerror(errno));
+        return;
+    }
+
+    LOG_INFO("Watchdog: status FIFO open at %s", STATUS_FIFO_PATH);
+}
+
+static void status_write(const char *fmt, ...)
+{
+    if (status_fd < 0)
+        return;
+
+    char buf[128];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    if (n > 0)
+        write(status_fd, buf, (size_t)n);
+}
+
+static void status_close(void)
+{
+    if (status_fd >= 0)
+    {
+        close(status_fd);
+        status_fd = -1;
+    }
+    unlink(STATUS_FIFO_PATH);
 }
 
 // ============================================================
@@ -148,12 +181,9 @@ static int Watchdog_CheckHeartbeat(int timeout_sec)
 
 static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
 {
-    // Create new heartbeat pipe for this daemon instance
     Watchdog_CloseHeartbeatPipe();
     if (Watchdog_CreateHeartbeatPipe() != 0)
-    {
         LOG_WARNING("Watchdog: Continuing without heartbeat pipe");
-    }
 
     pid_t pid = fork();
 
@@ -165,15 +195,9 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
 
     if (pid == 0)
     {
-        // Child process
-
-        // Close read end of pipe (child only writes)
         if (heartbeat_pipe[0] >= 0)
-        {
             close(heartbeat_pipe[0]);
-        }
 
-        // Pass write-fd to daemon via environment variable
         if (heartbeat_pipe[1] >= 0)
         {
             char fd_str[16];
@@ -181,15 +205,12 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
             setenv("GRIDGUARD_HEARTBEAT_FD", fd_str, 1);
         }
 
-        // exec the daemon with -d flag
         execl(daemon_path, "GridGuard-server", "-d", NULL);
 
-        // If we get here, exec failed
         fprintf(stderr, "Watchdog: execl(%s) failed: %s\n", daemon_path, strerror(errno));
         _exit(127);
     }
 
-    // Parent: close write end of pipe (parent only reads)
     if (heartbeat_pipe[1] >= 0)
     {
         close(heartbeat_pipe[1]);
@@ -205,7 +226,7 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
 
 typedef struct
 {
-    int count;
+    int    count;
     time_t first_restart;
     time_t timestamps[MAX_RESTARTS];
 } RestartTracker;
@@ -215,25 +236,17 @@ static void RestartTracker_Init(RestartTracker *rt)
     memset(rt, 0, sizeof(RestartTracker));
 }
 
-// Returns 1 if restart is allowed, 0 if limit exceeded.
 static int RestartTracker_CanRestart(RestartTracker *rt)
 {
     time_t now = time(NULL);
 
-    // If first restart was more than RESTART_WINDOW_SEC ago, reset the counter
     if (rt->count > 0 && difftime(now, rt->first_restart) > RESTART_WINDOW_SEC)
     {
         LOG_INFO("Watchdog: Restart window expired, resetting counter");
         rt->count = 0;
     }
-    
 
-    if (rt->count >= MAX_RESTARTS)
-    {
-        return 0; // Too many restarts
-    }
-
-    return 1;
+    return rt->count < MAX_RESTARTS;
 }
 
 static void RestartTracker_Record(RestartTracker *rt)
@@ -241,25 +254,19 @@ static void RestartTracker_Record(RestartTracker *rt)
     time_t now = time(NULL);
 
     if (rt->count == 0)
-    {
         rt->first_restart = now;
-    }
 
     if (rt->count < MAX_RESTARTS)
-    {
         rt->timestamps[rt->count] = now;
-    }
+
     rt->count++;
 }
 
-// Calculate backoff delay: 2^count * BASE_BACKOFF_SEC (capped at 32s)
 static int RestartTracker_GetBackoff(RestartTracker *rt)
 {
     int delay = BASE_BACKOFF_SEC;
     for (int i = 0; i < rt->count - 1 && delay < 32; i++)
-    {
         delay *= 2;
-    }
     return delay;
 }
 
@@ -270,37 +277,30 @@ static int RestartTracker_GetBackoff(RestartTracker *rt)
 int Watchdog_Run(const char *daemon_path)
 {
     Watchdog_SetupSignals();
+    status_open();
 
     RestartTracker tracker;
     RestartTracker_Init(&tracker);
 
     LOG_INFO("Watchdog: Starting daemon from %s", daemon_path);
 
-    // Initial spawn
     daemon_pid = Watchdog_SpawnDaemon(daemon_path);
     if (daemon_pid < 0)
     {
         LOG_FATAL("Watchdog: Failed to spawn daemon");
+        status_close();
         return 1;
     }
 
     LOG_INFO("Watchdog: Daemon spawned with PID %d", daemon_pid);
+    status_write("START pid=%d\n", (int)daemon_pid);
 
     int status;
-    time_t last_stable_start = time(NULL);
-    time_t last_heartbeat = time(NULL);
-    int killed_for_timeout = 0; // Set when we kill a frozen daemon — don't treat its exit as clean
+    time_t last_heartbeat  = time(NULL);
+    int killed_for_timeout = 0;
 
     while (watchdog_running)
     {
-        // Handle SIGHUP (config reload) - already forwarded in signal handler
-        if (got_sighup)
-        {
-            LOG_INFO("Watchdog: SIGHUP received, config reload forwarded to daemon");
-            got_sighup = 0;
-        }
-
-        // Poll for heartbeat (blocks for MONITOR_POLL_SEC seconds)
         int hb = Watchdog_CheckHeartbeat(MONITOR_POLL_SEC);
         if (hb == 1)
         {
@@ -308,38 +308,30 @@ int Watchdog_Run(const char *daemon_path)
         }
         else if (hb == 0)
         {
-            // No heartbeat in this poll window - check accumulated silence
             double elapsed = difftime(time(NULL), last_heartbeat);
             if (elapsed < HEARTBEAT_TIMEOUT)
-            {
-                // Still within tolerance, keep polling
                 goto check_waitpid;
-            }
 
             LOG_WARNING("Watchdog: No heartbeat for %.0f seconds (timeout=%d), daemon may be frozen",
                         elapsed, HEARTBEAT_TIMEOUT);
+            status_write("FROZEN elapsed=%.0fs\n", elapsed);
 
-            // Send SIGTERM first, give it 5 seconds
             killed_for_timeout = 1;
             LOG_INFO("Watchdog: Sending SIGTERM to frozen daemon (PID %d)", daemon_pid);
             kill(daemon_pid, SIGTERM);
             sleep(5);
 
-            // Check if it died
             pid_t result = waitpid(daemon_pid, &status, WNOHANG);
             if (result == 0)
             {
-                // Still alive after SIGTERM, force kill
                 LOG_WARNING("Watchdog: Daemon didn't respond to SIGTERM, sending SIGKILL");
                 kill(daemon_pid, SIGKILL);
                 waitpid(daemon_pid, &status, 0);
             }
 
-            // Fall through to restart logic below
             goto daemon_died;
         }
 
-        // Non-blocking check if daemon has exited
         check_waitpid:;
         pid_t result = waitpid(daemon_pid, &status, WNOHANG);
 
@@ -352,42 +344,46 @@ int Watchdog_Run(const char *daemon_path)
         }
 
         if (result == 0)
-        {
-            // Daemon still running
             continue;
-        }
 
-        // Daemon has exited
         daemon_died:
 
         if (WIFEXITED(status))
         {
-            int exit_code = WEXITSTATUS(status);
-            if (exit_code == 0 && !killed_for_timeout)
+            int code = WEXITSTATUS(status);
+            if (code == 0 && !killed_for_timeout)
             {
                 LOG_INFO("Watchdog: Daemon exited cleanly (code 0), shutting down");
+                status_write("STOP exit=0\n");
                 Watchdog_CloseHeartbeatPipe();
+                status_close();
                 return 0;
             }
-            if (exit_code != 0)
-                LOG_WARNING("Watchdog: Daemon exited with error code %d", exit_code);
+            if (code != 0)
+            {
+                LOG_WARNING("Watchdog: Daemon exited with error code %d", code);
+                status_write("CRASH code=%d\n", code);
+            }
             else
+            {
                 LOG_WARNING("Watchdog: Frozen daemon exited cleanly after SIGTERM, restarting");
+            }
         }
         else if (WIFSIGNALED(status))
         {
             int sig = WTERMSIG(status);
-            // SIGTERM during our shutdown is expected, don't restart
             if (!watchdog_running)
             {
                 LOG_INFO("Watchdog: Daemon terminated by signal %d during shutdown", sig);
+                status_write("STOP signal=%d\n", sig);
                 Watchdog_CloseHeartbeatPipe();
+                status_close();
                 return 0;
             }
             LOG_WARNING("Watchdog: Daemon killed by signal %d (%s)", sig, strsignal(sig));
+            status_write("CRASH signal=%d\n", sig);
         }
 
-        // Should we restart?
         if (!watchdog_running)
             break;
 
@@ -395,7 +391,9 @@ int Watchdog_Run(const char *daemon_path)
         {
             LOG_FATAL("Watchdog: Max restarts (%d) exceeded in %d seconds, giving up",
                       MAX_RESTARTS, RESTART_WINDOW_SEC);
+            status_write("FATAL max_restarts=%d\n", MAX_RESTARTS);
             Watchdog_CloseHeartbeatPipe();
+            status_close();
             return 1;
         }
 
@@ -405,31 +403,29 @@ int Watchdog_Run(const char *daemon_path)
         LOG_INFO("Watchdog: Restarting daemon in %d seconds (attempt %d/%d)",
                  backoff, tracker.count, MAX_RESTARTS);
 
-        // Backoff sleep (interruptible)
         for (int i = 0; i < backoff && watchdog_running; i++)
-        {
             sleep(1);
-        }
 
         if (!watchdog_running)
             break;
 
-        // Spawn new daemon
         daemon_pid = Watchdog_SpawnDaemon(daemon_path);
         if (daemon_pid < 0)
         {
             LOG_FATAL("Watchdog: Failed to respawn daemon");
+            status_close();
             Watchdog_CloseHeartbeatPipe();
             return 1;
         }
 
         LOG_INFO("Watchdog: Daemon respawned with PID %d", daemon_pid);
-        last_stable_start = time(NULL);
+        status_write("RESTART attempt=%d/%d pid=%d delay=%ds\n",
+                     tracker.count, MAX_RESTARTS, (int)daemon_pid, backoff);
+
         last_heartbeat = time(NULL);
         killed_for_timeout = 0;
     }
 
-    // Shutting down: wait for daemon
     if (daemon_pid > 0)
     {
         LOG_INFO("Watchdog: Waiting for daemon to shut down...");
@@ -438,7 +434,7 @@ int Watchdog_Run(const char *daemon_path)
     }
 
     Watchdog_CloseHeartbeatPipe();
+    status_close();
     LOG_INFO("Watchdog: Exiting");
-    (void)last_stable_start; // Used for future stable-run tracking
     return 0;
 }
