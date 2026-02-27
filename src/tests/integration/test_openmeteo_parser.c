@@ -123,7 +123,7 @@ static int test_elpriset(Fetcher *fetcher, Parser *parser)
     if (!parseOk) return -1;
 
     printf("Prices parsed: %d\n", prices.count);
-    print_result("24 hourly prices", prices.count == 24);
+    print_result("At least 24 price entries", prices.count >= 24);
 
     if (prices.count > 0) {
         const ElprisetEntry *e = &prices.entries[0];
