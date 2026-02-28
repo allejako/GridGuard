@@ -85,10 +85,10 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize fetch-level caches
-    if (JsonCache_Initiate(&app->weatherCache, JSON_CACHE_DEFAULT_TTL_SEC) != 0)
+    // Initialize fetch-level caches in POSIX shared memory
+    if (SharedCache_Create(&app->weatherCache, "/gridguard_weather", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to initiate weather cache");
+        LOG_ERROR("GridGuard: Failed to create weather shared cache");
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -99,10 +99,10 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    if (JsonCache_Initiate(&app->priceCache, JSON_CACHE_DEFAULT_TTL_SEC) != 0)
+    if (SharedCache_Create(&app->priceCache, "/gridguard_price", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to initiate price cache");
-        JsonCache_Shutdown(&app->weatherCache);
+        LOG_ERROR("GridGuard: Failed to create price shared cache");
+        SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -120,8 +120,8 @@ int GridGuard_Initiate(GridGuard *app)
     if (pthread_create(&app->fetchThread, NULL, FetchWorker_Run, app) != 0)
     {
         LOG_ERROR("GridGuard: Failed to create fetch worker thread");
-        JsonCache_Shutdown(&app->priceCache);
-        JsonCache_Shutdown(&app->weatherCache);
+        SharedCache_Destroy(&app->priceCache);
+        SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -142,8 +142,8 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->fetchQueue);
         Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
-        JsonCache_Shutdown(&app->priceCache);
-        JsonCache_Shutdown(&app->weatherCache);
+        SharedCache_Destroy(&app->priceCache);
+        SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -161,8 +161,8 @@ int GridGuard_Initiate(GridGuard *app)
         Queue_Shutdown(&app->parseQueue);
         pthread_join(app->fetchThread, NULL);
         pthread_join(app->parseThread, NULL);
-        JsonCache_Shutdown(&app->priceCache);
-        JsonCache_Shutdown(&app->weatherCache);
+        SharedCache_Destroy(&app->priceCache);
+        SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Parser_Shutdown(&app->parser);
         Fetcher_Shutdown(&app->fetcher);
@@ -205,8 +205,8 @@ void GridGuard_Shutdown(GridGuard *app)
     pthread_join(app->computeThread, NULL);
 
     // Cleanup components
-    JsonCache_Shutdown(&app->priceCache);
-    JsonCache_Shutdown(&app->weatherCache);
+    SharedCache_Destroy(&app->priceCache);
+    SharedCache_Destroy(&app->weatherCache);
     Compute_Shutdown(&app->compute);
     Parser_Shutdown(&app->parser);
     Fetcher_Shutdown(&app->fetcher);

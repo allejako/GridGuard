@@ -7,7 +7,7 @@
 #include "Fetcher.h"
 #include "Parser.h"
 #include "Compute.h"
-#include "JsonCache.h"
+#include "SharedCache.h"
 #include "WorkCompletion.h"
 #include "Database.h"
 
@@ -46,9 +46,9 @@ typedef struct GridGuard
     Parser parser;
     Compute compute;
 
-    // Fetch-level caches (shared across clients)
-    JsonCache weatherCache;
-    JsonCache priceCache;
+    // Fetch-level caches — backed by POSIX shared memory (shm_open/mmap)
+    SharedCache weatherCache;
+    SharedCache priceCache;
 
     // Persistent user configuration
     Database db;
