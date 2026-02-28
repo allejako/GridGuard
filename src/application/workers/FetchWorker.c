@@ -49,11 +49,11 @@ void *FetchWorker_Run(void *arg)
         result->completion      = request->completion;
 
         // --- Open-Meteo weather data: key = "openmeteo_lat_lon" ---
-        char weatherKey[JSON_CACHE_KEY_MAX];
+        char weatherKey[SHARED_CACHE_KEY_MAX];
         snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request->lat, request->lon);
 
-        if (JsonCache_Lookup(&app->weatherCache, weatherKey,
-                             result->openMeteoJson, sizeof(result->openMeteoJson)) == 0)
+        if (SharedCache_Lookup(&app->weatherCache, weatherKey,
+                              result->openMeteoJson, sizeof(result->openMeteoJson)) == 0)
         {
             LOG_INFO("FetchWorker: Open-Meteo cache HIT (%s)", weatherKey);
         }
@@ -66,7 +66,7 @@ void *FetchWorker_Run(void *arg)
             if (Fetcher_Fetch(&app->fetcher, openMeteoUrl, &omResp) == 0)
             {
                 strncpy(result->openMeteoJson, omResp.data, sizeof(result->openMeteoJson) - 1);
-                JsonCache_Store(&app->weatherCache, weatherKey, omResp.data);
+                SharedCache_Store(&app->weatherCache, weatherKey, omResp.data);
                 Fetcher_FreeResponse(&omResp);
                 LOG_INFO("FetchWorker: Got Open-Meteo data (%zu bytes)", strlen(result->openMeteoJson));
             }
@@ -82,7 +82,7 @@ void *FetchWorker_Run(void *arg)
         }
 
         // --- Price data: key = "region_YYYY-MM-DD" ---
-        char priceKey[JSON_CACHE_KEY_MAX];
+        char priceKey[SHARED_CACHE_KEY_MAX];
         {
             time_t now = time(NULL);
             struct tm today;
@@ -94,8 +94,8 @@ void *FetchWorker_Run(void *arg)
                      today.tm_mday);
         }
 
-        if (JsonCache_Lookup(&app->priceCache, priceKey,
-                             result->priceJson, sizeof(result->priceJson)) == 0)
+        if (SharedCache_Lookup(&app->priceCache, priceKey,
+                              result->priceJson, sizeof(result->priceJson)) == 0)
         {
             LOG_INFO("FetchWorker: Price cache HIT (%s)", priceKey);
         }
@@ -108,7 +108,7 @@ void *FetchWorker_Run(void *arg)
             if (Fetcher_Fetch(&app->fetcher, priceUrl, &priceResp) == 0)
             {
                 strncpy(result->priceJson, priceResp.data, sizeof(result->priceJson) - 1);
-                JsonCache_Store(&app->priceCache, priceKey, priceResp.data);
+                SharedCache_Store(&app->priceCache, priceKey, priceResp.data);
                 Fetcher_FreeResponse(&priceResp);
                 LOG_INFO("FetchWorker: Got price data (%zu bytes)", strlen(result->priceJson));
             }
