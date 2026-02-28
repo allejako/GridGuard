@@ -4,7 +4,7 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lrt
 
 # Kontrollera att mbedtls-devel är installerat
 ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)
@@ -57,6 +57,7 @@ DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
 WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
 AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
 DATABASE_DIR = $(INFRASTRUCTURE_DIR)/database
+CACHE_DIR    = $(INFRASTRUCTURE_DIR)/cache
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
@@ -92,6 +93,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(WATCHDOG_DIR) \
            -I$(AUTH_DIR) \
            -I$(DATABASE_DIR) \
+           -I$(CACHE_DIR) \
            -I$(NETWORK_DIR) \
            -I$(NETWORK_SERVER_DIR) \
            -I$(NETWORK_CLIENT_DIR) \
@@ -117,6 +119,7 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
                 $(wildcard $(AUTH_DIR)/*.c) \
                 $(wildcard $(DATABASE_DIR)/*.c) \
+                $(wildcard $(CACHE_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
                 $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
@@ -187,6 +190,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
 	@mkdir -p $(BUILD_DIR)/infrastructure/auth
 	@mkdir -p $(BUILD_DIR)/infrastructure/database
+	@mkdir -p $(BUILD_DIR)/infrastructure/cache
 	@mkdir -p $(BUILD_DIR)/network/server
 	@mkdir -p $(BUILD_DIR)/network/client
 	@mkdir -p $(BUILD_DIR)/network/http
@@ -298,6 +302,7 @@ TEST_CACHE_DEPS = $(APP_SERVICES_DIR)/JsonCache.c \
 TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(APP_WORKERS_DIR)/*.c) \
                      $(wildcard $(APP_SERVICES_DIR)/*.c) \
+                     $(wildcard $(CACHE_DIR)/*.c) \
                      $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
