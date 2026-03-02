@@ -78,7 +78,7 @@ static int Watchdog_CreateHeartbeatPipe(void)
         return -1;
     }
 
-    LOG_INFO("Watchdog: Heartbeat pipe created (read_fd=%d, write_fd=%d)",
+    LOG_INFO("Heartbeat pipe created (read=%d, write=%d)",
              heartbeat_pipe[0], heartbeat_pipe[1]);
     return 0;
 }
@@ -147,7 +147,7 @@ static void status_open(void)
         return;
     }
 
-    LOG_INFO("Watchdog: status FIFO open at %s", STATUS_FIFO_PATH);
+    LOG_INFO("Status FIFO opened: %s", STATUS_FIFO_PATH);
 }
 
 static void status_write(const char *fmt, ...)
@@ -205,7 +205,7 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
             setenv("GRIDGUARD_HEARTBEAT_FD", fd_str, 1);
         }
 
-        execl(daemon_path, "GridGuard-server", "-d", NULL);
+        execl(daemon_path, "GridGuard-server", NULL);
 
         fprintf(stderr, "Watchdog: execl(%s) failed: %s\n", daemon_path, strerror(errno));
         _exit(127);
@@ -282,7 +282,7 @@ int Watchdog_Run(const char *daemon_path)
     RestartTracker tracker;
     RestartTracker_Init(&tracker);
 
-    LOG_INFO("Watchdog: Starting daemon from %s", daemon_path);
+    LOG_INFO("Starting daemon: %s", daemon_path);
 
     daemon_pid = Watchdog_SpawnDaemon(daemon_path);
     if (daemon_pid < 0)
@@ -292,7 +292,7 @@ int Watchdog_Run(const char *daemon_path)
         return 1;
     }
 
-    LOG_INFO("Watchdog: Daemon spawned with PID %d", daemon_pid);
+    LOG_INFO("Daemon started (PID %d)", daemon_pid);
     status_write("START pid=%d\n", (int)daemon_pid);
 
     int status;
@@ -317,7 +317,7 @@ int Watchdog_Run(const char *daemon_path)
             status_write("FROZEN elapsed=%.0fs\n", elapsed);
 
             killed_for_timeout = 1;
-            LOG_INFO("Watchdog: Sending SIGTERM to frozen daemon (PID %d)", daemon_pid);
+            LOG_INFO("Sending SIGTERM to frozen daemon (PID %d)", daemon_pid);
             kill(daemon_pid, SIGTERM);
             sleep(5);
 
@@ -353,7 +353,7 @@ int Watchdog_Run(const char *daemon_path)
             int code = WEXITSTATUS(status);
             if (code == 0 && !killed_for_timeout)
             {
-                LOG_INFO("Watchdog: Daemon exited cleanly (code 0), shutting down");
+                LOG_INFO("Daemon exited cleanly (exit 0)");
                 status_write("STOP exit=0\n");
                 Watchdog_CloseHeartbeatPipe();
                 status_close();
@@ -400,7 +400,7 @@ int Watchdog_Run(const char *daemon_path)
         RestartTracker_Record(&tracker);
         int backoff = RestartTracker_GetBackoff(&tracker);
 
-        LOG_INFO("Watchdog: Restarting daemon in %d seconds (attempt %d/%d)",
+        LOG_INFO("Restarting daemon in %d seconds (attempt %d/%d)",
                  backoff, tracker.count, MAX_RESTARTS);
 
         for (int i = 0; i < backoff && watchdog_running; i++)
@@ -418,7 +418,7 @@ int Watchdog_Run(const char *daemon_path)
             return 1;
         }
 
-        LOG_INFO("Watchdog: Daemon respawned with PID %d", daemon_pid);
+        LOG_INFO("Daemon restarted (PID %d)", daemon_pid);
         status_write("RESTART attempt=%d/%d pid=%d delay=%ds\n",
                      tracker.count, MAX_RESTARTS, (int)daemon_pid, backoff);
 
@@ -428,13 +428,13 @@ int Watchdog_Run(const char *daemon_path)
 
     if (daemon_pid > 0)
     {
-        LOG_INFO("Watchdog: Waiting for daemon to shut down...");
+        LOG_INFO("Waiting for daemon");
         waitpid(daemon_pid, &status, 0);
-        LOG_INFO("Watchdog: Daemon stopped");
+        LOG_INFO("Daemon stopped");
     }
 
     Watchdog_CloseHeartbeatPipe();
     status_close();
-    LOG_INFO("Watchdog: Exiting");
+    LOG_INFO("Watchdog exiting");
     return 0;
 }

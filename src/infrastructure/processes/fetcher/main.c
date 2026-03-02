@@ -1,8 +1,6 @@
 #include "fetcher.h"
 #include "Logger.h"
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 
@@ -14,23 +12,11 @@ static void signal_handler(int sig)
     g_process.isRunning = false;
 }
 
-int main(int argc, char *argv[])
+int main(int argc __attribute__((unused)), char *argv[])
 {
-    if (argc < 2)
-    {
-        fprintf(stderr, "Usage: %s <fifo_path>\n", argv[0]);
-        fprintf(stderr, "Example: %s /tmp/gridguard_fetch_to_parse.fifo\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-
     const char *fifoPath = argv[1];
 
-    // Logger har redan initierats av main process
-    // Men vi kan ha en lokal fallback för debugging
-    if (Logger_Initiate("logs/fetcher.log", LOG_LEVEL_DEBUG) != 0)
-    {
-        fprintf(stderr, "Warning: Logger init failed, continuing anyway\n");
-    }
+    Logger_Initiate("logs/fetcher.log", LOG_LEVEL_DEBUG);
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
@@ -44,7 +30,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Kör huvudloopen
     int result = FetcherProcess_Run(&g_process);
 
     FetcherProcess_Shutdown(&g_process);

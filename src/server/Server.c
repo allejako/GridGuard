@@ -16,12 +16,12 @@ int Server_Initiate(Server *server)
     if (!server)
         return -1;
 
-    LOG_INFO("Server: Initializing...");
+    LOG_INFO("Initializing server");
 
     // Initialize signal handler first
     server->isRunning = SignalHandler_Initiate();
 
-    // Initialize GridGuard application core 
+    // Initialize GridGuard application core
     if (GridGuard_Initiate(&server->app) != 0)
     {
         LOG_FATAL("Server: Failed to initialize GridGuard application");
@@ -48,7 +48,7 @@ int Server_Initiate(Server *server)
     // Register server fd with signal handler
     SignalHandler_SetServerFd(server->tcpServer.listen_fd);
 
-    LOG_INFO("Server: Initialization complete");
+    LOG_INFO("Server ready");
     return 0;
 }
 
@@ -57,7 +57,7 @@ int Server_Run(Server *server)
     if (!server || !server->isRunning)
         return -1;
 
-    LOG_INFO("Server: Starting main loop...");
+    LOG_INFO("Starting main loop");
 
     while (*server->isRunning)
     {
@@ -83,7 +83,7 @@ int Server_Run(Server *server)
         }
     }
 
-    LOG_INFO("Server: Main loop exited");
+    LOG_INFO("Main loop exited");
     return 0;
 }
 
@@ -92,7 +92,7 @@ void Server_Shutdown(Server *server)
     if (!server)
         return;
 
-    LOG_INFO("Server: Shutting down...");
+    LOG_INFO("Shutting down");
 
     // Shutdown components in reverse order
     ThreadPool_Shutdown(&server->threadPool);
@@ -103,5 +103,5 @@ void Server_Shutdown(Server *server)
         close(server->tcpServer.listen_fd);
     }
 
-    LOG_INFO("Server: Shutdown complete");
+    LOG_INFO("Shutdown complete");
 }

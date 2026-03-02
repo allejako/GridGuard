@@ -57,9 +57,8 @@ static time_t parse_iso8601(const char *timeStr)
     return mktime(&tm);
 }
 
-// Samma logik som ParseWorker.c - bygg ForecastData från Open-Meteo + Elpriset
-static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetResponse *elpriset,
-                                 const char *region __attribute__((unused)), ForecastData *forecast)
+// Bygg forecast data genom att matcha OpenMeteoResponse med ElprisetResponse baserat på timestamp
+static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetResponse *elpriset, const char *region __attribute__((unused)), ForecastData *forecast)
 {
     memset(forecast, 0, sizeof(ForecastData));
     forecast->lastUpdated = time(NULL);
@@ -123,7 +122,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Öppna FIFO för läsning (blockerar tills fetch-processen öppnar write end)
+    // Öppna FIFO för läsning, blockerar tills fetch-processen öppnar write end
     proc->fifoFd = open(fifoPath, O_RDONLY);
     if (proc->fifoFd < 0)
     {
@@ -133,7 +132,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Skapa Unix domain socket server (Vecka 5: socket(), bind(), listen())
+    // Skapa Unix domain socket server för att kommunicera med Compute-tråden
     proc->serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
     if (proc->serverSocket < 0)
     {
@@ -172,8 +171,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     }
 
     proc->isRunning = true;
-    LOG_INFO("ParserProcess: Initialized (PID %d, FIFO %s, Socket %s)",
-             getpid(), fifoPath, socketPath);
+    LOG_INFO("ParserProcess: Initialized (PID %d, FIFO %s, Socket %s)", getpid(), fifoPath, socketPath);
     return 0;
 }
 
@@ -189,7 +187,7 @@ int ParserProcess_Run(ParserProcess *proc)
     {
         FetchResult fetchResult;
 
-        // Läs FetchResult från FIFO (Vecka 4: Named pipe read)
+        // Läs FetchResult från FIFO 
         ssize_t bytesRead = read(proc->fifoFd, &fetchResult, sizeof(fetchResult));
 
         if (bytesRead == 0)
@@ -204,10 +202,9 @@ int ParserProcess_Run(ParserProcess *proc)
             continue;
         }
 
-        LOG_INFO("ParserProcess: Processing FetchResult for %s/%s",
-                 fetchResult.userId, fetchResult.region);
+        LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
 
-        // Parsa JSON data (samma logik som ParseWorker.c)
+        // Parsa JSON data från FetchResult
         OpenMeteoResponse omData = {0};
         ElprisetResponse elprisetData = {0};
         bool omParsed = false;
@@ -245,7 +242,7 @@ int ParserProcess_Run(ParserProcess *proc)
             continue;
         }
 
-        // Bygg ParseResult
+        // Bygg ParseResult med data från FetchResult + parsade API-responser
         ParseResult parseResult = {0};
         strncpy(parseResult.userId, fetchResult.userId, sizeof(parseResult.userId) - 1);
         strncpy(parseResult.location, fetchResult.location, sizeof(parseResult.location) - 1);
@@ -267,7 +264,7 @@ int ParserProcess_Run(ParserProcess *proc)
             build_forecast_data(&omData, &elprisetData, fetchResult.region, &parseResult.forecastData);
         }
 
-        // Vänta på connection från Compute-tråd (Vecka 5: accept() på Unix socket)
+        // Vänta på connection från Compute-tråd
         int clientSocket = accept(proc->serverSocket, NULL, NULL);
         if (clientSocket < 0)
         {
@@ -277,7 +274,7 @@ int ParserProcess_Run(ParserProcess *proc)
 
         LOG_INFO("ParserProcess: Accepted connection from Compute thread");
 
-        // Skicka ParseResult till Compute (Vecka 5: write() på Unix socket)
+        // Skicka ParseResult till Compute via socket 
         ssize_t written = write(clientSocket, &parseResult, sizeof(parseResult));
         if (written != sizeof(parseResult))
         {
