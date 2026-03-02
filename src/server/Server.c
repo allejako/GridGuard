@@ -21,7 +21,7 @@ int Server_Initiate(Server *server)
     // Initialize signal handler first
     server->isRunning = SignalHandler_Initiate();
 
-    // Initialize GridGuard application core
+    // Initialize GridGuard application core 
     if (GridGuard_Initiate(&server->app) != 0)
     {
         LOG_FATAL("Server: Failed to initialize GridGuard application");
