@@ -12,14 +12,12 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <limits.h>
+#include <libgen.h>
 
 // IPC paths - definierade här för att vara tillgängliga överallt
 static const char *FIFO_PATH = "/tmp/gridguard_fetch_to_parse.fifo";
 static const char *SOCKET_PATH = "/tmp/gridguard_parse_to_compute.sock";
-
-// Process binary paths (absolute paths required when running as daemon since cwd changes to /)
-static const char *FETCHER_BIN = "/home/znees/github/GridGuard/bin/GridGuard-fetcher";
-static const char *PARSER_BIN = "/home/znees/github/GridGuard/bin/GridGuard-parser";
 
 int GridGuard_Initiate(GridGuard *app)
 {
@@ -33,6 +31,25 @@ int GridGuard_Initiate(GridGuard *app)
 
     strncpy(app->fifoPath, FIFO_PATH, sizeof(app->fifoPath) - 1);
     strncpy(app->socketPath, SOCKET_PATH, sizeof(app->socketPath) - 1);
+
+    // Resolve binary paths relative to this executable so the paths are
+    // correct even when running as a daemon (cwd becomes /).
+    char exe[PATH_MAX];
+    ssize_t exe_len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (exe_len > 0)
+    {
+        exe[exe_len] = '\0';
+        char exe_copy[PATH_MAX];
+        strncpy(exe_copy, exe, sizeof(exe_copy) - 1);
+        const char *bin_dir = dirname(exe_copy);
+        snprintf(app->fetcherBin, sizeof(app->fetcherBin), "%s/GridGuard-fetcher", bin_dir);
+        snprintf(app->parserBin,  sizeof(app->parserBin),  "%s/GridGuard-parser",  bin_dir);
+    }
+    else
+    {
+        strncpy(app->fetcherBin, "bin/GridGuard-fetcher", sizeof(app->fetcherBin) - 1);
+        strncpy(app->parserBin,  "bin/GridGuard-parser",  sizeof(app->parserBin)  - 1);
+    }
 
     LOG_INFO("GridGuard: Initiating hybrid IPC architecture...");
 
@@ -135,8 +152,8 @@ int GridGuard_Initiate(GridGuard *app)
         close(requestPipe[0]);
 
         // Exec fetcher executable (use absolute path since daemon changes cwd to /)
-        execl(FETCHER_BIN, "GridGuard-fetcher", app->fifoPath, NULL);
-        LOG_FATAL("Fetch: exec failed for %s", FETCHER_BIN);
+        execl(app->fetcherBin, "GridGuard-fetcher", app->fifoPath, NULL);
+        LOG_FATAL("Fetch: exec failed for %s", app->fetcherBin);
         exit(EXIT_FAILURE);
     }
 
@@ -167,8 +184,8 @@ int GridGuard_Initiate(GridGuard *app)
     if (app->parsePid == 0)
     {
         // CHILD: Parse process (use absolute path since daemon changes cwd to /)
-        execl(PARSER_BIN, "GridGuard-parser", app->fifoPath, app->socketPath, NULL);
-        LOG_FATAL("Parse: exec failed for %s", PARSER_BIN);
+        execl(app->parserBin, "GridGuard-parser", app->fifoPath, app->socketPath, NULL);
+        LOG_FATAL("Parse: exec failed for %s", app->parserBin);
         exit(EXIT_FAILURE);
     }
 

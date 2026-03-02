@@ -48,6 +48,10 @@ typedef struct GridGuard
     char fifoPath[256];       // Named pipe: Fetch → Parse
     char socketPath[256];     // Unix socket: Parse → Compute
 
+    // Child binary paths (resolved at runtime from /proc/self/exe)
+    char fetcherBin[4096];
+    char parserBin[4096];
+
     // Compute worker thread (körs i main process, läser från Unix socket)
     pthread_t computeThread;
 

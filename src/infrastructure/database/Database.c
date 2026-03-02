@@ -44,6 +44,27 @@ int Database_Initiate(Database *db, const char *path)
         return -1;
     }
 
+    // Add columns that may be missing from older database files.
+    // ALTER TABLE ADD COLUMN returns an error if the column already exists —
+    // that is expected and safe to ignore.
+    static const char *MIGRATE_SQL[] = {
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_low    REAL NOT NULL DEFAULT 0.25;",
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_normal REAL NOT NULL DEFAULT 0.35;",
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_high   REAL NOT NULL DEFAULT 0.45;",
+        NULL
+    };
+    for (int i = 0; MIGRATE_SQL[i]; i++)
+    {
+        char *migErr = NULL;
+        if (sqlite3_exec(db->db, MIGRATE_SQL[i], NULL, NULL, &migErr) != SQLITE_OK)
+        {
+            // "duplicate column name" means the column already exists — not an error.
+            if (strstr(migErr, "duplicate column name") == NULL)
+                LOG_WARNING("Database: Migration warning: %s", migErr);
+            sqlite3_free(migErr);
+        }
+    }
+
     db->initialized = true;
     LOG_INFO("Database: Opened '%s'", path);
     return 0;
