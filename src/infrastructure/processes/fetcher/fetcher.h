@@ -4,19 +4,19 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// Dedikerad fetch-process som körs som egen executable via exec().
-// Läser WorkRequest från stdin (pipe från main process).
-// Skriver FetchResult till FIFO (named pipe till Parse process).
-// Använder SharedCache för att cacha weather/price data mellan processer.
+// Dedicated fetch process, runs as its own executable via exec().
+// Reads WorkRequests from stdin (pipe from main process).
+// Writes FetchResults to a FIFO (named pipe to the parse process).
+// Uses SharedCache to cache weather/price data between processes.
 
 typedef struct
 {
-    int stdinFd;           // Read end av pipe från main process
-    int fifoFd;            // Write end av FIFO till parse process
-    char fifoPath[256];    // Path till FIFO-filen
+    int stdinFd;           // read end of pipe from main process
+    int fifoFd;            // write end of FIFO to parse process
+    char fifoPath[256];
     void *fetcher;         // Fetcher service (opaque pointer)
-    void *weatherCache;    // SharedCache för weather data
-    void *priceCache;      // SharedCache för price data
+    void *weatherCache;    // SharedCache for weather data
+    void *priceCache;      // SharedCache for price data
     bool isRunning;
 } FetcherProcess;
 

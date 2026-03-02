@@ -11,17 +11,9 @@ typedef struct
     long expiresAt;                // "exp" field — Unix timestamp
 } JWTClaims;
 
-// Validate a JWT token string (without "Bearer " prefix).
-
-// Verifies:
-//   - Structure: three base64url-encoded parts separated by '.'
-//   - Algorithm: HS256 (HMAC-SHA256)
-//   - Signature: recomputed using GRIDGUARD_JWT_SECRET env var
-//   - Expiry:    exp > current time
-//
-
-// On success: populates *claims and returns 0.
-// On failure: returns -1 (logs reason internally).
+// Validates a HS256 JWT (without "Bearer " prefix).
+// Checks structure, signature (GRIDGUARD_JWT_SECRET), and expiry.
+// Returns 0 and fills *claims on success, -1 on any failure.
 int JWT_Validate(const char *token, JWTClaims *claims);
 
 #endif // JWT_VALIDATOR_H
