@@ -477,6 +477,8 @@ dev: server watchdog
 	    echo "Warning: Failed to generate token, using fallback"; \
 	    DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4MDM5NzI3NjQsImlhdCI6MTc3MjQzNjc2NH0.SiKMf77hM6vWV1icHWSLotmGDAflrp7xEm7LB-loHHg"; \
 	fi; \
+	echo "Seeding test data..."; \
+	python3 scripts/seed_db.py "$(CURDIR)/gridguard.db" || echo "Warning: seed_db.py failed"; \
 	echo "Starting server..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
 	echo $$! > /tmp/gridguard-watchdog.pid; \
@@ -486,13 +488,6 @@ dev: server watchdog
 	    printf "."; sleep 0.5; \
 	done; \
 	echo " ready"; \
-	echo ""; \
-	echo "Seeding test data..."; \
-	curl -s -X PUT http://localhost:8080/user/config \
-	    -H "Authorization: Bearer $$DEV_TOKEN" \
-	    -H "Content-Type: application/json" \
-	    -d '{"location":"Stockholm","latitude":59.3293,"longitude":18.0686,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5,"grid_fee_low":0.25,"grid_fee_normal":0.35,"grid_fee_high":0.45}' \
-	    > /dev/null 2>&1 && echo "OK: test_user configured" || echo "FAILED: could not seed test data"; \
 	echo ""; \
 	ps aux | grep -E "GridGuard-(server|fetcher|parser)" | grep -v grep | awk '{printf "  [PID %s] %s\n", $$2, $$11}'; \
 	echo ""; \
