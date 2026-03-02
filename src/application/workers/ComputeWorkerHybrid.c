@@ -30,10 +30,8 @@ typedef struct
     ForecastData forecastData;
 } ParseResult;
 
-// Samma serialisering som ComputeWorker.c
-static int serialize_energy_plan(const EnergyData *plan, const char *userId,
-                                  const char *location, const char *region,
-                                  char *buf, size_t bufSize)
+// Serialiserar EnergyData till JSON-format som HTTP-tråden kan skicka i response.
+static int serialize_energy_plan(const EnergyData *plan, const char *userId, const char *location, const char *region, char *buf, size_t bufSize)
 {
     int written = snprintf(buf, bufSize,
         "{\"user_id\":\"%s\",\"location\":\"%s\",\"region\":\"%s\","
@@ -102,7 +100,7 @@ void *ComputeWorkerHybrid_Run(void *arg)
 
     while (worker->isRunning)
     {
-        // Connect till Parse-process via Unix socket (Vecka 5: socket(), connect())
+        // Connect till Parse-process via Unix socket 
         int clientSocket = socket(AF_UNIX, SOCK_STREAM, 0);
         if (clientSocket < 0)
         {
@@ -125,7 +123,7 @@ void *ComputeWorkerHybrid_Run(void *arg)
 
         LOG_DEBUG("ComputeWorkerHybrid: Connected to Parse process");
 
-        // Läs ParseResult från Unix socket (Vecka 5: read() på connected socket)
+        // Läs ParseResult från Unix socket 
         ParseResult parseResult;
         ssize_t bytesRead = read(clientSocket, &parseResult, sizeof(parseResult));
 
@@ -145,13 +143,10 @@ void *ComputeWorkerHybrid_Run(void *arg)
 
         close(clientSocket);
 
-        LOG_INFO("ComputeWorkerHybrid: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)",
-                 parseResult.userId, parseResult.region,
-                 parseResult.solarAreaM2,
-                 parseResult.solarEfficiency * 100.0,
-                 parseResult.consumptionKwh);
+        LOG_INFO("ComputeWorkerHybrid: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)", parseResult.userId, parseResult.region, 
+                parseResult.solarAreaM2, parseResult.solarEfficiency * 100.0, parseResult.consumptionKwh);
 
-        // Hitta WorkCompletion via CompletionRegistry (Vecka 3: mutex-skyddad global map)
+        // Hitta WorkCompletion via CompletionRegistry baserat på userId i ParseResult
         WorkCompletion *completion = FindCompletionByUserId(parseResult.userId);
         if (!completion)
         {
@@ -161,15 +156,8 @@ void *ComputeWorkerHybrid_Run(void *arg)
 
         // Generera energy plan
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(compute,
-                                       &parseResult.forecastData,
-                                       parseResult.solarAreaM2,
-                                       parseResult.solarEfficiency,
-                                       parseResult.consumptionKwh,
-                                       parseResult.gridFee_low,
-                                       parseResult.gridFee_normal,
-                                       parseResult.gridFee_high,
-                                       &plan) != 0)
+        if (Compute_GenerateEnergyPlan(compute, &parseResult.forecastData, parseResult.solarAreaM2, 
+            parseResult.solarEfficiency, parseResult.consumptionKwh, parseResult.gridFee_low, parseResult.gridFee_normal, parseResult.gridFee_high, &plan) != 0)
         {
             LOG_ERROR("ComputeWorkerHybrid: Failed to generate energy plan");
             UnregisterCompletion(parseResult.userId);

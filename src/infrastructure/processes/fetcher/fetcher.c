@@ -47,7 +47,7 @@ typedef struct
 
 int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
 {
-    if (!proc || !fifoPath)
+    if (!proc || !fifoPath) 
         return -1;
 
     memset(proc, 0, sizeof(FetcherProcess));
@@ -140,8 +140,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
     {
         WorkRequest request;
 
-        // Läs WorkRequest från stdin (pipe från main process)
-        // Vecka 4: Anonymous pipe read
+        // Läs WorkRequest från stdin, pipe kommer från main process i GridGuard.c 
         ssize_t bytesRead = read(proc->stdinFd, &request, sizeof(request));
 
         if (bytesRead == 0)
@@ -170,12 +169,11 @@ int FetcherProcess_Run(FetcherProcess *proc)
         result.gridFee_normal = request.gridFee_normal;
         result.gridFee_high = request.gridFee_high;
 
-        // Hämta weather data (samma logik som FetchWorker.c)
+        // Hämta väderdata med caching
         char weatherKey[256];
         snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request.lat, request.lon);
 
-        if (SharedCache_Lookup(weatherCache, weatherKey,
-                              result.openMeteoJson, sizeof(result.openMeteoJson)) == 0)
+        if (SharedCache_Lookup(weatherCache, weatherKey, result.openMeteoJson, sizeof(result.openMeteoJson)) == 0)
         {
             LOG_INFO("FetcherProcess: Weather cache HIT (%s)", weatherKey);
         }

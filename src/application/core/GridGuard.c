@@ -25,7 +25,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
 
     memset(app, 0, sizeof(GridGuard));
-    app->requestPipeFd = -1;
+    app->requestPipeFd = -1; 
     app->fetchPid = -1;
     app->parsePid = -1;
 
@@ -51,9 +51,9 @@ int GridGuard_Initiate(GridGuard *app)
         strncpy(app->parserBin,  "bin/GridGuard-parser",  sizeof(app->parserBin)  - 1);
     }
 
-    LOG_INFO("GridGuard: Initiating hybrid IPC architecture...");
+    LOG_INFO("Initializing GR1DGU4RD application core...");
 
-    // Initialize database
+    // Initialize gridguard database
     const char *dbPath = getenv("GRIDGUARD_DB_PATH");
     if (!dbPath || dbPath[0] == '\0')
         dbPath = DB_PATH;
@@ -64,7 +64,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize Compute service (används av compute thread)
+    // Initialize Compute service, används utav våran compute worker thread som kommunicerar med Parse-processen via Unix socket
     if (Compute_Initiate(&app->compute) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate Compute");
@@ -72,7 +72,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize shared memory caches (delas mellan alla processer)
+    // Initialize shared memory caches för väder och elprisdata, används av både Fetch och Parse-processerna
     if (SharedCache_Create(&app->weatherCache, "/gridguard_weather", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
         LOG_ERROR("GridGuard: Failed to create weather shared cache");
@@ -94,17 +94,17 @@ int GridGuard_Initiate(GridGuard *app)
     pthread_mutex_init(&app->mutex, NULL);
 
     // Skapa FIFO för Fetch → Parse kommunikation
-    unlink(app->fifoPath);
+    unlink(app->fifoPath); // Rensa gammal FIFO om den finns för att undvika EEXIST error
     if (mkfifo(app->fifoPath, 0666) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to create FIFO at %s", app->fifoPath);
+        LOG_ERROR("GR1DGU4RD: Failed to create FIFO at %s", app->fifoPath);
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         Database_Shutdown(&app->db);
         return -1;
     }
-    LOG_INFO("GridGuard: Created FIFO at %s", app->fifoPath);
+    LOG_INFO("FIFO created: %s", app->fifoPath);
 
     // Rensa gammal Unix socket
     unlink(app->socketPath);
@@ -121,7 +121,7 @@ int GridGuard_Initiate(GridGuard *app)
         Database_Shutdown(&app->db);
         return -1;
     }
-    LOG_INFO("GridGuard: Created anonymous pipe (HTTP → Fetch)");
+    LOG_INFO("Pipe created (HTTP → Fetch)");
 
     // Fork Fetch-process
     app->fetchPid = fork();
@@ -160,7 +160,7 @@ int GridGuard_Initiate(GridGuard *app)
     // PARENT: Stäng read end, spara write end
     close(requestPipe[0]);
     app->requestPipeFd = requestPipe[1];
-    LOG_INFO("GridGuard: Forked Fetch process (PID %d)", app->fetchPid);
+    LOG_INFO("Fetch process started (PID %d)", app->fetchPid);
 
     // Ge fetch-processen tid att öppna FIFO write end
     sleep(1);
@@ -169,7 +169,7 @@ int GridGuard_Initiate(GridGuard *app)
     app->parsePid = fork();
     if (app->parsePid < 0)
     {
-        LOG_ERROR("GridGuard: Failed to fork Parse process");
+        LOG_ERROR("Failed to fork Parse process");
         kill(app->fetchPid, SIGTERM);
         waitpid(app->fetchPid, NULL, 0);
         close(app->requestPipeFd);
@@ -189,7 +189,7 @@ int GridGuard_Initiate(GridGuard *app)
         exit(EXIT_FAILURE);
     }
 
-    LOG_INFO("GridGuard: Forked Parse process (PID %d)", app->parsePid);
+    LOG_INFO("Parse process started (PID %d)", app->parsePid);
 
     // Ge parse-processen tid att sätta upp Unix socket
     sleep(1);
@@ -198,7 +198,7 @@ int GridGuard_Initiate(GridGuard *app)
     ComputeWorkerHybrid *computeWorker = calloc(1, sizeof(ComputeWorkerHybrid));
     if (!computeWorker)
     {
-        LOG_ERROR("GridGuard: Failed to allocate ComputeWorkerHybrid");
+        LOG_ERROR("Failed to allocate ComputeWorkerHybrid");
         kill(app->fetchPid, SIGTERM);
         kill(app->parsePid, SIGTERM);
         waitpid(app->fetchPid, NULL, 0);
@@ -219,7 +219,7 @@ int GridGuard_Initiate(GridGuard *app)
 
     if (pthread_create(&app->computeThread, NULL, ComputeWorkerHybrid_Run, computeWorker) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to create Compute worker thread");
+        LOG_ERROR("Failed to create Compute worker thread");
         free(computeWorker);
         kill(app->fetchPid, SIGTERM);
         kill(app->parsePid, SIGTERM);
@@ -235,13 +235,8 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    LOG_INFO("GridGuard: Started Compute worker thread");
-    LOG_INFO("GridGuard: IPC architecture ready:");
-    LOG_INFO("  HTTP → Fetch: Anonymous pipe (stdin)");
-    LOG_INFO("  Fetch → Parse: Named pipe (%s)", app->fifoPath);
-    LOG_INFO("  Parse → Compute: Unix socket (%s)", app->socketPath);
-    LOG_INFO("  Shared memory: weatherCache + priceCache");
-    LOG_INFO("  WorkCompletion: mutex + condition variables");
+    LOG_INFO("Compute thread started");
+    LOG_INFO("IPC resources ready");
 
     return 0;
 }
@@ -261,12 +256,12 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request, WorkComp
 
     if (written != sizeof(WorkRequest))
     {
-        LOG_ERROR("GridGuard: Failed to write WorkRequest to pipe");
+        LOG_ERROR(" Failed to write WorkRequest to pipe");
         UnregisterCompletion(request->userId);
         return -1;
     }
 
-    LOG_DEBUG("GridGuard: Submitted request for %s to pipeline", request->userId);
+    LOG_DEBUG("Submitted request for %s to pipeline", request->userId);
     return 0;
 }
 
@@ -275,20 +270,20 @@ void GridGuard_Shutdown(GridGuard *app)
     if (!app)
         return;
 
-    LOG_INFO("GridGuard: Shutting down...");
+    LOG_INFO("Shutting down");
 
     app->isRunning = false;
 
     // Terminera child-processer
     if (app->fetchPid > 0)
     {
-        LOG_INFO("GridGuard: Terminating Fetch process (PID %d)", app->fetchPid);
+        LOG_INFO("Stopping Fetch (PID %d)", app->fetchPid);
         kill(app->fetchPid, SIGTERM);
     }
 
     if (app->parsePid > 0)
     {
-        LOG_INFO("GridGuard: Terminating Parse process (PID %d)", app->parsePid);
+        LOG_INFO("Stopping Parse (PID %d)", app->parsePid);
         kill(app->parsePid, SIGTERM);
     }
 
@@ -297,14 +292,14 @@ void GridGuard_Shutdown(GridGuard *app)
     {
         int status;
         waitpid(app->fetchPid, &status, 0);
-        LOG_INFO("GridGuard: Fetch process exited (status %d)", WEXITSTATUS(status));
+        LOG_INFO("Fetch exited (status %d)", WEXITSTATUS(status));
     }
 
     if (app->parsePid > 0)
     {
         int status;
         waitpid(app->parsePid, &status, 0);
-        LOG_INFO("GridGuard: Parse process exited (status %d)", WEXITSTATUS(status));
+        LOG_INFO("Parse exited (status %d)", WEXITSTATUS(status));
     }
 
     // Stäng pipe
@@ -325,5 +320,5 @@ void GridGuard_Shutdown(GridGuard *app)
 
     pthread_mutex_destroy(&app->mutex);
 
-    LOG_INFO("GridGuard: Shutdown complete");
+    LOG_INFO("Shutdown complete");
 }

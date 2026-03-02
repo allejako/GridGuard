@@ -27,22 +27,15 @@ typedef struct
 } WorkRequest;
 
 // GridGuard application core - Process-based IPC architecture
-// Demonstrerar alla IPC-mekanismer från kursen:
-// - fork() + exec() + waitpid()
-// - Anonymous pipes (HTTP → Fetch)
-// - Named pipes/FIFO (Fetch → Parse)
-// - Unix domain sockets (Parse → Compute)
-// - Shared memory (shm_open/mmap)
-// - POSIX semaphores
-// - Mutex + condition variables
+
 typedef struct GridGuard
 {
     // Child process PIDs
-    pid_t fetchPid;
+    pid_t fetchPid; 
     pid_t parsePid;
 
     // IPC file descriptors
-    int requestPipeFd;   // Write end: HTTP → Fetch (anonymous pipe)
+    int requestPipeFd;   // Write end: HTTP → Fetch, anonym pipe. 
 
     // IPC paths
     char fifoPath[256];       // Named pipe: Fetch → Parse

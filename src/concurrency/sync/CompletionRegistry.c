@@ -50,9 +50,10 @@ WorkCompletion *FindCompletionByUserId(const char *userId)
 
     pthread_mutex_lock(&g_mutex);
 
-    for (int i = 0; i < MAX_COMPLETIONS; i++)
+    // Sök efter userId i registry och returnera WorkCompletion
+    for (int i = 0; i < MAX_COMPLETIONS; i++) 
     {
-        if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0)
+        if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0) 
         {
             WorkCompletion *completion = g_registry[i].completion;
             pthread_mutex_unlock(&g_mutex);

@@ -323,10 +323,8 @@ int Compute_GenerateEnergyPlan(Compute *compute,
     plan->totalGridImportKwh = totalImport;
     plan->totalGridExportKwh = totalExport;
 
-    LOG_INFO("Compute: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh, cost=%.2f SEK  "
-             "(cell temp model active: NOCT=%.0f°C, Pmax coeff=%.2f%%/°C)",
-             count, totalImport, totalExport, totalCost,
-             NOCT, TEMP_COEFF * 100.0);
+    LOG_INFO("Compute: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh, cost=%.2f SEK",
+             count, totalImport, totalExport, totalCost);
 
     pthread_mutex_unlock(&compute->mutex);
     return 0;

@@ -53,10 +53,13 @@ INFRASTRUCTURE_DIR = $(SRC_DIR)/infrastructure
 LOGGING_DIR = $(INFRASTRUCTURE_DIR)/logging
 SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
 DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
-WATCHDOG_DIR = $(INFRASTRUCTURE_DIR)/watchdog
 AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
 DATABASE_DIR = $(INFRASTRUCTURE_DIR)/database
 CACHE_DIR    = $(INFRASTRUCTURE_DIR)/cache
+PROCESSES_DIR = $(INFRASTRUCTURE_DIR)/processes
+WATCHDOG_DIR = $(PROCESSES_DIR)/watchdog
+FETCHER_DIR = $(PROCESSES_DIR)/fetcher
+PARSER_DIR = $(PROCESSES_DIR)/parser
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
@@ -76,8 +79,8 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(APPLICATION_DIR) \
            -I$(APP_CORE_DIR) \
            -I$(APP_WORKERS_DIR) \
-           -I$(PROCESS_DIR)/fetcher \
-           -I$(PROCESS_DIR)/parser \
+           -I$(FETCHER_DIR) \
+           -I$(PARSER_DIR) \
            -I$(APP_MODELS_DIR) \
            -I$(APP_MODELS_APIS_DIR) \
            -I$(APP_MODELS_DOMAIN_DIR) \
@@ -110,11 +113,6 @@ SERVER_BIN = $(BIN_DIR)/GridGuard-server
 FETCHER_BIN = $(BIN_DIR)/GridGuard-fetcher
 PARSER_BIN = $(BIN_DIR)/GridGuard-parser
 WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
-
-# Process directories
-PROCESS_DIR = $(SRC_DIR)/processes
-FETCHER_DIR = $(PROCESS_DIR)/fetcher
-PARSER_DIR = $(PROCESS_DIR)/parser
 
 # Source files for server (main process with HTTP + Compute thread)
 SERVER_SRCS_C = $(SRC_DIR)/main.c \
@@ -190,8 +188,9 @@ directories:
 	@mkdir -p $(BUILD_DIR)/server
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
-	@mkdir -p $(BUILD_DIR)/processes/fetcher
-	@mkdir -p $(BUILD_DIR)/processes/parser
+	@mkdir -p $(BUILD_DIR)/infrastructure/processes/fetcher
+	@mkdir -p $(BUILD_DIR)/infrastructure/processes/parser
+	@mkdir -p $(BUILD_DIR)/infrastructure/processes/watchdog
 	@mkdir -p $(BUILD_DIR)/application/models/apis
 	@mkdir -p $(BUILD_DIR)/application/models/domain
 	@mkdir -p $(BUILD_DIR)/application/models/config
@@ -201,7 +200,6 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/logging
 	@mkdir -p $(BUILD_DIR)/infrastructure/signals
 	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
-	@mkdir -p $(BUILD_DIR)/infrastructure/watchdog
 	@mkdir -p $(BUILD_DIR)/infrastructure/auth
 	@mkdir -p $(BUILD_DIR)/infrastructure/database
 	@mkdir -p $(BUILD_DIR)/infrastructure/cache
@@ -429,7 +427,7 @@ test-http-response: directories $(TEST_HTTP_RESP_BIN)
 .PHONY: run-server
 run-server: server
 	@echo "Starting server..."
-	@$(SERVER_BIN)
+	@env GRIDGUARD_JWT_SECRET=gridguard-test-secret GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(SERVER_BIN)
 
 # Starta watchdog i bakgrunden (watchdog startar och övervakar servern)
 # GRIDGUARD_JWT_SECRET måste vara satt i miljön.
@@ -455,20 +453,7 @@ dev: server watchdog
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
 	@echo ""
-	@echo "=========================================="
-	@echo "  GridGuard Development Server"
-	@echo "  Multi-Process IPC Architecture"
-	@echo "=========================================="
-	@echo ""
-	@echo "Process Architecture:"
-	@echo "  Main Process (GridGuard-server)"
-	@echo "    - HTTP Server + ThreadPool"
-	@echo "    - Compute Worker Thread"
-	@echo "    - Spawns: Fetcher + Parser processes"
-	@echo ""
-	@echo "IPC Mechanisms:"
-	@echo "  Anonymous Pipes, Named FIFO, Unix Socket"
-	@echo "  POSIX Shared Memory, Semaphores, Pthread sync"
+	@echo "	GRIDGUARD DEVELOPMENT ENVIRONMENT	"
 	@echo ""
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
 	echo "Generating JWT token..."; \
@@ -511,7 +496,6 @@ dev: server watchdog
 	    -d "{\"load_id\":\"ev_charger\",\"duration_minutes\":216,\"power_kw\":11.0,\"deadline\":$$DEADLINE}" \
 	    | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
 	echo ""; \
-	echo "=========================================="
 
 # Stop all GridGuard processes and clean up IPC resources
 .PHONY: stop

@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <limits.h>
 
@@ -8,39 +7,12 @@
 #include "Logger.h"
 #include "Daemon.h"
 
-static void print_usage(const char *progname)
+int main(void)
 {
-    fprintf(stderr, "Usage: %s [OPTIONS]\n", progname);
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  -d, --daemon          run as daemon\n");
-    fprintf(stderr, "  -h, --help            show this help\n");
-}
+    // Check if started by watchdog, watchdog sets GRIDGUARD_HEARTBEAT_FD env variable
+    int daemonize = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
 
-int main(int argc, char *argv[])
-{
-    int daemonize = 0;
-
-    // Parse arguments
-    for (int i = 1; i < argc; i++)
-    {
-        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--daemon") == 0)
-        {
-            daemonize = 1;
-        }
-        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
-        {
-            print_usage(argv[0]);
-            return EXIT_SUCCESS;
-        }
-        else
-        {
-            fprintf(stderr, "Error: Unknown option '%s'\n\n", argv[i]);
-            print_usage(argv[0]);
-            return EXIT_FAILURE;
-        }
-    }
-
-    // Resolve log path innan daemonizing
+    // Resolve log path
     char log_path[PATH_MAX + 64];
     if (daemonize)
     {
@@ -64,7 +36,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Daemonize if requested
+    // Daemonize if started by watchdog
     if (daemonize)
     {
         if (Daemon_Init() != 0)
@@ -73,16 +45,13 @@ int main(int argc, char *argv[])
             Logger_Shutdown();
             return EXIT_FAILURE;
         }
-        LOG_INFO("Server: Running as daemon (PID %d)", getpid());
+        LOG_INFO("Running as daemon (PID %d)", getpid());
         Daemon_StartHeartbeat();
     }
 
-    LOG_INFO("GridGuard: Process-based IPC architecture");
-    LOG_INFO("  Demonstrating: fork/exec, pipes, FIFO, Unix sockets, shm, semaphores");
-
     // Create and initialize server
     Server server;
-    if (Server_Initiate(&server) != 0)
+    if (Server_Initiate(&server) != 0) 
     {
         LOG_FATAL("Failed to initialize server");
         Logger_Shutdown();
