@@ -427,9 +427,25 @@ ls -lh /tmp/gridguard*
 ```
 Visar: FIFO, socket, PID-filer, status FIFO
 
-### 4. Öppna ny terminal - Test requests
+### 4. Öppna ny terminal - Exporta JWT token
 
-**OBS:** JWT-token genereras automatiskt av `make dev` och sparas i miljövariabeln `$TOKEN`. Servern använder `gridguard-test-secret` som JWT secret, så tokens fungerar direkt utan manuell setup.
+**VIKTIGT:** Du måste exporta JWT-token i din egen terminal. Servern använder `gridguard-test-secret` som JWT secret, så tokens genereras med rätt nyckel.
+
+**Steg 1: Generera och exporta token (kör i din terminal):**
+```bash
+export TOKEN=$(python3 scripts/generate_jwt.py 2>/dev/null | grep -A1 "JWT Token" | tail -1)
+```
+
+**Steg 2: Verifiera att token är satt:**
+```bash
+echo $TOKEN
+```
+Du ska se en lång JWT-string som börjar med `eyJhbGciOiJIUzI1...`
+
+**Eller använd färdig token direkt (giltig i 1 år):**
+```bash
+export TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4MDQwMDc2OTYsImlhdCI6MTc3MjQ3MTY5Nn0.rH2Qzn6cqR7jReyx3oKpdcMCy91BmH9NfeUT4SpVjJU"
+```
 
 ### 5. Test requests (kopiera dessa till ny terminal)
 
