@@ -65,11 +65,15 @@ static int serialize_energy_plan(const EnergyData *plan, const char *userId,
 
         int n = snprintf(buf + pos, bufSize - pos,
             "%s{\"time\":\"%s\",\"signal\":\"%s\","
-            "\"price_sek_kwh\":%.4f,\"solar_kwh\":%.3f,\"consumption_kwh\":%.3f}",
+            "\"price_sek_kwh\":%.4f,\"total_cost_sek_kwh\":%.4f,"
+            "\"savings_vs_median_sek_kwh\":%.4f,"
+            "\"solar_kwh\":%.3f,\"consumption_kwh\":%.3f}",
             first ? "" : ",",
             timeStr,
             EnergyAction_ToString(e->action),
             e->spotPrice,
+            e->totalCostSek,
+            e->savingsVsMedianSek,
             e->productionKwh,
             e->consumptionKwh);
 
@@ -168,6 +172,7 @@ void *ComputeWorkerHybrid_Run(void *arg)
                                        &plan) != 0)
         {
             LOG_ERROR("ComputeWorkerHybrid: Failed to generate energy plan");
+            UnregisterCompletion(parseResult.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
@@ -181,9 +186,14 @@ void *ComputeWorkerHybrid_Run(void *arg)
                                    parseResult.region, json, sizeof(json)) != 0)
         {
             LOG_ERROR("ComputeWorkerHybrid: JSON serialization failed");
+            UnregisterCompletion(parseResult.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
+
+        // Avregistrera completion INNAN signal så att nästa request för samma
+        // userId kan registreras utan att hitta en redan förbrukad slot.
+        UnregisterCompletion(parseResult.userId);
 
         // Signalera HTTP-tråden (Vecka 3: pthread_cond_signal via WorkCompletion)
         WorkCompletion_Signal(completion, json);
