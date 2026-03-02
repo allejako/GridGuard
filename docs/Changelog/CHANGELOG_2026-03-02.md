@@ -1,8 +1,12 @@
 # Ändringslogg - 2026-03-02
 
-## Processarkitektur fixad + förbättrade development targets
+## Övergång till multi-process-arkitektur + zombie-processer fixade
 
-Multi-process-arkitekturen fungerar nu korrekt. Zombie-processen från förra körningen berodde på att daemon-läget ändrar working directory till `/`, vilket gjorde att `execl()` inte kunde hitta process-binärerna med relativa paths. Lösningen var att hårdkoda absoluta paths till `bin/GridGuard-fetcher` och `bin/GridGuard-parser`. `make dev` och `make stop` städades upp och skrev om utan emojis och fancy formatting.
+GridGuard började som en tråd-baserad pipeline: HTTP-trådar, en Fetch-tråd, en Parse-tråd och en Compute-tråd kommunicerande via Queue:er och mutex/cond-synkronisering. Det fungerade, men täckte bara kursvecka 2-3. Kursmålen kräver att vi demonstrerar `fork()`, `exec()`, `waitpid()`, anonyma pipes, namngivna pipes (FIFO), Unix domain sockets, och shared memory — alla IPC-mekanismer från kursvecka 1, 4 och 5. Det gick inte med en single-process-design.
+
+Lösningen var att refaktorera till tre separata processer: GridGuard-server (HTTP + Compute), GridGuard-fetcher och GridGuard-parser. Varje process är en fristående binär med egen `main()`. De kommunicerar uteslutande via POSIX IPC — ingen delad kod, inget delat minne utom explicit via `shm_open()`. Det är mer komplext, men täcker alla kursmål.
+
+Efter ombyggnationen fungerade inte processerna. De dukade upp som zombies direkt efter `fork()` och pipeline hängde sig. Problemet var att daemon-läget byter working directory till `/`, vilket gjorde att `execl("./bin/GridGuard-fetcher", ...)` letade i `/bin/` istället för projektets bin-katalog. Lösningen blev att använda `readlink("/proc/self/exe")` för att dynamiskt hitta binärernas sökväg relativt till den körande servern.
 
 ---
 
@@ -26,29 +30,37 @@ Daemon-processen byter working directory till `/` för att garantera att den int
 
 ---
 
-## Lösning: Absoluta paths i execl()
+## Lösning: Hitta binärernas sökväg dynamiskt
 
-GridGuard.c fick två nya konstanter:
+Första lösningen var att hårdkoda absoluta paths i GridGuard.c:
 
 ```c
 static const char *FETCHER_BIN = "/home/znees/github/GridGuard/bin/GridGuard-fetcher";
 static const char *PARSER_BIN = "/home/znees/github/GridGuard/bin/GridGuard-parser";
 ```
 
-Dessa används i `execl()`:
+Det fungerade, men krävde att man uppdaterar koden om projektet flyttas. Bättre lösning: använd `/proc/self/exe` för att hitta serverns egen sökväg, sedan räkna ut bin-katalogen relativt till den.
 
 ```c
-execl(FETCHER_BIN, "GridGuard-fetcher", app->fifoPath, NULL);
-execl(PARSER_BIN, "GridGuard-parser", app->fifoPath, app->socketPath, NULL);
+char exe[PATH_MAX];
+ssize_t exe_len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+if (exe_len > 0) {
+    exe[exe_len] = '\0';
+    char exe_copy[PATH_MAX];
+    strncpy(exe_copy, exe, sizeof(exe_copy) - 1);
+    const char *bin_dir = dirname(exe_copy);
+    snprintf(app->fetcherBin, sizeof(app->fetcherBin),
+             "%s/GridGuard-fetcher", bin_dir);
+    snprintf(app->parserBin, sizeof(app->parserBin),
+             "%s/GridGuard-parser", bin_dir);
+}
 ```
 
-När daemon-processen nu byter till `/` spelar det ingen roll — `execl()` får en fullständig path som fungerar oavsett vilket working directory som gäller. Processerna startar korrekt, öppnar sina IPC-resurser och börjar kommunicera.
+`/proc/self/exe` är en symbolisk länk till den körande binären. Om servern ligger i `/home/znees/github/GridGuard/bin/GridGuard-server` pekar länken dit, och `dirname()` extraherar `/home/znees/github/GridGuard/bin`. Då fungerar det oavsett var projektet ligger.
 
-### Varför hårdkoda sökvägen?
+Fallback om `readlink()` misslyckas (andra OS än Linux): använd relativ path `bin/GridGuard-fetcher`. Det fungerar om servern körs från projektroten utan daemon-läge.
 
-I produktionsmiljö skulle man antingen installera binärerna i `/usr/local/bin/` och använda `execvp()` (som söker i `$PATH`), eller läsa installationssökvägen från en config-fil. Men detta är ett universitetsprojekt med en enda utvecklare — hårdkodning är enklast och tydligast.
-
-Om projektet flyttas till en annan maskin eller katalog måste GridGuard.c uppdateras. Det är acceptabelt för detta projekt.
+Nu kan projektet flyttas till vilken katalog som helst och `make dev` fungerar direkt.
 
 ---
 
@@ -111,15 +123,57 @@ Ingen funktionalitet ändrades — bara formatering. Targets fungerar identiskt 
 
 ---
 
-## Varför multi-process-arkitektur?
+## Varför gick vi från trådar till processer?
 
-Detta projekt kunde ha använt en single-process threaded-design: en Fetch-thread, en Parser-thread och en Compute-thread kommunicerande via Queue:er. Det hade varit enklare.
+Första arkitekturen såg ut så här:
 
-Men kursmålen kräver att vi demonstrerar `fork()`, `exec()`, `waitpid()`, named pipes (FIFO), Unix domain sockets och shared memory. En threaded design täcker bara pthread-delen.
+```
+GridGuard-server (single process)
+├── HTTP ThreadPool (20 workers)
+├── Fetch thread (hämtar från API:er)
+├── Parse thread (parsar JSON)
+└── Compute thread (räknar energi-plan)
+    └── Kommunikation: Queue + mutex/cond
+```
 
-Multi-process-arkitekturen tvingar fram implementering av alla IPC-mekanismer som lärs ut i kursvecka 1-5. Varje process är en fristående binär med egen `main()` som kan debuggas och testas separat. Fetcher vet ingenting om Parser. Parser vet ingenting om Compute. De kommunicerar endast via POSIX IPC — precis som verkliga Unix-system.
+Det fungerade. Men det täcker bara kursvecka 2-3 (pthreads och synkronisering). Kursmål 2 och 8 kräver att vi använder IPC för processkommunikation — inte trådar som delar samma minnesområde.
 
-Det är mer komplext. Men det är det som gör att projektet täcker kursmålen.
+Kursplaneringen specificerar:
+
+**Kursvecka 1:** fork(), exec(), waitpid() — skapa och hantera barnprocesser
+**Kursvecka 4:** Anonymous pipes, named pipes (FIFO), dup2()
+**Kursvecka 5:** Unix domain sockets, shared memory (shm_open, mmap), semaforer
+
+En tråd-baserad design använder ingen av dessa. Trådar delar samma adressrymd och kommunicerar via gemensamt minne med mutex-skydd. Det är kursvecka 2-3, inte kursvecka 4-5.
+
+### Vad gör multi-process-designen annorlunda?
+
+Ny arkitektur:
+
+```
+GridGuard-server (main process)
+├── HTTP ThreadPool
+├── Compute thread
+├── fork() → GridGuard-fetcher (egen process)
+│   └── Läser WorkRequest från anonymous pipe (stdin)
+│   └── Skriver FetchResult till named pipe (FIFO)
+└── fork() → GridGuard-parser (egen process)
+    └── Läser FetchResult från FIFO
+    └── Lyssnar på Unix domain socket
+    └── Skickar ParseResult när Compute ansluter
+```
+
+**IPC-flöde:**
+
+1. HTTP-thread skapar WorkRequest → skriver till **anonymous pipe** (kursvecka 4)
+2. Fetcher läser från stdin (pipe), hämtar data, skriver till **named FIFO** (kursvecka 4)
+3. Parser läser från FIFO, parsar JSON, startar **Unix domain socket-server** (kursvecka 5)
+4. Compute-thread ansluter till socket, läser ParseResult
+5. Fetcher och Parser cacher API-svar i **POSIX shared memory** med **semaforer** (kursvecka 5)
+
+Varje mekanism täcker ett specifikt kursmål. Fetcher och Parser är fristående binärer som startas med `fork()` och `exec()` (kursvecka 1). Main-processen reaper dem med `waitpid()` vid shutdown.
+
+Det är betydligt mer komplext än den tråd-baserade designen. Men det är enda sättet att täcka alla IPC-kursmål.
 
 ---
 

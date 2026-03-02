@@ -12,11 +12,8 @@ static void print_usage(const char *progname)
 {
     fprintf(stderr, "Usage: %s [OPTIONS]\n", progname);
     fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  -d, --daemon          Run as daemon\n");
-    fprintf(stderr, "  -h, --help            Show this help\n");
-    fprintf(stderr, "\nArchitecture:\n");
-    fprintf(stderr, "  Process-based IPC with fork/exec, pipes, FIFOs, Unix sockets\n");
-    fprintf(stderr, "  Demonstrates: pipes, named pipes, Unix sockets, shared memory, semaphores\n");
+    fprintf(stderr, "  -d, --daemon          run as daemon\n");
+    fprintf(stderr, "  -h, --help            show this help\n");
 }
 
 int main(int argc, char *argv[])
