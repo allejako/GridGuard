@@ -2,6 +2,20 @@
 #include "Logger.h"
 #include <string.h>
 
+static const char *CREATE_SCHEDULES_SQL =
+    "CREATE TABLE IF NOT EXISTS schedules ("
+    "  schedule_id        TEXT PRIMARY KEY,"
+    "  user_id            TEXT NOT NULL,"
+    "  load_id            TEXT NOT NULL,"
+    "  scheduled_start    INTEGER NOT NULL,"
+    "  duration_minutes   INTEGER NOT NULL,"
+    "  power_kw           REAL NOT NULL,"
+    "  estimated_cost_sek REAL NOT NULL,"
+    "  savings_sek        REAL NOT NULL DEFAULT 0.0,"
+    "  status             TEXT NOT NULL DEFAULT 'pending',"
+    "  created_at         INTEGER NOT NULL"
+    ");";
+
 static const char *CREATE_TABLE_SQL =
     "CREATE TABLE IF NOT EXISTS user_configs ("
     "  user_id          TEXT PRIMARY KEY,"
@@ -38,6 +52,15 @@ int Database_Initiate(Database *db, const char *path)
     if (sqlite3_exec(db->db, CREATE_TABLE_SQL, NULL, NULL, &errMsg) != SQLITE_OK)
     {
         LOG_ERROR("Database: Failed to create table: %s", errMsg);
+        sqlite3_free(errMsg);
+        sqlite3_close(db->db);
+        db->db = NULL;
+        return -1;
+    }
+
+    if (sqlite3_exec(db->db, CREATE_SCHEDULES_SQL, NULL, NULL, &errMsg) != SQLITE_OK)
+    {
+        LOG_ERROR("Database: Failed to create schedules table: %s", errMsg);
         sqlite3_free(errMsg);
         sqlite3_close(db->db);
         db->db = NULL;

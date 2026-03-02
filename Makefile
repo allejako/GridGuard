@@ -502,6 +502,15 @@ dev: server watchdog
 	curl -s -X GET "http://localhost:8080/forecast" \
 	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
 	echo ""; \
+	echo "Running load shift example (EV charger, 40 kWh, 11 kW, deadline 07:00 tomorrow)..."; \
+	echo ""; \
+	DEADLINE=$$(python3 -c "import time,datetime; t=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=1); print(int(datetime.datetime(t.year,t.month,t.day,7,0,0,tzinfo=datetime.timezone.utc).timestamp()))"); \
+	curl -s -X POST "http://localhost:8080/schedule" \
+	    -H "Authorization: Bearer $$DEV_TOKEN" \
+	    -H "Content-Type: application/json" \
+	    -d "{\"load_id\":\"ev_charger\",\"duration_minutes\":216,\"power_kw\":11.0,\"deadline\":$$DEADLINE}" \
+	    | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
+	echo ""; \
 	echo "=========================================="
 
 # Stop all GridGuard processes and clean up IPC resources

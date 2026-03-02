@@ -17,7 +17,9 @@ typedef struct
     EnergyAction action;
     double       productionKwh;   // Estimated solar production for this hour
     double       consumptionKwh;  // User's base load for this hour
-    double       spotPrice;       // SEK/kWh
+    double       spotPrice;            // SEK/kWh (spot price only)
+    double       totalCostSek;         // SEK/kWh (spot + grid fee + energy tax + VAT)
+    double       savingsVsMedianSek;   // SEK/kWh cheaper than median hour (negative = more expensive)
     bool         valid;
 } EnergyDataEntry;
 
