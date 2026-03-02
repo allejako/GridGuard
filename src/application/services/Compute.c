@@ -15,6 +15,36 @@
 // state-of-charge and grid peak hours.
 #define BUY_PRICE_FRACTION 0.80
 
+// Energy tax (Swedish electricity tax)
+#define ENERGY_TAX_SEK_PER_KWH 0.40
+
+// VAT rate (Swedish moms)
+#define VAT_RATE 0.25
+
+// Get grid fee based on hour of day (Swedish time-of-use tariff)
+static double GetGridFeeForHour(int hour, double gridFee_low, double gridFee_normal, double gridFee_high)
+{
+    if (hour >= 0 && hour < 7)
+        return gridFee_low;     // 00:00-06:59 night rate
+    else if (hour >= 7 && hour < 17)
+        return gridFee_normal;  // 07:00-16:59 day rate
+    else
+        return gridFee_high;    // 17:00-23:59 peak rate
+}
+
+// Calculate total cost per kWh including spot price, grid fee, energy tax and VAT
+static double CalculateTotalCost(double spotPriceSek, double gridFee, double energyTax, double vatRate)
+{
+    // Total before VAT = spot + grid fee + energy tax
+    double beforeVat = spotPriceSek + gridFee + energyTax;
+
+    // Add VAT
+    double vat = beforeVat * vatRate;
+
+    // Total cost to consumer
+    return beforeVat + vat;
+}
+
 int Compute_Initiate(Compute *compute)
 {
     if (!compute)
@@ -28,7 +58,7 @@ int Compute_Initiate(Compute *compute)
     return 0;
 }
 
-int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastData, double solarAreaM2, double solarEfficiency, double consumptionKwh, EnergyData *plan)
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastData, double solarAreaM2, double solarEfficiency, double consumptionKwh, double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan)
 {
     if (!compute || !compute->isInitialized || !forecastData || !plan)
         return -1;
@@ -42,21 +72,29 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastDat
         return -1;
     }
 
-    // --- Pass 1: calculate average spot price (used as BUY threshold) ---
-    double priceSum = 0.0;
+    // --- Pass 1: calculate average total cost (used as BUY threshold) ---
+    // Total cost includes: spot price + grid fee + energy tax + VAT
+    double totalCostSum = 0.0;
     int    priceCount = 0;
     for (int i = 0; i < forecastData->count; i++)
     {
         if (forecastData->entries[i].valid)
         {
-            priceSum += forecastData->entries[i].spotPriceSek;
+            time_t timestamp = forecastData->entries[i].timestamp;
+            struct tm *tm_info = localtime(&timestamp);
+            int hour = tm_info->tm_hour;
+
+            double gridFee = GetGridFeeForHour(hour, gridFee_low, gridFee_normal, gridFee_high);
+            double totalCost = CalculateTotalCost(forecastData->entries[i].spotPriceSek, gridFee, ENERGY_TAX_SEK_PER_KWH, VAT_RATE);
+
+            totalCostSum += totalCost;
             priceCount++;
         }
     }
-    double avgPrice = priceCount > 0 ? (priceSum / priceCount) : 1.0;
-    double buyThreshold = avgPrice * BUY_PRICE_FRACTION;
+    double avgTotalCost = priceCount > 0 ? (totalCostSum / priceCount) : 1.0;
+    double buyThreshold = avgTotalCost * BUY_PRICE_FRACTION;
 
-    LOG_INFO("Compute: avg price=%.4f SEK/kWh, buy threshold=%.4f", avgPrice, buyThreshold);
+    LOG_INFO("Compute: avg total cost=%.4f SEK/kWh (incl. grid fee, tax, VAT), buy threshold=%.4f", avgTotalCost, buyThreshold);
 
     // --- Pass 2: per-hour BUY / SELL / IDLE decision ---
     memset(plan, 0, sizeof(EnergyData));

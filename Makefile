@@ -33,7 +33,6 @@ SRC_DIR = src
 BUILD_DIR = build
 BIN_DIR = bin
 SERVER_DIR = $(SRC_DIR)/server
-CLIENT_DIR = $(SRC_DIR)/client
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 
@@ -69,16 +68,16 @@ NETWORK_HTTP_DIR = $(NETWORK_DIR)/http
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
 THREADS_DIR = $(CONCURRENCY_DIR)/threads
 SYNC_DIR = $(CONCURRENCY_DIR)/sync
-IPC_DIR = $(CONCURRENCY_DIR)/ipc
 
 # Include paths for headers
 INCLUDES = -I$(SRC_DIR) \
            -I$(SERVER_DIR) \
-           -I$(CLIENT_DIR) \
            -I$(LIBS_DIR) \
            -I$(APPLICATION_DIR) \
            -I$(APP_CORE_DIR) \
            -I$(APP_WORKERS_DIR) \
+           -I$(PROCESS_DIR)/fetcher \
+           -I$(PROCESS_DIR)/parser \
            -I$(APP_MODELS_DIR) \
            -I$(APP_MODELS_APIS_DIR) \
            -I$(APP_MODELS_DOMAIN_DIR) \
@@ -100,8 +99,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(NETWORK_HTTP_DIR) \
            -I$(CONCURRENCY_DIR) \
            -I$(THREADS_DIR) \
-           -I$(SYNC_DIR) \
-           -I$(IPC_DIR)
+           -I$(SYNC_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -109,11 +107,20 @@ CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 
 # Output binaries
 SERVER_BIN = $(BIN_DIR)/GridGuard-server
-CLIENT_BIN = $(BIN_DIR)/GridGuard-client
+FETCHER_BIN = $(BIN_DIR)/GridGuard-fetcher
+PARSER_BIN = $(BIN_DIR)/GridGuard-parser
 WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
 
-# Source files
-SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
+# Process directories
+PROCESS_DIR = $(SRC_DIR)/processes
+FETCHER_DIR = $(PROCESS_DIR)/fetcher
+PARSER_DIR = $(PROCESS_DIR)/parser
+
+# Source files for server (main process with HTTP + Compute thread)
+SERVER_SRCS_C = $(SRC_DIR)/main.c \
+                $(SERVER_DIR)/Server.c \
+                $(SERVER_DIR)/ClientHandler.c \
+                $(APP_WORKERS_DIR)/ComputeWorkerHybrid.c \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
@@ -122,30 +129,39 @@ SERVER_SRCS_C = $(wildcard $(SERVER_DIR)/*.c) \
                 $(wildcard $(CACHE_DIR)/*.c) \
                 $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
-                $(wildcard $(NETWORK_CLIENT_DIR)/*.c) \
+                $(NETWORK_CLIENT_DIR)/HTTPClient.c \
                 $(wildcard $(APP_API_DIR)/*.c) \
-                $(wildcard $(APP_CORE_DIR)/*.c) \
-                $(wildcard $(APP_WORKERS_DIR)/*.c) \
+                $(APP_CORE_DIR)/GridGuard.c \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
-                $(filter-out $(SYNC_DIR)/Scheduler.c, $(wildcard $(SYNC_DIR)/*.c)) \
-                $(wildcard $(IPC_DIR)/*.c) \
+                $(wildcard $(SYNC_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
-SERVER_SRCS_CPP = $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp)
+# Source files for Fetch process
+FETCHER_SRCS = $(FETCHER_DIR)/main.c \
+               $(FETCHER_DIR)/fetcher.c \
+               $(APP_SERVICES_DIR)/Fetcher.c \
+               $(NETWORK_CLIENT_DIR)/HTTPClient.c \
+               $(CACHE_DIR)/SharedCache.c \
+               $(APP_API_DIR)/APIEndpoints.c \
+               $(LOGGING_DIR)/Logger.c \
+               $(LIBS_DIR)/cJSON.c
 
-CLIENT_SRCS = $(wildcard $(CLIENT_DIR)/*.cpp) \
-              $(wildcard $(LOGGING_DIR)/*.c) \
-              $(wildcard $(NETWORK_CLIENT_DIR)/*.cpp) \
-              $(wildcard $(LIBS_DIR)/*.c)
+# Source files for Parse process
+PARSER_SRCS = $(PARSER_DIR)/main.c \
+              $(PARSER_DIR)/parser.c \
+              $(APP_SERVICES_DIR)/Parser.c \
+              $(LOGGING_DIR)/Logger.c \
+              $(LIBS_DIR)/cJSON.c
 
 TEST_SRCS = $(wildcard $(TEST_DIR)/unit/*.c) \
             $(wildcard $(TEST_DIR)/integration/*.c)
 
 # Object files
-SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o) $(SERVER_SRCS_CPP:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
-CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(filter %.c,$(CLIENT_SRCS))) $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(CLIENT_SRCS)))
+SERVER_OBJS = $(SERVER_SRCS_C:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+FETCHER_OBJS = $(FETCHER_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+PARSER_OBJS = $(PARSER_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 TEST_OBJS = $(TEST_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
 # Test binary
@@ -159,25 +175,23 @@ WATCHDOG_SRCS = $(WATCHDOG_DIR)/main.c \
 
 WATCHDOG_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(WATCHDOG_SRCS))
 
-# Default target
+# Default target - Build process-based IPC architecture
 .PHONY: all
-all: directories server
+all: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN)
 
 # Individual targets for CI
 .PHONY: server
-server: directories $(SERVER_BIN)
-
-.PHONY: client
-client: directories $(CLIENT_BIN)
+server: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN)
 
 # Create necessary directories
 .PHONY: directories
 directories:
 	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/server
-	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
+	@mkdir -p $(BUILD_DIR)/processes/fetcher
+	@mkdir -p $(BUILD_DIR)/processes/parser
 	@mkdir -p $(BUILD_DIR)/application/models/apis
 	@mkdir -p $(BUILD_DIR)/application/models/domain
 	@mkdir -p $(BUILD_DIR)/application/models/config
@@ -209,11 +223,17 @@ $(SERVER_BIN): $(SERVER_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 	@echo "Server built successfully: $@"
 
-# Build client
-$(CLIENT_BIN): $(CLIENT_OBJS)
-	@echo "Linking client..."
-	$(CXX) -o $@ $^ $(LDFLAGS)
-	@echo "Client built successfully: $@"
+# Build fetcher process
+$(FETCHER_BIN): $(FETCHER_OBJS)
+	@echo "Linking fetcher process..."
+	$(CC) -o $@ $^ $(LDFLAGS)
+	@echo "Fetcher process built: $@"
+
+# Build parser process
+$(PARSER_BIN): $(PARSER_OBJS)
+	@echo "Linking parser process..."
+	$(CC) -o $@ $^ $(LDFLAGS)
+	@echo "Parser process built: $@"
 
 # Compile C source files
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -270,7 +290,7 @@ $(TEST_BIN): $(TEST_OBJS)
 
 # Run all tests
 .PHONY: test
-test: test-api test-logger test-cache test-pipeline test-weather test-jwt test-http-request test-http-response
+test: test-api test-logger test-pipeline test-weather test-jwt test-http-request test-http-response
 	@echo ""
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -279,7 +299,6 @@ test: test-api test-logger test-cache test-pipeline test-weather test-jwt test-h
 # Test binaries
 TEST_API_BIN = $(BIN_DIR)/test_api_fetch
 TEST_LOGGER_BIN = $(BIN_DIR)/test_logger
-TEST_CACHE_BIN = $(BIN_DIR)/test_cache
 TEST_PIPELINE_BIN = $(BIN_DIR)/test_pipeline
 TEST_WEATHER_BIN = $(BIN_DIR)/test_openmeteo_parser
 TEST_JWT_BIN = $(BIN_DIR)/test_jwt_validator
@@ -295,9 +314,6 @@ TEST_API_DEPS = $(wildcard $(APP_API_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
 TEST_LOGGER_DEPS = $(LOGGING_DIR)/Logger.c
-
-TEST_CACHE_DEPS = $(APP_SERVICES_DIR)/JsonCache.c \
-                  $(LOGGING_DIR)/Logger.c
 
 TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(APP_WORKERS_DIR)/*.c) \
@@ -336,18 +352,6 @@ $(TEST_LOGGER_BIN): $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS)
 	@echo "Building Logger test..."
 	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_logger.c $(TEST_LOGGER_DEPS) $(LDFLAGS)
 	@echo "Logger test built: $@"
-
-# Build Cache test
-$(TEST_CACHE_BIN): $(TEST_DIR)/unit/test_cache.c $(TEST_CACHE_DEPS)
-	@echo "Building Cache test..."
-	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/unit/test_cache.c $(TEST_CACHE_DEPS) $(LDFLAGS)
-	@echo "Cache test built: $@"
-
-# Run Cache test
-.PHONY: test-cache
-test-cache: directories $(TEST_CACHE_BIN)
-	@echo "Running Cache test..."
-	@$(TEST_CACHE_BIN)
 
 # Build Pipeline test
 $(TEST_PIPELINE_BIN): $(TEST_DIR)/integration/test_pipeline.c $(TEST_PIPELINE_DEPS)
@@ -427,16 +431,6 @@ run-server: server
 	@echo "Starting server..."
 	@$(SERVER_BIN)
 
-# Run client (visa usage)
-.PHONY: run-client
-run-client: client
-	@$(CLIENT_BIN)
-
-# Kör klienten med forecast-kommandot
-.PHONY: forecast
-forecast: client
-	@$(CLIENT_BIN) forecast
-
 # Starta watchdog i bakgrunden (watchdog startar och övervakar servern)
 # GRIDGUARD_JWT_SECRET måste vara satt i miljön.
 .PHONY: run-watchdog
@@ -451,73 +445,99 @@ run-watchdog: server watchdog
 	echo $$! > /tmp/gridguard-watchdog.pid
 	@echo "Watchdog igång. Loggar: logs/watchdog.log  ·  logs/server.log"
 
-# Fullständigt dev-flöde: bygg server → watchdog → server → seed testdata
-# Sätt GRIDGUARD_JWT_SECRET i miljön eller kör med:
-#   make dev GRIDGUARD_JWT_SECRET=<nyckel>
+# Development target - build, start server, and run end-to-end test
 .PHONY: dev
 dev: server watchdog
 	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
-	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
-	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
-	fuser -k -9 8080/tcp 2>/dev/null; sleep 0.5; true
+	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi
+	@pkill -9 GridGuard 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
+	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@sleep 0.5
+	@echo ""
+	@echo "=========================================="
+	@echo "  GridGuard Development Server"
+	@echo "  Multi-Process IPC Architecture"
+	@echo "=========================================="
+	@echo ""
+	@echo "Process Architecture:"
+	@echo "  Main Process (GridGuard-server)"
+	@echo "    - HTTP Server + ThreadPool"
+	@echo "    - Compute Worker Thread"
+	@echo "    - Spawns: Fetcher + Parser processes"
+	@echo ""
+	@echo "IPC Mechanisms:"
+	@echo "  Anonymous Pipes, Named FIFO, Unix Socket"
+	@echo "  POSIX Shared Memory, Semaphores, Pthread sync"
+	@echo ""
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
-	if [ "$$SECRET" = "gridguard-test-secret" ]; then \
-	    echo "⚠ Varning: GRIDGUARD_JWT_SECRET inte satt, använder test-default (gridguard-test-secret)."; \
+	echo "Generating JWT token..."; \
+	DEV_TOKEN=$$(python3 scripts/generate_jwt.py 2>/dev/null | grep -A1 "JWT Token" | tail -1); \
+	if [ -z "$$DEV_TOKEN" ]; then \
+	    echo "Warning: Failed to generate token, using fallback"; \
+	    DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4MDM5NzI3NjQsImlhdCI6MTc3MjQzNjc2NH0.SiKMf77hM6vWV1icHWSLotmGDAflrp7xEm7LB-loHHg"; \
 	fi; \
-	DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4OTM0NTYwMDB9.d33GazykNsOCuOyy545_484DACV1vEd3owJr-dvL-1c"; \
-	echo ""; \
-	echo "╔════════════════════════════════════════════════════════════╗"; \
-	echo "║              GridGuard Development Server                  ║"; \
-	echo "╚════════════════════════════════════════════════════════════╝"; \
-	echo ""; \
-	echo "→ Starting watchdog & server..."; \
+	echo "Starting server..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
 	echo $$! > /tmp/gridguard-watchdog.pid; \
-	printf "→ Waiting for server"; \
+	printf "Waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; \
 	done; \
-	echo " ready!"; \
-	echo "→ Seeding test data for test_user..."; \
+	echo " ready"; \
+	echo ""; \
+	echo "Seeding test data..."; \
 	curl -s -X PUT http://localhost:8080/user/config \
 	    -H "Authorization: Bearer $$DEV_TOKEN" \
 	    -H "Content-Type: application/json" \
-	    -d '{"location":"Stockholm","latitude":59.3293,"longitude":18.0686,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5}' \
-	    > /dev/null 2>&1 && echo "✓ Test user configuration seeded" || echo "✗ Failed to seed test_user config"; \
+	    -d '{"location":"Stockholm","latitude":59.3293,"longitude":18.0686,"region":"SE3","solar_area_m2":20.0,"solar_efficiency":0.18,"consumption_kwh":1.5,"grid_fee_low":0.25,"grid_fee_normal":0.35,"grid_fee_high":0.45}' \
+	    > /dev/null 2>&1 && echo "OK: test_user configured" || echo "FAILED: could not seed test data"; \
 	echo ""; \
-	echo "╔════════════════════════════════════════════════════════════╗"; \
-	echo "║  Server running on http://localhost:8080                   ║"; \
-	echo "║  Test user: test_user (JWT: ******************)            ║"; \
-	echo "║                                                            ║"; \
-	echo "║  Test endpoints:                                           ║"; \
-	echo "║  • GET  /health                                            ║"; \
-	echo "║  • GET  /forecast  (requires Authorization header)         ║"; \
-	echo "║  • GET  /user/config                                       ║"; \
-	echo "║  • PUT  /user/config                                       ║"; \
-	echo "║                                                            ║"; \
-	echo "║  Logs: logs/server.log  ·  logs/watchdog.log               ║"; \
-	echo "║  Stop with: make stop                                      ║"; \
-	echo "╚════════════════════════════════════════════════════════════╝"; \
-	echo ""
+	ps aux | grep -E "GridGuard-(server|fetcher|parser)" | grep -v grep | awk '{printf "  [PID %s] %s\n", $$2, $$11}'; \
+	echo ""; \
+	ls -lh /tmp/gridguard* 2>/dev/null | awk '{printf "  %s\n", $$9}' || true; \
+	echo ""; \
+	echo "Server:   http://localhost:8080"; \
+	echo "Database: gridguard.db"; \
+	echo "Logs:     logs/*.log"; \
+	echo ""; \
+	echo "Running test forecast request..."; \
+	echo ""; \
+	curl -s -X GET "http://localhost:8080/forecast" \
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
+	echo ""; \
+	echo "=========================================="
 
-# Stoppa server och watchdog
+# Stop all GridGuard processes and clean up IPC resources
 .PHONY: stop
 stop:
+	@echo "Stopping GridGuard..."
 	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
-	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi; \
-	kill -9 $$(cat /tmp/gridguard.pid 2>/dev/null) 2>/dev/null; \
-	fuser -k -9 8080/tcp 2>/dev/null; true
-	@echo "GridGuard stoppad."
+	    PID=$$(cat /tmp/gridguard-watchdog.pid 2>/dev/null); \
+	    if [ -n "$$PID" ] && kill -0 $$PID 2>/dev/null; then \
+	        kill -9 $$PID 2>/dev/null && echo "  Killed watchdog (PID $$PID)"; \
+	    fi; \
+	    rm -f /tmp/gridguard-watchdog.pid; \
+	fi
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	    if [ -n "$$PID" ] && kill -0 $$PID 2>/dev/null; then \
+	        kill -9 $$PID 2>/dev/null && echo "  Killed server (PID $$PID)"; \
+	    fi; \
+	    rm -f /tmp/gridguard.pid; \
+	fi
+	@pkill -9 -f GridGuard-fetcher 2>/dev/null && echo "  Killed fetcher" || true
+	@pkill -9 -f GridGuard-parser 2>/dev/null && echo "  Killed parser" || true
+	@pkill -9 GridGuard-server 2>/dev/null && echo "  Killed remaining servers" || true
+	@fuser -k -9 8080/tcp 2>/dev/null && echo "  Freed port 8080" || true
+	@rm -f /tmp/gridguard_fetch_to_parse.fifo /tmp/gridguard_parse_to_compute.sock /tmp/gridguard.status /tmp/gridguard*.pid 2>/dev/null || true
+	@echo "Stopped"
 
 # Memory leak check with Valgrind
 .PHONY: valgrind-server
 valgrind-server: debug
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes $(SERVER_BIN)
-
-.PHONY: valgrind-client
-valgrind-client: debug
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes $(CLIENT_BIN)
 
 # Thread safety check with Helgrind
 .PHONY: helgrind
@@ -561,12 +581,25 @@ install: release
 	@# Lägg till installation commands här
 	@echo "Installation not implemented yet"
 
+# Cleanup för IPC-resurser (pipes, sockets, shared memory)
+.PHONY: clean-ipc
+clean-ipc:
+	@echo "Cleaning IPC resources..."
+	@rm -f /tmp/gridguard_*.fifo
+	@rm -f /tmp/gridguard*.sock
+	@rm -f /dev/shm/gridguard_*
+	@rm -f /dev/shm/sem.gridguard_*
+	@echo "IPC resources cleaned"
+
 # Help target
 .PHONY: help
 help:
-	@echo "LEOP Makefile targets:"
+	@echo "GridGuard Makefile targets:"
 	@echo ""
-	@echo "  all          - Build both server and client (default)"
+	@echo "  all          - Build process-based IPC architecture (3 executables)"
+	@echo "  server       - Build server, fetcher, and parser"
+	@echo "  client       - Build client"
+	@echo "  watchdog     - Build watchdog"
 	@echo "  debug        - Build with debug symbols and no optimization"
 	@echo "  release      - Build optimized release version"
 	@echo "  profile      - Build with profiling support"
@@ -580,6 +613,10 @@ help:
 	@echo "  helgrind     - Run Helgrind thread safety check"
 	@echo "  gprof-analyze- Analyze gprof profiling data"
 	@echo ""
+	@echo "  dev          - Run development server with watchdog"
+	@echo "  stop         - Stop server and watchdog"
+	@echo "  clean-ipc    - Clean IPC resources (pipes, sockets, shm)"
+	@echo ""
 	@echo "  clean        - Remove build artifacts"
 	@echo "  distclean    - Remove all generated files"
 	@echo "  install      - Install binaries (not implemented)"
@@ -591,5 +628,4 @@ help:
 
 # Dependencies (auto-generated)
 -include $(SERVER_OBJS:.o=.d)
--include $(CLIENT_OBJS:.o=.d)
 

@@ -49,10 +49,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
         return;
     }
 
-    WorkRequest req = {
-        .clientFd   = fd,
-        .completion = &wc
-    };
+    WorkRequest req;
     snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
     snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
     strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
@@ -61,10 +58,13 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     req.solarAreaM2     = cfg.solarAreaM2;
     req.solarEfficiency = cfg.solarEfficiency;
     req.consumptionKwh  = cfg.consumptionKwh;
+    req.gridFee_low     = cfg.gridFee_low;
+    req.gridFee_normal  = cfg.gridFee_normal;
+    req.gridFee_high    = cfg.gridFee_high;
 
     LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h", claims->subject, req.lat, req.lon, req.region, req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
 
-    if (GridGuard_SubmitRequest(app, &req) != 0)
+    if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Queue full, try again later");
         WorkCompletion_Destroy(&wc);
@@ -124,6 +124,9 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cJSON *jArea        = cJSON_GetObjectItemCaseSensitive(json, "solar_area_m2");
     cJSON *jEff         = cJSON_GetObjectItemCaseSensitive(json, "solar_efficiency");
     cJSON *jConsumption = cJSON_GetObjectItemCaseSensitive(json, "consumption_kwh");
+    cJSON *jGridFeeLow  = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_low");
+    cJSON *jGridFeeNormal = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_normal");
+    cJSON *jGridFeeHigh = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_high");
 
     if (!cJSON_IsNumber(jLat) || !cJSON_IsNumber(jLon) || !cJSON_IsString(jRegion))
     {
@@ -146,6 +149,11 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     double eff  = cJSON_IsNumber(jEff)  ? jEff->valuedouble  : 0.0;
     double load = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
 
+    // Grid fees with defaults (typical Swedish Ellevio-like tariffs)
+    double gridFeeLow = cJSON_IsNumber(jGridFeeLow) ? jGridFeeLow->valuedouble : 0.25;
+    double gridFeeNormal = cJSON_IsNumber(jGridFeeNormal) ? jGridFeeNormal->valuedouble : 0.35;
+    double gridFeeHigh = cJSON_IsNumber(jGridFeeHigh) ? jGridFeeHigh->valuedouble : 0.45;
+
     if (area < 0.0 || area > 10000.0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,"Invalid solar_area_m2: must be 0..10000");
@@ -164,6 +172,12 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         cJSON_Delete(json);
         return;
     }
+    if (gridFeeLow < 0.0 || gridFeeLow > 10.0 || gridFeeNormal < 0.0 || gridFeeNormal > 10.0 || gridFeeHigh < 0.0 || gridFeeHigh > 10.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid grid fees: must be 0..10 kr/kWh");
+        cJSON_Delete(json);
+        return;
+    }
 
     UserConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -176,6 +190,9 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cfg.solarAreaM2     = area;
     cfg.solarEfficiency = eff;
     cfg.consumptionKwh  = load;
+    cfg.gridFee_low     = gridFeeLow;
+    cfg.gridFee_normal  = gridFeeNormal;
+    cfg.gridFee_high    = gridFeeHigh;
 
     cJSON_Delete(json);
 
