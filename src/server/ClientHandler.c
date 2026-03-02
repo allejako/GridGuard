@@ -50,14 +50,14 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
         return;
     }
 
-    WorkCompletion wc;
+    WorkCompletion wc; // Stack-allocated WorkCompletion for this request's pipeline.
     if (WorkCompletion_Initiate(&wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Internal error");
         return;
     }
 
-    WorkRequest req;
+    WorkRequest req; // Build the WorkRequest from the user config and JWT claims.
     snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
     snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
     strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
