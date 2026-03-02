@@ -12,6 +12,9 @@ static const char *CREATE_TABLE_SQL =
     "  solar_area_m2    REAL NOT NULL,"
     "  solar_efficiency REAL NOT NULL,"
     "  consumption_kwh  REAL NOT NULL DEFAULT 0.5,"
+    "  grid_fee_low     REAL NOT NULL DEFAULT 0.25,"
+    "  grid_fee_normal  REAL NOT NULL DEFAULT 0.35,"
+    "  grid_fee_high    REAL NOT NULL DEFAULT 0.45,"
     "  updated_at       INTEGER NOT NULL"
     ");";
 
