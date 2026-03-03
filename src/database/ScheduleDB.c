@@ -19,7 +19,7 @@ static const char *DELETE_SQL =
     "UPDATE schedules SET status = 'cancelled'"
     "  WHERE schedule_id = ? AND user_id = ?;";
 
-int ScheduleDB_Insert(Database *db, const ScheduleEntry *entry)
+int ScheduleDB_Insert(ClientDB *db, const ScheduleEntry *entry)
 {
     if (!db || !db->initialized || !entry)
         return -1;
@@ -54,7 +54,7 @@ int ScheduleDB_Insert(Database *db, const ScheduleEntry *entry)
     return 0;
 }
 
-int ScheduleDB_GetByUser(Database *db, const char *userId,
+int ScheduleDB_GetByUser(ClientDB *db, const char *userId,
                          ScheduleEntry *out, int maxCount, int *count)
 {
     if (!db || !db->initialized || !userId || !out || maxCount <= 0 || !count)
@@ -99,7 +99,7 @@ int ScheduleDB_GetByUser(Database *db, const char *userId,
     return 0;
 }
 
-int ScheduleDB_Delete(Database *db, const char *scheduleId, const char *userId)
+int ScheduleDB_Delete(ClientDB *db, const char *scheduleId, const char *userId)
 {
     if (!db || !db->initialized || !scheduleId || !userId)
         return -1;

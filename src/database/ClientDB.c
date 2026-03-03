@@ -1,4 +1,4 @@
-#include "Database.h"
+#include "ClientDB.h"
 #include "Logger.h"
 #include <string.h>
 
@@ -32,7 +32,7 @@ static const char *CREATE_TABLE_SQL =
     "  updated_at       INTEGER NOT NULL"
     ");";
 
-int Database_Initiate(Database *db, const char *path)
+int ClientDB_Initiate(ClientDB *db, const char *path)
 {
     if (!db || !path)
         return -1;
@@ -42,7 +42,7 @@ int Database_Initiate(Database *db, const char *path)
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path, &db->db, flags, NULL) != SQLITE_OK)
     {
-        LOG_ERROR("Database: Failed to open '%s': %s", path, sqlite3_errmsg(db->db));
+        LOG_ERROR("ClientDB: Failed to open '%s': %s", path, sqlite3_errmsg(db->db));
         sqlite3_close(db->db);
         db->db = NULL;
         return -1;
@@ -51,7 +51,7 @@ int Database_Initiate(Database *db, const char *path)
     char *errMsg = NULL;
     if (sqlite3_exec(db->db, CREATE_TABLE_SQL, NULL, NULL, &errMsg) != SQLITE_OK)
     {
-        LOG_ERROR("Database: Failed to create table: %s", errMsg);
+        LOG_ERROR("ClientDB: Failed to create table: %s", errMsg);
         sqlite3_free(errMsg);
         sqlite3_close(db->db);
         db->db = NULL;
@@ -60,7 +60,7 @@ int Database_Initiate(Database *db, const char *path)
 
     if (sqlite3_exec(db->db, CREATE_SCHEDULES_SQL, NULL, NULL, &errMsg) != SQLITE_OK)
     {
-        LOG_ERROR("Database: Failed to create schedules table: %s", errMsg);
+        LOG_ERROR("ClientDB: Failed to create schedules table: %s", errMsg);
         sqlite3_free(errMsg);
         sqlite3_close(db->db);
         db->db = NULL;
@@ -83,17 +83,17 @@ int Database_Initiate(Database *db, const char *path)
         {
             // "duplicate column name" means the column already exists — not an error.
             if (strstr(migErr, "duplicate column name") == NULL)
-                LOG_WARNING("Database: Migration warning: %s", migErr);
+                LOG_WARNING("ClientDB: Migration warning: %s", migErr);
             sqlite3_free(migErr);
         }
     }
 
     db->initialized = true;
-    LOG_INFO("Database: Opened '%s'", path);
+    LOG_INFO("ClientDB: Opened '%s'", path);
     return 0;
 }
 
-void Database_Shutdown(Database *db)
+void ClientDB_Shutdown(ClientDB *db)
 {
     if (!db || !db->initialized)
         return;
@@ -101,5 +101,5 @@ void Database_Shutdown(Database *db)
     sqlite3_close(db->db);
     db->db = NULL;
     db->initialized = false;
-    LOG_INFO("Database: Closed");
+    LOG_INFO("ClientDB: Closed");
 }
