@@ -356,7 +356,7 @@ graph LR
     end
 
     subgraph "Named FIFO"
-        FIFO[/tmp/gridguard_fetch_to_parse.fifo<br/>mkfifo mode 0666]
+        FIFO["gridguard_fetch_to_parse.fifo<br/>mkfifo"]
     end
 
     subgraph "Parser Process"
@@ -365,7 +365,7 @@ graph LR
     end
 
     subgraph "Unix Domain Socket"
-        SOCK[/tmp/gridguard_parse_to_compute.sock<br/>AF_UNIX SOCK_STREAM]
+        SOCK["gridguard_parse_to_compute.sock<br/>AF_UNIX SOCK_STREAM"]
     end
 
     subgraph "Compute Thread"
@@ -373,10 +373,10 @@ graph LR
     end
 
     subgraph "POSIX Shared Memory"
-        SHM_W[/gridguard_weather<br/>shm_open and mmap]
-        SHM_P[/gridguard_price<br/>shm_open and mmap]
-        SEM_W[Semaphore<br/>/gridguard_weather_sem]
-        SEM_P[Semaphore<br/>/gridguard_price_sem]
+        SHM_W["gridguard_weather<br/>shm_open and mmap"]
+        SHM_P["gridguard_price<br/>shm_open and mmap"]
+        SEM_W["Semaphore<br/>gridguard_weather_sem"]
+        SEM_P["Semaphore<br/>gridguard_price_sem"]
     end
 
     H1 -->|write WorkRequest| MUTEX
@@ -1075,8 +1075,6 @@ flowchart TB
 
     VALIDATE -->|Success| CLAIMS[Extract claims.subject<br/>userId from token]
 
-    Note over CLAIMS: Token contains:<br/>- sub userId<br/>- email<br/>- plan premium/free/basic<br/>- exp expiry
-
     CLAIMS --> AUTHZ{Authorization check}
 
     AUTHZ -->|/user/config| CHECK_OWN1{userId == claims.subject?}
@@ -1122,6 +1120,7 @@ flowchart TB
 
 - **Platform DB (platform.db)**: Stores only user_id, email, plan_type
 - **JWT Tokens**: Issued by platform, validated by device
+  - Contains: sub (userId), email, plan (premium/free/basic), exp (expiry)
 - **Energy Data**: Stored in gridguard.db on device, never transmitted
 - **Token Lifetime**: 24 hours (demo), shorter in production
 - **HMAC-SHA256**: Token signing with secret key
