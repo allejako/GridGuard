@@ -3,12 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "Fetcher.h"
+#include "HTTPFetcher.h"
 #include "HTTPClient.h"
 #include "Config.h"
 #include "Logger.h"
 
-int Fetcher_Initiate(Fetcher *fetcher)
+int HTTPFetcher_Initiate(HTTPFetcher *fetcher)
 {
     if (!fetcher)
         return -1;
@@ -22,7 +22,7 @@ int Fetcher_Initiate(Fetcher *fetcher)
     return 0;
 }
 
-int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
+int HTTPFetcher_Fetch(HTTPFetcher *fetcher, const char *url, HTTPFetchResponse *response)
 {
     if (!fetcher || !fetcher->isInitialized || !url || !response)
         return -1;
@@ -63,7 +63,7 @@ int Fetcher_Fetch(Fetcher *fetcher, const char *url, FetchResponse *response)
     return -1;
 }
 
-void Fetcher_FreeResponse(FetchResponse *response)
+void HTTPFetcher_FreeResponse(HTTPFetchResponse *response)
 {
     if (!response)
         return;
@@ -74,7 +74,7 @@ void Fetcher_FreeResponse(FetchResponse *response)
     response->status = 0;
 }
 
-void Fetcher_Shutdown(Fetcher *fetcher)
+void HTTPFetcher_Shutdown(HTTPFetcher *fetcher)
 {
     if (!fetcher || !fetcher->isInitialized)
         return;

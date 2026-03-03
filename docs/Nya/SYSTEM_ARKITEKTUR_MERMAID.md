@@ -58,8 +58,8 @@ graph TB
     WD -.supervises.-> MAIN
     WD -.heartbeat pipe.-> MAIN
 
-    GG -->|fork+exec| FETCH
-    GG -->|fork+exec| PARSE
+    GG -->|fork and exec| FETCH
+    GG -->|fork and exec| PARSE
     GG -->|pthread_create| COMP
 
     GG -->|anonymous pipe| FETCH
@@ -97,7 +97,7 @@ sequenceDiagram
     activate Watchdog
 
     Note over Watchdog: Creates pipe for heartbeat
-    Watchdog->>Main: fork+exec ./bin/GridGuard-server
+    Watchdog->>Main: fork and exec ./bin/GridGuard-server
     activate Main
 
     Note over Main: Detects GRIDGUARD_HEARTBEAT_FD<br/>→ Daemonizes
@@ -258,7 +258,7 @@ sequenceDiagram
     Fetcher->>Cache: SharedCache_Store("weather", json)
     activate Cache
     Cache->>Cache: sem_wait()
-    Cache->>Cache: Store data + timestamp
+    Cache->>Cache: Store data and timestamp
     Cache->>Cache: sem_post()
     deactivate Cache
 
@@ -347,7 +347,7 @@ graph LR
 
     subgraph "Parser Process"
         P_FIFO[FIFO Read FD]
-        P_SOCK[Unix Socket Server<br/>bind+listen]
+        P_SOCK[Unix Socket Server<br/>bind and listen]
     end
 
     subgraph "Unix Domain Socket"
@@ -359,8 +359,8 @@ graph LR
     end
 
     subgraph "POSIX Shared Memory"
-        SHM_W[/gridguard_weather<br/>shm_open + mmap]
-        SHM_P[/gridguard_price<br/>shm_open + mmap]
+        SHM_W[/gridguard_weather<br/>shm_open and mmap]
+        SHM_P[/gridguard_price<br/>shm_open and mmap]
         SEM_W[Semaphore<br/>/gridguard_weather_sem]
         SEM_P[Semaphore<br/>/gridguard_price_sem]
     end
@@ -458,7 +458,7 @@ stateDiagram-v2
 flowchart TD
     START([Compute_GenerateEnergyPlan])
 
-    INPUT[/"Input:<br/>ForecastData (96 hours)<br/>UserConfig (solar, consumption, grid fees)"/]
+    INPUT[/"Input:<br/>ForecastData 96 hours<br/>UserConfig solar and grid fees"/]
 
     START --> INPUT
 
@@ -466,9 +466,9 @@ flowchart TD
 
     PASS1 --> LOOP1{For each hour i<br/>in forecast}
 
-    LOOP1 -->|valid| CALC_COST["Calculate total cost:<br/>hour = localtime(timestamp).hour<br/>gridFee = GetGridFee(hour)<br/>cost = (spot + gridFee + tax) × (1 + VAT)"]
+    LOOP1 -->|valid| CALC_COST["Calculate total cost:<br/>hour = localtime timestamp hour<br/>gridFee = GetGridFee hour<br/>cost = spot + gridFee + tax × VAT"]
 
-    CALC_COST --> STORE["entryCosts[i] = cost<br/>sortedCosts[sortCount++] = cost"]
+    CALC_COST --> STORE["Store cost in arrays:<br/>entryCosts at index i<br/>sortedCosts increment count"]
 
     STORE --> LOOP1
 
@@ -484,14 +484,14 @@ flowchart TD
 
     LOOP2 -->|valid| SOLAR[Calculate Solar Production]
 
-    SOLAR --> NOCT["Cell temp = ambient + (NOCT-20)/(800×windDenom) × irradiance<br/>tempFactor = 1 + TEMP_COEFF × (cellTemp - 25°C)<br/>production = irradiance × area × efficiency × PR × tempFactor"]
+    SOLAR --> NOCT["NOCT temperature model:<br/>Calculate cell temperature<br/>Apply temperature coefficient<br/>Compute solar production kWh"]
 
     NOCT --> NET["netKwh = production - consumption"]
 
     NET --> DECISION{Decision Tree}
 
     DECISION -->|netKwh > 0.05| CHECK_SPOT{spotPrice >= 0?}
-    CHECK_SPOT -->|Yes| SELL[action = SELL_TO_GRID<br/>totalExport += netKwh]
+    CHECK_SPOT -->|Yes| SELL[action = SELL_TO_GRID<br/>totalExport add netKwh]
     CHECK_SPOT -->|No| IDLE1[action = IDLE<br/>negative price, don't export]
 
     DECISION -->|netKwh <= 0.05| CHECK_COST{cost <= buyThreshold?}
@@ -503,13 +503,13 @@ flowchart TD
     BUY --> TRACK
     IDLE2 --> TRACK
 
-    TRACK["Track totals:<br/>if netKwh < 0:<br/>  totalImport += (-netKwh)<br/>  totalCost += (-netKwh) × cost"]
+    TRACK["Track totals:<br/>if netKwh negative:<br/>  increment totalImport<br/>  increment totalCost"]
 
     TRACK --> FILL["Fill EnergyDataEntry:<br/>timestamp, action, production,<br/>consumption, spotPrice, totalCost,<br/>savingsVsMedian"]
 
     FILL --> LOOP2
 
-    LOOP2 -->|done| OUTPUT[/"Output:<br/>EnergyData plan<br/>(96 entries + summary)"/]
+    LOOP2 -->|done| OUTPUT[/"Output:<br/>EnergyData plan<br/>96 entries with summary"/]
 
     OUTPUT --> END([Return 0])
 
@@ -793,12 +793,12 @@ C4Deployment
         Container(elpriset, "Elpriset.se", "REST API", "Electricity prices")
     }
 
-    Rel(watchdog, gridguard, "supervises", "pipe + signals")
-    Rel(gridguard, fetcher, "spawns", "fork+exec")
-    Rel(gridguard, parser, "spawns", "fork+exec")
+    Rel(watchdog, gridguard, "supervises", "pipe and signals")
+    Rel(gridguard, fetcher, "spawns", "fork and exec")
+    Rel(gridguard, parser, "spawns", "fork and exec")
     Rel(gridguard, sqlite, "reads/writes", "SQL")
-    Rel(fetcher, shm, "writes", "shm_open+mmap")
-    Rel(parser, shm, "reads", "shm_open+mmap")
+    Rel(fetcher, shm, "writes", "shm_open and mmap")
+    Rel(parser, shm, "reads", "shm_open and mmap")
     Rel(fetcher, openmeteo, "HTTP GET", "HTTPS")
     Rel(fetcher, elpriset, "HTTP GET", "HTTPS")
     Rel(browser, gridguard, "HTTP requests", "port 8080")
@@ -846,7 +846,7 @@ flowchart TD
     CHECK_DB -->|No| MONITOR
     CHECK_DB -->|Yes| RETRY[Retry operation]
     RETRY -->|Success| MONITOR
-    RETRY -->|Fail 3 times| DB_ERR[LOG_ERROR + HTTP 500]
+    RETRY -->|Fail 3 times| DB_ERR[LOG_ERROR and HTTP 500]
     DB_ERR --> MONITOR
 
     MONITOR -->|Signal| CHECK_SIG{SIGTERM/SIGINT?}
@@ -899,7 +899,7 @@ graph TB
         T3[Per-request time: ~200 ms avg]
         T4[Theoretical max: 100 req/s]
         T5[Realistic with cache: 200-300 req/s]
-        T6[Bottleneck: Compute mutex<br/>if removed: 2000+ req/s]
+        T6[Bottleneck: Compute mutex<br/>if removed: over 2000 req/s]
     end
 
     T1 --> T2 --> T3 --> T4 --> T5
@@ -1057,7 +1057,7 @@ flowchart TB
 
     INPUT -->|Valid| PROCESS[Process request]
 
-    PROCESS --> RESPONSE[200 OK + JSON]
+    PROCESS --> RESPONSE[200 OK with JSON]
 
     style REJECT1 fill:#ff6b6b
     style REJECT2 fill:#ff6b6b

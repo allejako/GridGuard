@@ -32,7 +32,6 @@ endif
 SRC_DIR = src
 BUILD_DIR = build
 BIN_DIR = bin
-SERVER_DIR = $(SRC_DIR)/server
 TEST_DIR = $(SRC_DIR)/tests
 LIBS_DIR = $(SRC_DIR)/libs
 
@@ -63,7 +62,7 @@ PARSER_DIR = $(PROCESSES_DIR)/parser
 
 # Network directories
 NETWORK_DIR = $(SRC_DIR)/network
-NETWORK_SERVER_DIR = $(NETWORK_DIR)/server
+NETWORK_TCP_DIR = $(NETWORK_DIR)/tcp
 NETWORK_CLIENT_DIR = $(NETWORK_DIR)/client
 NETWORK_HTTP_DIR = $(NETWORK_DIR)/http
 
@@ -74,7 +73,6 @@ SYNC_DIR = $(CONCURRENCY_DIR)/sync
 
 # Include paths for headers
 INCLUDES = -I$(SRC_DIR) \
-           -I$(SERVER_DIR) \
            -I$(LIBS_DIR) \
            -I$(APPLICATION_DIR) \
            -I$(APP_CORE_DIR) \
@@ -97,7 +95,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(DATABASE_DIR) \
            -I$(CACHE_DIR) \
            -I$(NETWORK_DIR) \
-           -I$(NETWORK_SERVER_DIR) \
+           -I$(NETWORK_TCP_DIR) \
            -I$(NETWORK_CLIENT_DIR) \
            -I$(NETWORK_HTTP_DIR) \
            -I$(CONCURRENCY_DIR) \
@@ -116,8 +114,9 @@ WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
 
 # Source files for server (main process with HTTP + Compute thread)
 SERVER_SRCS_C = $(SRC_DIR)/main.c \
-                $(SERVER_DIR)/Server.c \
-                $(SERVER_DIR)/ClientHandler.c \
+                $(APP_CORE_DIR)/Server.c \
+                $(APP_CORE_DIR)/ClientHandler.c \
+                $(APP_CORE_DIR)/GridGuard.c \
                 $(APP_WORKERS_DIR)/ComputeWorkerHybrid.c \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
@@ -125,11 +124,10 @@ SERVER_SRCS_C = $(SRC_DIR)/main.c \
                 $(wildcard $(AUTH_DIR)/*.c) \
                 $(wildcard $(DATABASE_DIR)/*.c) \
                 $(wildcard $(CACHE_DIR)/*.c) \
-                $(wildcard $(NETWORK_SERVER_DIR)/*.c) \
+                $(wildcard $(NETWORK_TCP_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
                 $(NETWORK_CLIENT_DIR)/HTTPClient.c \
                 $(wildcard $(APP_API_DIR)/*.c) \
-                $(APP_CORE_DIR)/GridGuard.c \
                 $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
@@ -139,7 +137,7 @@ SERVER_SRCS_C = $(SRC_DIR)/main.c \
 # Source files for Fetch process
 FETCHER_SRCS = $(FETCHER_DIR)/main.c \
                $(FETCHER_DIR)/fetcher.c \
-               $(APP_SERVICES_DIR)/Fetcher.c \
+               $(NETWORK_CLIENT_DIR)/HTTPFetcher.c \
                $(NETWORK_CLIENT_DIR)/HTTPClient.c \
                $(CACHE_DIR)/SharedCache.c \
                $(APP_API_DIR)/APIEndpoints.c \
@@ -149,7 +147,7 @@ FETCHER_SRCS = $(FETCHER_DIR)/main.c \
 # Source files for Parse process
 PARSER_SRCS = $(PARSER_DIR)/main.c \
               $(PARSER_DIR)/parser.c \
-              $(APP_SERVICES_DIR)/Parser.c \
+              $(APP_API_DIR)/APIParser.c \
               $(LOGGING_DIR)/Logger.c \
               $(LIBS_DIR)/cJSON.c
 
@@ -185,7 +183,6 @@ server: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN)
 .PHONY: directories
 directories:
 	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/server
 	@mkdir -p $(BUILD_DIR)/application/core
 	@mkdir -p $(BUILD_DIR)/application/workers
 	@mkdir -p $(BUILD_DIR)/infrastructure/processes/fetcher
@@ -203,7 +200,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/auth
 	@mkdir -p $(BUILD_DIR)/infrastructure/database
 	@mkdir -p $(BUILD_DIR)/infrastructure/cache
-	@mkdir -p $(BUILD_DIR)/network/server
+	@mkdir -p $(BUILD_DIR)/network/tcp
 	@mkdir -p $(BUILD_DIR)/network/client
 	@mkdir -p $(BUILD_DIR)/network/http
 	@mkdir -p $(BUILD_DIR)/concurrency/threads

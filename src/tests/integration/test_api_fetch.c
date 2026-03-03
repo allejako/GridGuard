@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "Fetcher.h"
+#include "HTTPFetcher.h"
 #include "APIEndpoints.h"
-#include "Parser.h"
+#include "APIParser.h"
 #include "OpenMeteoResponse.h"
 #include "ElprisetResponse.h"
 #include "Config.h"
@@ -14,7 +14,7 @@ void print_separator(const char *title)
     printf("\n========== %s ==========\n", title);
 }
 
-int test_spot_prices(Fetcher *fetcher, Parser *parser)
+int test_spot_prices(HTTPFetcher *fetcher, APIParser *parser)
 {
     print_separator("SPOTPRISER (elpriset.se)");
 
@@ -27,8 +27,8 @@ int test_spot_prices(Fetcher *fetcher, Parser *parser)
 
     printf("URL: %s\n", url);
 
-    FetchResponse response = {0};
-    if (Fetcher_Fetch(fetcher, url, &response) != 0)
+    HTTPFetchResponse response = {0};
+    if (HTTPFetcher_Fetch(fetcher, url, &response) != 0)
     {
         printf("ERROR: Kunde inte hämta spotpriser\n");
         return -1;
@@ -39,10 +39,10 @@ int test_spot_prices(Fetcher *fetcher, Parser *parser)
 
     // Parsa JSON
     ElprisetResponse spotData = {0};
-    if (Parser_ParseElpriset(parser, response.data, &spotData) != 0)
+    if (APIParser_ParseElpriset(parser, response.data, &spotData) != 0)
     {
         printf("ERROR: Kunde inte parsa spotpriser\n");
-        Fetcher_FreeResponse(&response);
+        HTTPFetcher_FreeResponse(&response);
         return -1;
     }
 
@@ -63,12 +63,12 @@ int test_spot_prices(Fetcher *fetcher, Parser *parser)
         printf("%-20s %-12.4f\n", timeStr, p->SEK_per_kWh);
     }
 
-    Fetcher_FreeResponse(&response);
+    HTTPFetcher_FreeResponse(&response);
     printf("\nSpotpriser OK!\n");
     return 0;
 }
 
-int test_weather(Fetcher *fetcher, Parser *parser)
+int test_weather(HTTPFetcher *fetcher, APIParser *parser)
 {
     print_separator("VÄDERDATA (Open-Meteo)");
 
@@ -81,8 +81,8 @@ int test_weather(Fetcher *fetcher, Parser *parser)
 
     printf("URL: %s\n", url);
 
-    FetchResponse response = {0};
-    if (Fetcher_Fetch(fetcher, url, &response) != 0)
+    HTTPFetchResponse response = {0};
+    if (HTTPFetcher_Fetch(fetcher, url, &response) != 0)
     {
         printf("ERROR: Kunde inte hämta väderdata\n");
         return -1;
@@ -93,10 +93,10 @@ int test_weather(Fetcher *fetcher, Parser *parser)
 
     // Parsa JSON
     OpenMeteoResponse forecast = {0};
-    if (Parser_ParseOpenMeteo(parser, response.data, &forecast) != 0)
+    if (APIParser_ParseOpenMeteo(parser, response.data, &forecast) != 0)
     {
         printf("ERROR: Kunde inte parsa väderdata\n");
-        Fetcher_FreeResponse(&response);
+        HTTPFetcher_FreeResponse(&response);
         return -1;
     }
 
@@ -114,7 +114,7 @@ int test_weather(Fetcher *fetcher, Parser *parser)
                w->time, w->temperature_2m, w->cloud_cover, w->shortwave_radiation);
     }
 
-    Fetcher_FreeResponse(&response);
+    HTTPFetcher_FreeResponse(&response);
     printf("\nVäderdata OK!\n");
     return 0;
 }
@@ -125,18 +125,18 @@ int main(void)
     printf("==================\n");
 
     // Initiera komponenter
-    Fetcher fetcher = {0};
-    if (Fetcher_Initiate(&fetcher) != 0)
+    HTTPFetcher fetcher = {0};
+    if (HTTPFetcher_Initiate(&fetcher) != 0)
     {
         printf("ERROR: Kunde inte initiera Fetcher\n");
         return 1;
     }
 
-    Parser parser = {0};
-    if (Parser_Initiate(&parser) != 0)
+    APIParser parser = {0};
+    if (APIParser_Initiate(&parser) != 0)
     {
         printf("ERROR: Kunde inte initiera Parser\n");
-        Fetcher_Shutdown(&fetcher);
+        HTTPFetcher_Shutdown(&fetcher);
         return 1;
     }
 
@@ -145,8 +145,8 @@ int main(void)
     int weatherResult = test_weather(&fetcher, &parser);
 
     // Cleanup
-    Parser_Shutdown(&parser);
-    Fetcher_Shutdown(&fetcher);
+    APIParser_Shutdown(&parser);
+    HTTPFetcher_Shutdown(&fetcher);
 
     // Sammanfattning
     print_separator("RESULTAT");

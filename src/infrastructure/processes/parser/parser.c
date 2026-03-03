@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "parser.h"
-#include "Parser.h"
+#include "APIParser.h"
 #include "Forecast.h"
 #include "OpenMeteoResponse.h"
 #include "ElprisetResponse.h"
@@ -107,17 +107,17 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     strncpy(proc->fifoPath, fifoPath, sizeof(proc->fifoPath) - 1);
     strncpy(proc->socketPath, socketPath, sizeof(proc->socketPath) - 1);
 
-    // Allokera Parser service
-    proc->parser = calloc(1, sizeof(Parser));
+    // Allokera APIParser service
+    proc->parser = calloc(1, sizeof(APIParser));
     if (!proc->parser)
     {
-        LOG_ERROR("ParserProcess: Failed to allocate Parser");
+        LOG_ERROR("ParserProcess: Failed to allocate APIParser");
         return -1;
     }
 
-    if (Parser_Initiate((Parser *)proc->parser) != 0)
+    if (APIParser_Initiate((APIParser *)proc->parser) != 0)
     {
-        LOG_ERROR("ParserProcess: Failed to initiate Parser");
+        LOG_ERROR("ParserProcess: Failed to initiate APIParser");
         free(proc->parser);
         return -1;
     }
@@ -127,7 +127,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     if (proc->fifoFd < 0)
     {
         LOG_ERROR("ParserProcess: Failed to open FIFO %s for reading", fifoPath);
-        Parser_Shutdown((Parser *)proc->parser);
+        APIParser_Shutdown((APIParser *)proc->parser);
         free(proc->parser);
         return -1;
     }
@@ -138,7 +138,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     {
         LOG_ERROR("ParserProcess: Failed to create Unix socket");
         close(proc->fifoFd);
-        Parser_Shutdown((Parser *)proc->parser);
+        APIParser_Shutdown((APIParser *)proc->parser);
         free(proc->parser);
         return -1;
     }
@@ -154,7 +154,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         LOG_ERROR("ParserProcess: Failed to bind Unix socket to %s", socketPath);
         close(proc->fifoFd);
         close(proc->serverSocket);
-        Parser_Shutdown((Parser *)proc->parser);
+        APIParser_Shutdown((APIParser *)proc->parser);
         free(proc->parser);
         return -1;
     }
@@ -165,7 +165,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         close(proc->fifoFd);
         close(proc->serverSocket);
         unlink(socketPath);
-        Parser_Shutdown((Parser *)proc->parser);
+        APIParser_Shutdown((APIParser *)proc->parser);
         free(proc->parser);
         return -1;
     }
@@ -180,7 +180,7 @@ int ParserProcess_Run(ParserProcess *proc)
     if (!proc || !proc->isRunning)
         return -1;
 
-    Parser *parser = (Parser *)proc->parser;
+    APIParser *parser = (APIParser *)proc->parser;
     LOG_INFO("ParserProcess: Starting main loop");
 
     while (proc->isRunning)
@@ -212,7 +212,7 @@ int ParserProcess_Run(ParserProcess *proc)
 
         if (strlen(fetchResult.openMeteoJson) > 0)
         {
-            if (Parser_ParseOpenMeteo(parser, fetchResult.openMeteoJson, &omData) == 0)
+            if (APIParser_ParseOpenMeteo(parser, fetchResult.openMeteoJson, &omData) == 0)
             {
                 LOG_INFO("ParserProcess: Parsed %d Open-Meteo entries", omData.count);
                 omParsed = true;
@@ -225,7 +225,7 @@ int ParserProcess_Run(ParserProcess *proc)
 
         if (strlen(fetchResult.priceJson) > 0)
         {
-            if (Parser_ParseElpriset(parser, fetchResult.priceJson, &elprisetData) == 0)
+            if (APIParser_ParseElpriset(parser, fetchResult.priceJson, &elprisetData) == 0)
             {
                 LOG_INFO("ParserProcess: Parsed %d price entries", elprisetData.count);
                 pricesParsed = true;
@@ -311,7 +311,7 @@ void ParserProcess_Shutdown(ParserProcess *proc)
 
     if (proc->parser)
     {
-        Parser_Shutdown((Parser *)proc->parser);
+        APIParser_Shutdown((APIParser *)proc->parser);
         free(proc->parser);
     }
 
