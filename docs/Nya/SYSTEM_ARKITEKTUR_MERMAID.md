@@ -332,7 +332,7 @@ graph LR
     end
 
     subgraph "GridGuard Core"
-        PIPE[Anonymous Pipe<br/>int[2]]
+        PIPE[Anonymous Pipe<br/>int array]
         MUTEX[pthread_mutex_t]
     end
 
@@ -623,31 +623,31 @@ graph TB
     CLIENT[HTTP Client]
 
     CLIENT -->|No auth| HEALTH
-    CLIENT -->|Bearer {JWT}| GET_CFG
-    CLIENT -->|Bearer {JWT}| PUT_CFG
-    CLIENT -->|Bearer {JWT}| GET_FC
-    CLIENT -->|Bearer {JWT}| GET_SCH
-    CLIENT -->|Bearer {JWT}| POST_SCH
-    CLIENT -->|Bearer {JWT}| DEL_SCH
+    CLIENT -->|Bearer JWT| GET_CFG
+    CLIENT -->|Bearer JWT| PUT_CFG
+    CLIENT -->|Bearer JWT| GET_FC
+    CLIENT -->|Bearer JWT| GET_SCH
+    CLIENT -->|Bearer JWT| POST_SCH
+    CLIENT -->|Bearer JWT| DEL_SCH
 
-    HEALTH -.->|200 OK| RES1["{\"status\":\"ok\"}"]
+    HEALTH -.->|200 OK| RES1["status: ok"]
 
-    GET_CFG -.->|200 OK| RES2["{\"location\":\"Stockholm\",<br/>\"solar_area_m2\":20.0,...}"]
-    GET_CFG -.->|404| RES3["{\"error\":\"No config found\"}"]
+    GET_CFG -.->|200 OK| RES2["location, solar config"]
+    GET_CFG -.->|404| RES3["error: No config found"]
 
-    PUT_CFG -.->|200 OK| RES4["{\"status\":\"ok\"}"]
-    PUT_CFG -.->|400| RES5["{\"error\":\"Invalid coordinates\"}"]
+    PUT_CFG -.->|200 OK| RES4["status: ok"]
+    PUT_CFG -.->|400| RES5["error: Invalid coordinates"]
 
-    GET_FC -.->|200 OK| RES6["{\"user_id\":\"user123\",<br/>\"forecast\":[...96 entries...]}"]
-    GET_FC -.->|400| RES7["{\"error\":\"User config not set\"}"]
+    GET_FC -.->|200 OK| RES6["user_id, forecast array"]
+    GET_FC -.->|400| RES7["error: User config not set"]
 
-    POST_SCH -.->|200 OK| RES8["{\"schedule_id\":\"...\",<br/>\"savings_sek\":50.76}"]
-    POST_SCH -.->|400| RES9["{\"error\":\"No valid window found\"}"]
+    POST_SCH -.->|200 OK| RES8["schedule_id, savings"]
+    POST_SCH -.->|400| RES9["error: No valid window"]
 
-    GET_SCH -.->|200 OK| RES10["{\"schedules\":[...]}"]
+    GET_SCH -.->|200 OK| RES10["schedules array"]
 
-    DEL_SCH -.->|200 OK| RES11["{\"status\":\"cancelled\"}"]
-    DEL_SCH -.->|404| RES12["{\"error\":\"Schedule not found\"}"]
+    DEL_SCH -.->|200 OK| RES11["status: cancelled"]
+    DEL_SCH -.->|404| RES12["error: Schedule not found"]
 
     style HEALTH fill:#90EE90
     style GET_CFG fill:#87CEEB
@@ -839,7 +839,7 @@ flowchart TD
     CHECK_TIMEOUT -->|No, <30s| MONITOR
     CHECK_TIMEOUT -->|Yes, >30s| TIMEOUT_ERR[WorkCompletion_Wait returns -1]
     TIMEOUT_ERR --> SEND_500[HTTP 500 Internal Server Error]
-    SEND_500 --> CLOSE[close(clientSocket)]
+    SEND_500 --> CLOSE[close clientSocket]
     CLOSE --> MONITOR
 
     MONITOR -->|Database| CHECK_DB{SQLite error?}
@@ -871,7 +871,7 @@ flowchart TD
 
 ```mermaid
 graph TB
-    subgraph "Latency Breakdown (Typical Request)"
+    subgraph "Latency Breakdown - Typical Request"
         L1[HTTP Parse: 0.5 ms]
         L2[JWT Validation: 1.0 ms]
         L3[Database Read: 0.8 ms]
@@ -889,7 +889,7 @@ graph TB
     L4 -.pipeline.-> L5 --> L6 --> L7 --> L8
     L8 -.wake.-> L9
 
-    TOTAL["Total latency:<br/>Best case (cache hit): ~10 ms<br/>Typical (API calls): 160-320 ms<br/>Worst case (timeout): 30,000 ms"]
+    TOTAL["Total latency:<br/>Best case with cache: ~10 ms<br/>Typical with API calls: 160-320 ms<br/>Worst case timeout: 30,000 ms"]
 
     L9 --> TOTAL
 
@@ -898,7 +898,7 @@ graph TB
         T2[Max concurrent requests: 20]
         T3[Per-request time: ~200 ms avg]
         T4[Theoretical max: 100 req/s]
-        T5[Realistic (with cache): 200-300 req/s]
+        T5[Realistic with cache: 200-300 req/s]
         T6[Bottleneck: Compute mutex<br/>if removed: 2000+ req/s]
     end
 
