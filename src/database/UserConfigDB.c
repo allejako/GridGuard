@@ -12,7 +12,7 @@ static const char *UPSERT_SQL =
     "  (user_id, location, latitude, longitude, region, solar_area_m2, solar_efficiency, consumption_kwh, grid_fee_low, grid_fee_normal, grid_fee_high, updated_at)"
     "  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
-int UserConfigDB_Get(Database *db, const char *userId, UserConfig *out)
+int UserConfigDB_Get(ClientDB *db, const char *userId, UserConfig *out)
 {
     if (!db || !db->initialized || !userId || !out)
         return -1;
@@ -60,7 +60,7 @@ int UserConfigDB_Get(Database *db, const char *userId, UserConfig *out)
     return -1;
 }
 
-int UserConfigDB_Upsert(Database *db, const UserConfig *config)
+int UserConfigDB_Upsert(ClientDB *db, const UserConfig *config)
 {
     if (!db || !db->initialized || !config)
         return -1;

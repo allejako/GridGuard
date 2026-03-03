@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include "Compute.h"
 #include "SharedCache.h"
-#include "Database.h"
+#include "ClientDB.h"
 #include "WorkCompletion.h"
 
 // Work request submitted by an HTTP worker thread.
@@ -52,7 +52,7 @@ typedef struct GridGuard
     Compute compute;              // Compute service (används av compute thread)
     SharedCache weatherCache;     // shm_open/mmap - delad mellan processer
     SharedCache priceCache;       // shm_open/mmap - delad mellan processer
-    Database db;                  // Persistent user config
+    ClientDB db;                  // Persistent user config
 
     // Control
     bool isRunning;
