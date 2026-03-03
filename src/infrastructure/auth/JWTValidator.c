@@ -19,7 +19,7 @@
 // base64url → standard base64, then decode with mbedtls_base64_decode.
 // Returns decoded byte count on success, -1 on error.
 static int base64url_decode(const char *src, size_t srcLen, unsigned char *dst, size_t dstBufLen)
-{
+{ 
     // Pad to multiple of 4
     size_t padded = srcLen + ((4 - srcLen % 4) % 4);
     if (padded + 1 > dstBufLen)

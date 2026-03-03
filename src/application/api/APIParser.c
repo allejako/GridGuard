@@ -1,26 +1,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "Parser.h"
+#include "APIParser.h"
 #include "cJSON.h"
 #include "Logger.h"
 
-int Parser_Initiate(Parser *parser)
+int APIParser_Initiate(APIParser *parser)
 {
     if (!parser)
         return -1;
 
     parser->isInitialized = true;
     pthread_mutex_init(&parser->mutex, NULL);
-    LOG_INFO("Parser initialized");
+    LOG_INFO("APIParser initialized");
     return 0;
 }
 
-int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoResponse *forecast)
+int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoResponse *forecast)
 {
     if (!parser || !parser->isInitialized || !jsonData || !forecast)
     {
-        LOG_ERROR("Invalid parameters for Parser_ParseWeatherData");
+        LOG_ERROR("Invalid parameters for APIParser_ParseOpenMeteo");
         return -1;
     }
 
@@ -105,11 +105,11 @@ int Parser_ParseOpenMeteo(Parser *parser, const char *jsonData, OpenMeteoRespons
     return 0;
 }
 
-int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse *spotData)
+int APIParser_ParseElpriset(APIParser *parser, const char *jsonData, ElprisetResponse *spotData)
 {
     if (!parser || !parser->isInitialized || !jsonData || !spotData)
     {
-        LOG_ERROR("Invalid parameters for Parser_ParseSpotPrices");
+        LOG_ERROR("Invalid parameters for APIParser_ParseElpriset");
         return -1;
     }
 
@@ -190,12 +190,12 @@ int Parser_ParseElpriset(Parser *parser, const char *jsonData, ElprisetResponse 
     return 0;
 }
 
-void Parser_Shutdown(Parser *parser)
+void APIParser_Shutdown(APIParser *parser)
 {
     if (!parser || !parser->isInitialized)
         return;
 
     pthread_mutex_destroy(&parser->mutex);
     parser->isInitialized = false;
-    LOG_INFO("Parser shutdown");
+    LOG_INFO("APIParser shutdown");
 }

@@ -9,8 +9,8 @@
  *
  * Adding a new weather or spot price source? Follow the same pattern:
  *  - Build URL with Build<Source>ApiUrl()
- *  - Fetch with Fetcher_Fetch()
- *  - Parse with Parser_Parse<Source>()
+ *  - Fetch with HTTPHTTPFetcher_Fetch()
+ *  - Parse with APIParser_Parse<Source>()
  *  - Add a corresponding test block here
  */
 
@@ -18,9 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "Fetcher.h"
+#include "HTTPFetcher.h"
 #include "APIEndpoints.h"
-#include "Parser.h"
+#include "APIParser.h"
 #include "OpenMeteoResponse.h"
 #include "ElprisetResponse.h"
 #include "Config.h"
@@ -45,7 +45,7 @@ static void print_result(const char *name, int passed)
 
 // ── TEST 1: Open-Meteo ────────────────────────────────────────────────────────
 
-static int test_openmeteo(Fetcher *fetcher, Parser *parser)
+static int test_openmeteo(HTTPFetcher *fetcher, APIParser *parser)
 {
     print_header("TEST 1: Open-Meteo fetch & parse");
 
@@ -56,8 +56,8 @@ static int test_openmeteo(Fetcher *fetcher, Parser *parser)
     }
     printf("URL: %s\n\n", url);
 
-    FetchResponse resp = {0};
-    if (Fetcher_Fetch(fetcher, url, &resp) != 0) {
+    HTTPFetchResponse resp = {0};
+    if (HTTPFetcher_Fetch(fetcher, url, &resp) != 0) {
         printf(RED "ERROR: Fetch failed\n" RESET);
         return -1;
     }
@@ -65,8 +65,8 @@ static int test_openmeteo(Fetcher *fetcher, Parser *parser)
     print_result("HTTP 200", resp.status == 200);
 
     OpenMeteoResponse om = {0};
-    int parseOk = (Parser_ParseOpenMeteo(parser, resp.data, &om) == 0);
-    Fetcher_FreeResponse(&resp);
+    int parseOk = (APIParser_ParseOpenMeteo(parser, resp.data, &om) == 0);
+    HTTPFetcher_FreeResponse(&resp);
     print_result("Parse succeeded", parseOk);
     if (!parseOk) return -1;
 
@@ -91,7 +91,7 @@ static int test_openmeteo(Fetcher *fetcher, Parser *parser)
 
 // ── TEST 2: Elpriset spot prices ──────────────────────────────────────────────
 
-static int test_elpriset(Fetcher *fetcher, Parser *parser)
+static int test_elpriset(HTTPFetcher *fetcher, APIParser *parser)
 {
     print_header("TEST 2: Elpriset fetch & parse");
 
@@ -108,8 +108,8 @@ static int test_elpriset(Fetcher *fetcher, Parser *parser)
     BuildSpotPriceTomorrowUrl(urlTomorrow, sizeof(urlTomorrow), SPOTPRICE_REGION);
     printf("Tomorrow URL: %s\n\n", urlTomorrow);
 
-    FetchResponse resp = {0};
-    if (Fetcher_Fetch(fetcher, urlToday, &resp) != 0) {
+    HTTPFetchResponse resp = {0};
+    if (HTTPFetcher_Fetch(fetcher, urlToday, &resp) != 0) {
         printf(RED "ERROR: Fetch failed\n" RESET);
         return -1;
     }
@@ -117,8 +117,8 @@ static int test_elpriset(Fetcher *fetcher, Parser *parser)
     print_result("HTTP 200", resp.status == 200);
 
     ElprisetResponse prices = {0};
-    int parseOk = (Parser_ParseElpriset(parser, resp.data, &prices) == 0);
-    Fetcher_FreeResponse(&resp);
+    int parseOk = (APIParser_ParseElpriset(parser, resp.data, &prices) == 0);
+    HTTPFetcher_FreeResponse(&resp);
     print_result("Parse succeeded", parseOk);
     if (!parseOk) return -1;
 
@@ -145,16 +145,16 @@ int main(void)
     printf(CYAN "\nGridGuard — Weather & Spot Price Parser Test\n" RESET);
     printf("Region: %s  Location: %s, %s\n", SPOTPRICE_REGION, WEATHER_LAT, WEATHER_LON);
 
-    Fetcher fetcher;
-    if (Fetcher_Initiate(&fetcher) != 0) {
-        fprintf(stderr, "ERROR: Fetcher_Initiate failed\n");
+    HTTPFetcher fetcher;
+    if (HTTPFetcher_Initiate(&fetcher) != 0) {
+        fprintf(stderr, "ERROR: HTTPFetcher_Initiate failed\n");
         return 1;
     }
 
-    Parser parser;
-    if (Parser_Initiate(&parser) != 0) {
-        fprintf(stderr, "ERROR: Parser_Initiate failed\n");
-        Fetcher_Shutdown(&fetcher);
+    APIParser parser;
+    if (APIParser_Initiate(&parser) != 0) {
+        fprintf(stderr, "ERROR: APIParser_Initiate failed\n");
+        HTTPFetcher_Shutdown(&fetcher);
         return 1;
     }
 
@@ -162,8 +162,8 @@ int main(void)
     if (test_openmeteo(&fetcher, &parser) != 0) failures++;
     if (test_elpriset(&fetcher, &parser)  != 0) failures++;
 
-    Parser_Shutdown(&parser);
-    Fetcher_Shutdown(&fetcher);
+    APIParser_Shutdown(&parser);
+    HTTPFetcher_Shutdown(&fetcher);
 
     printf("\n");
     if (failures == 0)

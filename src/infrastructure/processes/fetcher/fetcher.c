@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "fetcher.h"
-#include "Fetcher.h"
+#include "HTTPFetcher.h"
 #include "SharedCache.h"
 #include "APIEndpoints.h"
 #include "Logger.h"
@@ -53,17 +53,17 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
     memset(proc, 0, sizeof(FetcherProcess));
     strncpy(proc->fifoPath, fifoPath, sizeof(proc->fifoPath) - 1);
 
-    // Allokera Fetcher service
-    proc->fetcher = calloc(1, sizeof(Fetcher));
+    // Allokera HTTPFetcher service
+    proc->fetcher = calloc(1, sizeof(HTTPFetcher));
     if (!proc->fetcher)
     {
-        LOG_ERROR("FetcherProcess: Failed to allocate Fetcher");
+        LOG_ERROR("FetcherProcess: Failed to allocate HTTPFetcher");
         return -1;
     }
 
-    if (Fetcher_Initiate((Fetcher *)proc->fetcher) != 0)
+    if (HTTPFetcher_Initiate((HTTPFetcher *)proc->fetcher) != 0)
     {
-        LOG_ERROR("FetcherProcess: Failed to initiate Fetcher");
+        LOG_ERROR("FetcherProcess: Failed to initiate HTTPFetcher");
         free(proc->fetcher);
         return -1;
     }
@@ -75,7 +75,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
     if (!proc->weatherCache || !proc->priceCache)
     {
         LOG_ERROR("FetcherProcess: Failed to allocate cache structures");
-        Fetcher_Shutdown((Fetcher *)proc->fetcher);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
         free(proc->priceCache);
@@ -86,7 +86,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
     if (SharedCache_Create((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to weather cache");
-        Fetcher_Shutdown((Fetcher *)proc->fetcher);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
         free(proc->priceCache);
@@ -97,7 +97,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to price cache");
         SharedCache_Destroy((SharedCache *)proc->weatherCache);
-        Fetcher_Shutdown((Fetcher *)proc->fetcher);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
         free(proc->priceCache);
@@ -111,7 +111,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         LOG_ERROR("FetcherProcess: Failed to open FIFO %s for writing", fifoPath);
         SharedCache_Destroy((SharedCache *)proc->priceCache);
         SharedCache_Destroy((SharedCache *)proc->weatherCache);
-        Fetcher_Shutdown((Fetcher *)proc->fetcher);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
         free(proc->priceCache);
@@ -130,7 +130,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
     if (!proc || !proc->isRunning)
         return -1;
 
-    Fetcher *fetcher = (Fetcher *)proc->fetcher;
+    HTTPFetcher *fetcher = (HTTPFetcher *)proc->fetcher;
     SharedCache *weatherCache = (SharedCache *)proc->weatherCache;
     SharedCache *priceCache = (SharedCache *)proc->priceCache;
 
@@ -182,12 +182,12 @@ int FetcherProcess_Run(FetcherProcess *proc)
             char openMeteoUrl[512];
             if (BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request.lat, request.lon) == 0)
             {
-                FetchResponse omResp;
-                if (Fetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
+                HTTPFetchResponse omResp;
+                if (HTTPFetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
                 {
                     strncpy(result.openMeteoJson, omResp.data, sizeof(result.openMeteoJson) - 1);
                     SharedCache_Store(weatherCache, weatherKey, omResp.data);
-                    Fetcher_FreeResponse(&omResp);
+                    HTTPFetcher_FreeResponse(&omResp);
                     LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
                 }
                 else
@@ -215,12 +215,12 @@ int FetcherProcess_Run(FetcherProcess *proc)
             char priceUrl[256];
             if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
             {
-                FetchResponse priceResp;
-                if (Fetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                HTTPFetchResponse priceResp;
+                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
                 {
                     strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
                     SharedCache_Store(priceCache, priceKey, priceResp.data);
-                    Fetcher_FreeResponse(&priceResp);
+                    HTTPFetcher_FreeResponse(&priceResp);
                     LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
                 }
                 else
@@ -272,7 +272,7 @@ void FetcherProcess_Shutdown(FetcherProcess *proc)
 
     if (proc->fetcher)
     {
-        Fetcher_Shutdown((Fetcher *)proc->fetcher);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
     }
 
