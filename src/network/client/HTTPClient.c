@@ -19,8 +19,7 @@
 // Decode HTTP/1.1 chunked transfer encoding.
 // src/srcLen: raw chunked body.  *out: malloc'd decoded body, caller frees.
 // Returns 0 on success, -1 on error.
-static int decode_chunked(const char *src, size_t srcLen,
-                           char **out, size_t *outLen)
+static int decode_chunked(const char *src, size_t srcLen, char **out, size_t *outLen)
 {
     char *buf = malloc(srcLen + 1); // decoded body is always <= encoded size
     if (!buf) return -1;
@@ -168,13 +167,48 @@ int HTTPClient_Initiate(HTTPClient *client)
     mbedtls_ssl_config_init(&client->sslConf);
     mbedtls_entropy_init(&client->entropy);
     mbedtls_ctr_drbg_init(&client->ctrDrbg);
+    mbedtls_x509_crt_init(&client->cacert);
 
     if (mbedtls_ctr_drbg_seed(&client->ctrDrbg, mbedtls_entropy_func, &client->entropy, NULL, 0) != 0)
     {
+        mbedtls_x509_crt_free(&client->cacert);
         mbedtls_ctr_drbg_free(&client->ctrDrbg);
         mbedtls_entropy_free(&client->entropy);
         mbedtls_ssl_config_free(&client->sslConf);
         return -1;
+    }
+
+    // Load system CA certificates for proper TLS verification
+    // Try common Linux CA certificate locations
+    int ca_loaded = 0;
+    const char *ca_paths[] = {
+        "/etc/ssl/certs/ca-certificates.crt",  // Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",    // RHEL/Fedora
+        "/etc/ssl/ca-bundle.pem",              // OpenSUSE
+        "/etc/ssl/cert.pem",                   // Alpine Linux
+        NULL
+    };
+
+    for (int i = 0; ca_paths[i] != NULL; i++)
+    {
+        if (mbedtls_x509_crt_parse_file(&client->cacert, ca_paths[i]) == 0)
+        {
+            ca_loaded = 1;
+            break;
+        }
+    }
+
+    if (!ca_loaded)
+    {
+        // Fallback: try loading from directory
+        if (mbedtls_x509_crt_parse_path(&client->cacert, "/etc/ssl/certs") != 0)
+        {
+            mbedtls_x509_crt_free(&client->cacert);
+            mbedtls_ctr_drbg_free(&client->ctrDrbg);
+            mbedtls_entropy_free(&client->entropy);
+            mbedtls_ssl_config_free(&client->sslConf);
+            return -1;
+        }
     }
 
     if (mbedtls_ssl_config_defaults(&client->sslConf,
@@ -182,14 +216,16 @@ int HTTPClient_Initiate(HTTPClient *client)
                                     MBEDTLS_SSL_TRANSPORT_STREAM,
                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0)
     {
+        mbedtls_x509_crt_free(&client->cacert);
         mbedtls_ctr_drbg_free(&client->ctrDrbg);
         mbedtls_entropy_free(&client->entropy);
         mbedtls_ssl_config_free(&client->sslConf);
         return -1;
     }
 
-    // Vi verifierar inte servercertifikatet — inga CA-certs behövs på embedded.
-    mbedtls_ssl_conf_authmode(&client->sslConf, MBEDTLS_SSL_VERIFY_NONE);
+    // Enable proper certificate verification (prevents MITM attacks)
+    mbedtls_ssl_conf_authmode(&client->sslConf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&client->sslConf, &client->cacert, NULL);
     mbedtls_ssl_conf_rng(&client->sslConf, mbedtls_ctr_drbg_random, &client->ctrDrbg);
 
     client->initialized = true;
@@ -201,6 +237,7 @@ void HTTPClient_Shutdown(HTTPClient *client)
     if (!client || !client->initialized)
         return;
 
+    mbedtls_x509_crt_free(&client->cacert);
     mbedtls_ssl_config_free(&client->sslConf);
     mbedtls_ctr_drbg_free(&client->ctrDrbg);
     mbedtls_entropy_free(&client->entropy);

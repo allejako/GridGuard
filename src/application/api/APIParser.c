@@ -1,9 +1,140 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "APIParser.h"
 #include "cJSON.h"
 #include "Logger.h"
+
+static double validate_temperature(double temp)
+{
+    if (!isfinite(temp)) {
+        LOG_WARNING("Invalid temperature value (non-finite), defaulting to 0°C");
+        return 0.0;
+    }
+    if (temp < -60.0 || temp > 60.0) {
+        LOG_WARNING("Temperature out of bounds: %.1f°C, clamping to valid range", temp);
+        if (temp < -60.0) return -60.0;
+        if (temp > 60.0) return 60.0;
+    }
+    return temp;
+}
+
+static double validate_humidity(double humidity)
+{
+    if (!isfinite(humidity)) {
+        LOG_WARNING("Invalid humidity value (non-finite), defaulting to 50%%");
+        return 50.0;
+    }
+    if (humidity < 0.0 || humidity > 100.0) {
+        LOG_WARNING("Humidity out of bounds: %.1f%%, clamping to 0-100%%", humidity);
+        if (humidity < 0.0) return 0.0;
+        if (humidity > 100.0) return 100.0;
+    }
+    return humidity;
+}
+
+static double validate_cloud_cover(double cloud)
+{
+    if (!isfinite(cloud)) {
+        LOG_WARNING("Invalid cloud cover value (non-finite), defaulting to 50%%");
+        return 50.0;
+    }
+    if (cloud < 0.0 || cloud > 100.0) {
+        LOG_WARNING("Cloud cover out of bounds: %.1f%%, clamping to 0-100%%", cloud);
+        if (cloud < 0.0) return 0.0;
+        if (cloud > 100.0) return 100.0;
+    }
+    return cloud;
+}
+
+static double validate_wind_speed(double wind)
+{
+    if (!isfinite(wind)) {
+        LOG_WARNING("Invalid wind speed value (non-finite), defaulting to 0 m/s");
+        return 0.0;
+    }
+    if (wind < 0.0 || wind > 150.0) {
+        LOG_WARNING("Wind speed out of bounds: %.1f m/s, clamping to 0-150 m/s", wind);
+        if (wind < 0.0) return 0.0;
+        if (wind > 150.0) return 150.0;
+    }
+    return wind;
+}
+
+static double validate_solar_radiation(double solar)
+{
+    if (!isfinite(solar)) {
+        LOG_WARNING("Invalid solar radiation value (non-finite), defaulting to 0 W/m²");
+        return 0.0;
+    }
+    if (solar < 0.0 || solar > 1500.0) {
+        LOG_WARNING("Solar radiation out of bounds: %.1f W/m², clamping to 0-1500 W/m²", solar);
+        if (solar < 0.0) return 0.0;
+        if (solar > 1500.0) return 1500.0;
+    }
+    return solar;
+}
+
+static double validate_spot_price_sek(double price)
+{
+    if (!isfinite(price)) {
+        LOG_WARNING("Invalid spot price SEK value (non-finite), defaulting to 1.0 SEK/kWh");
+        return 1.0;
+    }
+    if (price < 0.0 || price > 20.0) {
+        LOG_WARNING("Spot price SEK out of bounds: %.2f SEK/kWh, clamping to 0-20", price);
+        if (price < 0.0) return 0.0;
+        if (price > 20.0) return 20.0;
+    }
+    return price;
+}
+
+static double validate_spot_price_eur(double price)
+{
+    if (!isfinite(price)) {
+        LOG_WARNING("Invalid spot price EUR value (non-finite), defaulting to 0.1 EUR/kWh");
+        return 0.1;
+    }
+    if (price < 0.0 || price > 2.0) {
+        LOG_WARNING("Spot price EUR out of bounds: %.2f EUR/kWh, clamping to 0-2", price);
+        if (price < 0.0) return 0.0;
+        if (price > 2.0) return 2.0;
+    }
+    return price;
+}
+
+static double validate_exchange_rate(double exr)
+{
+    if (!isfinite(exr)) {
+        LOG_WARNING("Invalid exchange rate value (non-finite), defaulting to 11.0 SEK/EUR");
+        return 11.0;
+    }
+    if (exr < 5.0 || exr > 20.0) {
+        LOG_WARNING("Exchange rate out of bounds: %.2f SEK/EUR, clamping to 5-20", exr);
+        if (exr < 5.0) return 5.0;
+        if (exr > 20.0) return 20.0;
+    }
+    return exr;
+}
+
+static void validate_time_string(char *time, size_t maxLen)
+{
+    if (!time || maxLen == 0) return;
+
+    time[maxLen - 1] = '\0';
+
+    for (size_t i = 0; i < maxLen && time[i] != '\0'; i++)
+    {
+        char c = time[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+              (c >= 'a' && c <= 'z') || c == '-' || c == ':' || c == 'T' || c == '+'))
+        {
+            LOG_WARNING("Invalid character in time string at position %zu, replacing with '_'", i);
+            time[i] = '_';
+        }
+    }
+}
 
 int APIParser_Initiate(APIParser *parser)
 {
@@ -66,33 +197,37 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
     {
         OpenMeteoEntry *data = &forecast->entries[parsedCount];
 
-        // Parse time string (format: "YYYY-MM-DDTHH:MM")
         cJSON *timeItem = cJSON_GetArrayItem(times, i);
         if (cJSON_IsString(timeItem))
         {
             strncpy(data->time, timeItem->valuestring, sizeof(data->time) - 1);
             data->time[sizeof(data->time) - 1] = '\0';
+            validate_time_string(data->time, sizeof(data->time));
         }
         else
         {
             data->time[0] = '\0';
         }
 
-        // Parse values from parallel arrays
         cJSON *tempVal = cJSON_GetArrayItem(temps, i);
-        data->temperature_2m = cJSON_IsNumber(tempVal) ? tempVal->valuedouble : 0.0;
+        double temp = cJSON_IsNumber(tempVal) ? tempVal->valuedouble : 0.0;
+        data->temperature_2m = validate_temperature(temp);
 
         cJSON *humVal = cJSON_GetArrayItem(humidity, i);
-        data->humidity_2m = cJSON_IsNumber(humVal) ? humVal->valuedouble : 0.0;
+        double hum = cJSON_IsNumber(humVal) ? humVal->valuedouble : 0.0;
+        data->humidity_2m = validate_humidity(hum);
 
         cJSON *cloudVal = cJSON_GetArrayItem(clouds, i);
-        data->cloud_cover = cJSON_IsNumber(cloudVal) ? cloudVal->valuedouble : 0.0;
+        double cld = cJSON_IsNumber(cloudVal) ? cloudVal->valuedouble : 0.0;
+        data->cloud_cover = validate_cloud_cover(cld);
 
         cJSON *windVal = cJSON_GetArrayItem(winds, i);
-        data->wind_speed_10m = cJSON_IsNumber(windVal) ? windVal->valuedouble : 0.0;
+        double wnd = cJSON_IsNumber(windVal) ? windVal->valuedouble : 0.0;
+        data->wind_speed_10m = validate_wind_speed(wnd);
 
         cJSON *solarVal = cJSON_GetArrayItem(solar, i);
-        data->shortwave_radiation = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
+        double sol = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
+        data->shortwave_radiation = validate_solar_radiation(sol);
 
         parsedCount++;
     }
@@ -143,41 +278,41 @@ int APIParser_ParseElpriset(APIParser *parser, const char *jsonData, ElprisetRes
 
         ElprisetEntry *price = &spotData->entries[parsedCount];
 
-        // Parse time_start string
         cJSON *timeStart = cJSON_GetObjectItem(item, "time_start");
         if (cJSON_IsString(timeStart))
         {
             strncpy(price->time_start, timeStart->valuestring, sizeof(price->time_start) - 1);
             price->time_start[sizeof(price->time_start) - 1] = '\0';
+            validate_time_string(price->time_start, sizeof(price->time_start));
         }
         else
         {
             price->time_start[0] = '\0';
         }
 
-        // Parse time_end string
         cJSON *timeEnd = cJSON_GetObjectItem(item, "time_end");
         if (cJSON_IsString(timeEnd))
         {
             strncpy(price->time_end, timeEnd->valuestring, sizeof(price->time_end) - 1);
             price->time_end[sizeof(price->time_end) - 1] = '\0';
+            validate_time_string(price->time_end, sizeof(price->time_end));
         }
         else
         {
             price->time_end[0] = '\0';
         }
 
-        // Parse price in SEK/kWh
         cJSON *sekPerKwh = cJSON_GetObjectItem(item, "SEK_per_kWh");
-        price->SEK_per_kWh = cJSON_IsNumber(sekPerKwh) ? sekPerKwh->valuedouble : 0.0;
+        double sek = cJSON_IsNumber(sekPerKwh) ? sekPerKwh->valuedouble : 0.0;
+        price->SEK_per_kWh = validate_spot_price_sek(sek);
 
-        // Parse price in EUR/kWh
         cJSON *eurPerKwh = cJSON_GetObjectItem(item, "EUR_per_kWh");
-        price->EUR_per_kWh = cJSON_IsNumber(eurPerKwh) ? eurPerKwh->valuedouble : 0.0;
+        double eur = cJSON_IsNumber(eurPerKwh) ? eurPerKwh->valuedouble : 0.0;
+        price->EUR_per_kWh = validate_spot_price_eur(eur);
 
-        // Parse exchange rate
         cJSON *exr = cJSON_GetObjectItem(item, "EXR");
-        price->EXR = cJSON_IsNumber(exr) ? exr->valuedouble : 0.0;
+        double exrVal = cJSON_IsNumber(exr) ? exr->valuedouble : 0.0;
+        price->EXR = validate_exchange_rate(exrVal);
 
         parsedCount++;
     }

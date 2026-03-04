@@ -9,6 +9,12 @@
 
 ```mermaid
 graph TB
+    subgraph "Platform Layer (Auth Server)"
+        PLFDB[(platform.db<br/>Users & Plans)]
+        JWT_ISS[JWTIssuer<br/>Token Generation]
+        JWT_ISS --> PLFDB
+    end
+
     subgraph "Watchdog Process"
         WD[Watchdog<br/>PID: varies]
     end
@@ -18,12 +24,14 @@ graph TB
         SRV[Server<br/>Port 8080]
         TP[ThreadPool<br/>20 workers]
         GG[GridGuard Core]
-        DB[(SQLite<br/>Database)]
+        JWT_VAL[JWTValidator]
+        CLIENTDB[(gridguard.db<br/>Energy Data)]
 
         MAIN --> SRV
         SRV --> TP
         SRV --> GG
-        GG --> DB
+        SRV --> JWT_VAL
+        GG --> CLIENTDB
     end
 
     subgraph "Fetcher Process"
@@ -70,11 +78,16 @@ graph TB
 
     TP -.HTTP workers.-> COMP
 
+    JWT_ISS -.issues tokens.-> JWT_VAL
+
+    style PLFDB fill:#ffcccc
+    style JWT_ISS fill:#ffcccc
     style WD fill:#ff9999
     style MAIN fill:#99ccff
     style FETCH fill:#99ff99
     style PARSE fill:#ffff99
     style COMP fill:#ff99ff
+    style CLIENTDB fill:#ccffff
 ```
 
 ---
@@ -110,8 +123,9 @@ sequenceDiagram
     Main->>GG: GridGuard_Initiate()
     activate GG
 
-    GG->>DB: Database_Initiate(gridguard.db)
+    GG->>DB: ClientDB_Initiate(gridguard.db)
     activate DB
+    Note over DB: Client database<br/>Energy data stays local
     DB-->>GG: OK
 
     GG->>GG: Compute_Initiate()
@@ -342,7 +356,7 @@ graph LR
     end
 
     subgraph "Named FIFO"
-        FIFO[/tmp/gridguard_fetch_to_parse.fifo<br/>mkfifo mode 0666]
+        FIFO["gridguard_fetch_to_parse.fifo<br/>mkfifo"]
     end
 
     subgraph "Parser Process"
@@ -351,7 +365,7 @@ graph LR
     end
 
     subgraph "Unix Domain Socket"
-        SOCK[/tmp/gridguard_parse_to_compute.sock<br/>AF_UNIX SOCK_STREAM]
+        SOCK["gridguard_parse_to_compute.sock<br/>AF_UNIX SOCK_STREAM"]
     end
 
     subgraph "Compute Thread"
@@ -359,10 +373,10 @@ graph LR
     end
 
     subgraph "POSIX Shared Memory"
-        SHM_W[/gridguard_weather<br/>shm_open and mmap]
-        SHM_P[/gridguard_price<br/>shm_open and mmap]
-        SEM_W[Semaphore<br/>/gridguard_weather_sem]
-        SEM_P[Semaphore<br/>/gridguard_price_sem]
+        SHM_W["gridguard_weather<br/>shm_open and mmap"]
+        SHM_P["gridguard_price<br/>shm_open and mmap"]
+        SEM_W["Semaphore<br/>gridguard_weather_sem"]
+        SEM_P["Semaphore<br/>gridguard_price_sem"]
     end
 
     H1 -->|write WorkRequest| MUTEX
@@ -526,40 +540,62 @@ flowchart TD
 
 ---
 
-## 7. Database Schema
+## 7. Database Schema - Privacy-First Architecture
 
 ```mermaid
 erDiagram
+    users ||--o{ user_configs : "authenticates"
     user_configs ||--o{ schedules : "has many"
 
+    users {
+        TEXT user_id PK "Platform DB"
+        TEXT email "Platform DB"
+        TEXT plan_type "Platform DB"
+        INTEGER created_at "Platform DB"
+    }
+
     user_configs {
-        TEXT user_id PK
-        TEXT location
-        REAL latitude
-        REAL longitude
-        TEXT region
-        REAL solar_area_m2
-        REAL solar_efficiency
-        REAL consumption_kwh
-        REAL grid_fee_low
-        REAL grid_fee_normal
-        REAL grid_fee_high
-        INTEGER updated_at
+        TEXT user_id PK "Client DB"
+        TEXT location "Client DB"
+        REAL latitude "Client DB"
+        REAL longitude "Client DB"
+        TEXT region "Client DB"
+        REAL solar_area_m2 "Client DB"
+        REAL solar_efficiency "Client DB"
+        REAL consumption_kwh "Client DB"
+        REAL grid_fee_low "Client DB"
+        REAL grid_fee_normal "Client DB"
+        REAL grid_fee_high "Client DB"
+        INTEGER updated_at "Client DB"
     }
 
     schedules {
-        TEXT schedule_id PK
-        TEXT user_id FK
-        TEXT load_id
-        INTEGER scheduled_start
-        INTEGER duration_minutes
-        REAL power_kw
-        REAL estimated_cost_sek
-        REAL savings_sek
-        TEXT status
-        INTEGER created_at
+        TEXT schedule_id PK "Client DB"
+        TEXT user_id FK "Client DB"
+        TEXT load_id "Client DB"
+        INTEGER scheduled_start "Client DB"
+        INTEGER duration_minutes "Client DB"
+        REAL power_kw "Client DB"
+        REAL estimated_cost_sek "Client DB"
+        REAL savings_sek "Client DB"
+        TEXT status "Client DB"
+        INTEGER created_at "Client DB"
     }
 ```
+
+**Database Separation:**
+
+- **platform.db** (Auth Server) - Contains ONLY authentication data
+  - users: user_id, email, plan_type
+  - Used for: JWT token issuance
+  - Location: Platform server
+
+- **gridguard.db** (Client Device) - Contains ALL energy data
+  - user_configs: Solar setup, location, consumption
+  - schedules: Load scheduling and optimization
+  - Location: User's device (NEVER sent to platform)
+
+**Privacy Guarantee:** Energy data in gridguard.db never leaves the user's device.
 
 **Example Data:**
 
@@ -1009,11 +1045,19 @@ gantt
 
 ---
 
-## 15. Security Model
+## 15. Security Model - JWT Authentication Flow
 
 ```mermaid
 flowchart TB
+    subgraph "Platform Server (Separate)"
+        PLATFORM[Platform DB<br/>users table]
+        ISSUER[JWTIssuer<br/>HS256 signing]
+        PLATFORM --> ISSUER
+    end
+
     START([HTTP Request])
+
+    ISSUER -.Token issued offline.-> START
 
     START --> PUBLIC{Public endpoint?}
 
@@ -1029,7 +1073,7 @@ flowchart TB
 
     VALIDATE -->|Fail| REJECT2[401 Unauthorized<br/>Invalid signature or expired]
 
-    VALIDATE -->|Success| CLAIMS[Extract claims.subject<br/>userId]
+    VALIDATE -->|Success| CLAIMS[Extract claims.subject<br/>userId from token]
 
     CLAIMS --> AUTHZ{Authorization check}
 
@@ -1059,6 +1103,8 @@ flowchart TB
 
     PROCESS --> RESPONSE[200 OK with JSON]
 
+    style PLATFORM fill:#ffcccc
+    style ISSUER fill:#ffcccc
     style REJECT1 fill:#ff6b6b
     style REJECT2 fill:#ff6b6b
     style REJECT3 fill:#ff6b6b
@@ -1070,19 +1116,28 @@ flowchart TB
     style RESPONSE fill:#90EE90
 ```
 
+**Key Security Points:**
+
+- **Platform DB (platform.db)**: Stores only user_id, email, plan_type
+- **JWT Tokens**: Issued by platform, validated by device
+  - Contains: sub (userId), email, plan (premium/free/basic), exp (expiry)
+- **Energy Data**: Stored in gridguard.db on device, never transmitted
+- **Token Lifetime**: 24 hours (demo), shorter in production
+- **HMAC-SHA256**: Token signing with secret key
+
 ---
 
 ## Sammanfattning
 
 Detta dokument visualiserar hela GridGuard-systemets arkitektur med 15 olika Mermaid-diagram som täcker:
 
-1. **Systemöversikt** - Multi-process arkitektur med 4 processer
+1. **Systemöversikt** - Multi-process arkitektur med platform-lager och 4 processer
 2. **Startup** - Komplett sekvens från Watchdog till Server ready
 3. **Request Flow** - 30+ steg från HTTP request till response
 4. **IPC** - Alla kommunikationsmekanismer (pipe, FIFO, socket, shared memory)
 5. **Thread Sync** - WorkCompletion state machine
 6. **Compute Algorithm** - Detaljerat flödesschema med alla 3 passes
-7. **Database** - ER-diagram med user_configs och schedules
+7. **Database** - Privacy-first arkitektur med platform.db och gridguard.db separation
 8. **API** - Alla endpoints med exempel på responses
 9. **Data Structures** - Class diagram för alla core models
 10. **Deployment** - C4-diagram för production deployment
@@ -1090,7 +1145,12 @@ Detta dokument visualiserar hela GridGuard-systemets arkitektur med 15 olika Mer
 12. **Performance** - Latency breakdown och throughput
 13. **Dependencies** - Alla external dependencies
 14. **Timeline** - Gantt chart för en typisk request
-15. **Security** - Autentisering och auktorisering
+15. **Security** - JWT authentication flow med platform separation
+
+**Ny arkitektur - Privacy-First:**
+- Platform-lager (platform.db): Endast autentisering (user_id, email, plan)
+- Client-lager (gridguard.db): All energidata (konfiguration, schedules)
+- Privacy-garanti: Energidata lämnar aldrig enheten
 
 **Total täckning:** 100% av systemet är nu visualiserat!
 
