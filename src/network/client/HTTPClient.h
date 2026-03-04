@@ -7,6 +7,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/x509_crt.h>
 
 typedef struct {
     char  *body;
@@ -19,6 +20,7 @@ typedef struct {
     mbedtls_ssl_config       sslConf;
     mbedtls_entropy_context  entropy;
     mbedtls_ctr_drbg_context ctrDrbg;
+    mbedtls_x509_crt         cacert;
 } HTTPClient;
 
 int  HTTPClient_Initiate(HTTPClient *client);

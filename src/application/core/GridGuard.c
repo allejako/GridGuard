@@ -58,7 +58,7 @@ int GridGuard_Initiate(GridGuard *app)
     if (!dbPath || dbPath[0] == '\0')
         dbPath = DB_PATH;
 
-    if (Database_Initiate(&app->db, dbPath) != 0)
+    if (ClientDB_Initiate(&app->db, dbPath) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate database");
         return -1;
@@ -68,7 +68,7 @@ int GridGuard_Initiate(GridGuard *app)
     if (Compute_Initiate(&app->compute) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate Compute");
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -77,7 +77,7 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("GridGuard: Failed to create weather shared cache");
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -86,7 +86,7 @@ int GridGuard_Initiate(GridGuard *app)
         LOG_ERROR("GridGuard: Failed to create price shared cache");
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -101,7 +101,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
     LOG_INFO("FIFO created: %s", app->fifoPath);
@@ -118,7 +118,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
     LOG_INFO("Pipe created (HTTP → Fetch)");
@@ -134,7 +134,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -177,7 +177,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -209,7 +209,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -231,7 +231,7 @@ int GridGuard_Initiate(GridGuard *app)
         SharedCache_Destroy(&app->priceCache);
         SharedCache_Destroy(&app->weatherCache);
         Compute_Shutdown(&app->compute);
-        Database_Shutdown(&app->db);
+        ClientDB_Shutdown(&app->db);
         return -1;
     }
 
@@ -316,7 +316,7 @@ void GridGuard_Shutdown(GridGuard *app)
     SharedCache_Destroy(&app->priceCache);
     SharedCache_Destroy(&app->weatherCache);
     Compute_Shutdown(&app->compute);
-    Database_Shutdown(&app->db);
+    ClientDB_Shutdown(&app->db);
 
     pthread_mutex_destroy(&app->mutex);
 

@@ -4,7 +4,7 @@
 # Compiler och flaggor
 CC = gcc
 CXX = g++
-LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lrt
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lssl -lcrypto -lrt
 
 # Kontrollera att mbedtls-devel är installerat
 ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)
@@ -53,7 +53,6 @@ LOGGING_DIR = $(INFRASTRUCTURE_DIR)/logging
 SIGNALS_DIR = $(INFRASTRUCTURE_DIR)/signals
 DAEMON_DIR = $(INFRASTRUCTURE_DIR)/daemon
 AUTH_DIR = $(INFRASTRUCTURE_DIR)/auth
-DATABASE_DIR = $(INFRASTRUCTURE_DIR)/database
 CACHE_DIR    = $(INFRASTRUCTURE_DIR)/cache
 PROCESSES_DIR = $(INFRASTRUCTURE_DIR)/processes
 WATCHDOG_DIR = $(PROCESSES_DIR)/watchdog
@@ -70,6 +69,14 @@ NETWORK_HTTP_DIR = $(NETWORK_DIR)/http
 CONCURRENCY_DIR = $(SRC_DIR)/concurrency
 THREADS_DIR = $(CONCURRENCY_DIR)/threads
 SYNC_DIR = $(CONCURRENCY_DIR)/sync
+
+# Platform directories (authentication server)
+PLATFORM_DIR = $(SRC_DIR)/platform
+PLATFORM_AUTH_DIR = $(PLATFORM_DIR)/auth
+PLATFORM_DB_DIR = $(PLATFORM_DIR)/database
+
+# Client database (user device)
+CLIENT_DB_DIR = $(SRC_DIR)/database
 
 # Include paths for headers
 INCLUDES = -I$(SRC_DIR) \
@@ -92,7 +99,6 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(DAEMON_DIR) \
            -I$(WATCHDOG_DIR) \
            -I$(AUTH_DIR) \
-           -I$(DATABASE_DIR) \
            -I$(CACHE_DIR) \
            -I$(NETWORK_DIR) \
            -I$(NETWORK_TCP_DIR) \
@@ -100,7 +106,11 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(NETWORK_HTTP_DIR) \
            -I$(CONCURRENCY_DIR) \
            -I$(THREADS_DIR) \
-           -I$(SYNC_DIR)
+           -I$(SYNC_DIR) \
+           -I$(PLATFORM_DIR) \
+           -I$(PLATFORM_AUTH_DIR) \
+           -I$(PLATFORM_DB_DIR) \
+           -I$(CLIENT_DB_DIR)
 
 # Compiler flags
 CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
@@ -122,8 +132,7 @@ SERVER_SRCS_C = $(SRC_DIR)/main.c \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
                 $(wildcard $(AUTH_DIR)/*.c) \
-                $(wildcard $(DATABASE_DIR)/*.c) \
-                $(wildcard $(CACHE_DIR)/*.c) \
+                $(CACHE_DIR)/SharedCache.c \
                 $(wildcard $(NETWORK_TCP_DIR)/*.c) \
                 $(wildcard $(NETWORK_HTTP_DIR)/*.c) \
                 $(NETWORK_CLIENT_DIR)/HTTPClient.c \
@@ -132,6 +141,9 @@ SERVER_SRCS_C = $(SRC_DIR)/main.c \
                 $(wildcard $(APP_SERVICES_DIR)/*.c) \
                 $(wildcard $(THREADS_DIR)/*.c) \
                 $(wildcard $(SYNC_DIR)/*.c) \
+                $(PLATFORM_AUTH_DIR)/JWTIssuer.c \
+                $(PLATFORM_DB_DIR)/PlatformDB.c \
+                $(wildcard $(CLIENT_DB_DIR)/*.c) \
                 $(wildcard $(LIBS_DIR)/*.c)
 
 # Source files for Fetch process
@@ -198,7 +210,6 @@ directories:
 	@mkdir -p $(BUILD_DIR)/infrastructure/signals
 	@mkdir -p $(BUILD_DIR)/infrastructure/daemon
 	@mkdir -p $(BUILD_DIR)/infrastructure/auth
-	@mkdir -p $(BUILD_DIR)/infrastructure/database
 	@mkdir -p $(BUILD_DIR)/infrastructure/cache
 	@mkdir -p $(BUILD_DIR)/network/tcp
 	@mkdir -p $(BUILD_DIR)/network/client
@@ -206,6 +217,9 @@ directories:
 	@mkdir -p $(BUILD_DIR)/concurrency/threads
 	@mkdir -p $(BUILD_DIR)/concurrency/sync
 	@mkdir -p $(BUILD_DIR)/concurrency/ipc
+	@mkdir -p $(BUILD_DIR)/platform/auth
+	@mkdir -p $(BUILD_DIR)/platform/database
+	@mkdir -p $(BUILD_DIR)/database
 	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests/unit
 	@mkdir -p $(BUILD_DIR)/tests/integration
@@ -318,7 +332,7 @@ TEST_PIPELINE_DEPS = $(wildcard $(APP_CORE_DIR)/*.c) \
                      $(wildcard $(SYNC_DIR)/*.c) \
                      $(wildcard $(APP_API_DIR)/*.c) \
                      $(wildcard $(LOGGING_DIR)/*.c) \
-                     $(wildcard $(DATABASE_DIR)/*.c) \
+                     $(wildcard $(CLIENT_DB_DIR)/*.c) \
                      $(wildcard $(APP_MODELS_DOMAIN_DIR)/*.c) \
                      $(wildcard $(LIBS_DIR)/*.c)
 
@@ -450,18 +464,27 @@ dev: server watchdog
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
 	@echo ""
-	@echo "	GRIDGUARD DEVELOPMENT ENVIRONMENT	"
+	@echo "GridGuard Development Environment"
 	@echo ""
-	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
-	echo "Generating JWT token..."; \
-	DEV_TOKEN=$$(python3 scripts/generate_jwt.py 2>/dev/null | grep -A1 "JWT Token" | tail -1); \
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
+	echo "[1/5] Platform registration"; \
+	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
+	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
+	echo "      User 'test_user' registered (premium plan)"; \
+	echo ""; \
+	echo "[2/5] JWT token issuance"; \
+	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then \
-	    echo "Warning: Failed to generate token, using fallback"; \
-	    DEV_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X3VzZXIiLCJleHAiOjE4MDM5NzI3NjQsImlhdCI6MTc3MjQzNjc2NH0.SiKMf77hM6vWV1icHWSLotmGDAflrp7xEm7LB-loHHg"; \
+	    echo "      ERROR: Token generation failed"; \
+	    exit 1; \
 	fi; \
-	echo "Seeding test data..."; \
-	python3 scripts/seed_db.py "$(CURDIR)/gridguard.db" || echo "Warning: seed_db.py failed"; \
-	echo "Starting server..."; \
+	echo "      Token: $$(echo $$DEV_TOKEN | cut -c1-50)..."; \
+	echo ""; \
+	echo "[3/5] Client device setup"; \
+	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
+	echo "      Client DB initialized (3 demo schedules)"; \
+	echo ""; \
+	echo "[4/5] Starting server"; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
 	echo $$! > /tmp/gridguard-watchdog.pid; \
 	printf "Waiting for server"; \
@@ -471,27 +494,26 @@ dev: server watchdog
 	done; \
 	echo " ready"; \
 	echo ""; \
-	ps aux | grep -E "GridGuard-(server|fetcher|parser)" | grep -v grep | awk '{printf "  [PID %s] %s\n", $$2, $$11}'; \
-	echo ""; \
-	ls -lh /tmp/gridguard* 2>/dev/null | awk '{printf "  %s\n", $$9}' || true; \
+	ps aux | grep -E "GridGuard-(server|fetcher|parser)" | grep -v grep | awk '{printf "      [PID %s] %s\n", $$2, $$11}'; \
 	echo ""; \
 	echo "Server:   http://localhost:8080"; \
-	echo "Database: gridguard.db"; \
+	echo "Databases: platform.db (auth), gridguard.db (local)"; \
 	echo "Logs:     logs/*.log"; \
 	echo ""; \
-	echo "Running test forecast request..."; \
+	echo "[5/5] Testing authenticated requests"; \
+	echo ""; \
+	echo "GET /forecast"; \
 	echo ""; \
 	curl -s -X GET "http://localhost:8080/forecast" \
 	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
 	echo ""; \
-	echo "Running load shift example (EV charger, 40 kWh, 11 kW, deadline 07:00 tomorrow)..."; \
+	echo "GET /schedule"; \
 	echo ""; \
-	DEADLINE=$$(python3 -c "import time,datetime; t=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=1); print(int(datetime.datetime(t.year,t.month,t.day,7,0,0,tzinfo=datetime.timezone.utc).timestamp()))"); \
-	curl -s -X POST "http://localhost:8080/schedule" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" \
-	    -H "Content-Type: application/json" \
-	    -d "{\"load_id\":\"ev_charger\",\"duration_minutes\":216,\"power_kw\":11.0,\"deadline\":$$DEADLINE}" \
-	    | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
+	curl -s -X GET "http://localhost:8080/schedule" \
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
+	echo ""; \
+	echo "---"; \
+	echo "Privacy: Energy data stays in gridguard.db, platform only sees auth"; \
 	echo ""; \
 
 # Stop all GridGuard processes and clean up IPC resources
