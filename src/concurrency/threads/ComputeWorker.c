@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "ComputeWorkerHybrid.h"
+#include "ComputeWorker.h"
 #include "Compute.h"
 #include "Energy.h"
 #include "Forecast.h"
 #include "WorkCompletion.h"
 #include "CompletionRegistry.h"
+#include "ParseResult.h"
 #include "Logger.h"
 
 #include <stdlib.h>
@@ -15,20 +16,6 @@
 #include <sys/un.h>
 #include <time.h>
 #include <stdio.h>
-
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-    ForecastData forecastData;
-} ParseResult;
 
 // Serialiserar EnergyData till JSON-format som HTTP-tråden kan skicka i response.
 static int serialize_energy_plan(const EnergyData *plan, const char *userId, const char *location, const char *region, char *buf, size_t bufSize)
@@ -89,22 +76,22 @@ static int serialize_energy_plan(const EnergyData *plan, const char *userId, con
     return 0;
 }
 
-void *ComputeWorkerHybrid_Run(void *arg)
+void *ComputeWorker_Run(void *arg)
 {
-    ComputeWorkerHybrid *worker = (ComputeWorkerHybrid *)arg;
+    ComputeWorker *worker = (ComputeWorker *)arg;
     if (!worker)
         return NULL;
 
     Compute *compute = (Compute *)worker->compute;
-    LOG_INFO("ComputeWorkerHybrid: Thread started (Unix socket client)");
+    LOG_INFO("ComputeWorker: Thread started (Unix socket client)");
 
     while (worker->isRunning)
     {
-        // Connect till Parse-process via Unix socket 
+        // Connect till Parse-process via Unix socket
         int clientSocket = socket(AF_UNIX, SOCK_STREAM, 0);
         if (clientSocket < 0)
         {
-            LOG_ERROR("ComputeWorkerHybrid: Failed to create socket");
+            LOG_ERROR("ComputeWorker: Failed to create socket");
             sleep(1);
             continue;
         }
@@ -121,51 +108,54 @@ void *ComputeWorkerHybrid_Run(void *arg)
             continue;
         }
 
-        LOG_DEBUG("ComputeWorkerHybrid: Connected to Parse process");
+        LOG_DEBUG("ComputeWorker: Connected to Parse process");
 
-        // Läs ParseResult från Unix socket 
+        // Läs ParseResult från Unix socket
         ParseResult parseResult;
         ssize_t bytesRead = read(clientSocket, &parseResult, sizeof(parseResult));
 
         if (bytesRead == 0)
         {
-            LOG_INFO("ComputeWorkerHybrid: Socket closed by Parse process");
+            LOG_INFO("ComputeWorker: Socket closed by Parse process");
             close(clientSocket);
             break;
         }
 
         if (bytesRead != sizeof(parseResult))
         {
-            LOG_ERROR("ComputeWorkerHybrid: Partial read from socket (%zd bytes)", bytesRead);
+            LOG_ERROR("ComputeWorker: Partial read from socket (%zd bytes)", bytesRead);
             close(clientSocket);
             continue;
         }
 
         close(clientSocket);
 
-        LOG_INFO("ComputeWorkerHybrid: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)", parseResult.userId, parseResult.region, 
-                parseResult.solarAreaM2, parseResult.solarEfficiency * 100.0, parseResult.consumptionKwh);
+        LOG_INFO("ComputeWorker: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)",
+                 parseResult.userId, parseResult.region,
+                 parseResult.solarAreaM2, parseResult.solarEfficiency * 100.0,
+                 parseResult.consumptionKwh);
 
         // Hitta WorkCompletion via CompletionRegistry baserat på userId i ParseResult
         WorkCompletion *completion = FindCompletionByUserId(parseResult.userId);
         if (!completion)
         {
-            LOG_ERROR("ComputeWorkerHybrid: No completion channel for userId %s", parseResult.userId);
+            LOG_ERROR("ComputeWorker: No completion channel for userId %s", parseResult.userId);
             continue;
         }
 
         // Generera energy plan
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(compute, &parseResult.forecastData, parseResult.solarAreaM2, 
-            parseResult.solarEfficiency, parseResult.consumptionKwh, parseResult.gridFee_low, parseResult.gridFee_normal, parseResult.gridFee_high, &plan) != 0)
+        if (Compute_GenerateEnergyPlan(compute, &parseResult.forecastData, parseResult.solarAreaM2,
+            parseResult.solarEfficiency, parseResult.consumptionKwh, parseResult.gridFee_low,
+            parseResult.gridFee_normal, parseResult.gridFee_high, &plan) != 0)
         {
-            LOG_ERROR("ComputeWorkerHybrid: Failed to generate energy plan");
+            LOG_ERROR("ComputeWorker: Failed to generate energy plan");
             UnregisterCompletion(parseResult.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
 
-        LOG_INFO("ComputeWorkerHybrid: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh",
+        LOG_INFO("ComputeWorker: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh",
                  plan.count, plan.totalGridImportKwh, plan.totalGridExportKwh);
 
         // Serialisera till JSON
@@ -173,7 +163,7 @@ void *ComputeWorkerHybrid_Run(void *arg)
         if (serialize_energy_plan(&plan, parseResult.userId, parseResult.location,
                                    parseResult.region, json, sizeof(json)) != 0)
         {
-            LOG_ERROR("ComputeWorkerHybrid: JSON serialization failed");
+            LOG_ERROR("ComputeWorker: JSON serialization failed");
             UnregisterCompletion(parseResult.userId);
             WorkCompletion_SignalError(completion);
             continue;
@@ -187,6 +177,6 @@ void *ComputeWorkerHybrid_Run(void *arg)
         WorkCompletion_Signal(completion, json);
     }
 
-    LOG_INFO("ComputeWorkerHybrid: Thread exiting");
+    LOG_INFO("ComputeWorker: Thread exiting");
     return NULL;
 }

@@ -6,6 +6,8 @@
 #include "OpenMeteoResponse.h"
 #include "ElprisetResponse.h"
 #include "Logger.h"
+#include "FetchResult.h"
+#include "ParseResult.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -15,35 +17,6 @@
 #include <sys/un.h>
 #include <time.h>
 #include <math.h>
-
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-    char openMeteoJson[32768];
-    char priceJson[16384];
-} FetchResult;
-
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-    ForecastData forecastData;
-} ParseResult;
 
 // Helper: parse ISO 8601 timestamp till time_t
 static time_t parse_iso8601(const char *timeStr)

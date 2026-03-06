@@ -43,6 +43,7 @@ APP_MODELS_DIR = $(APPLICATION_DIR)/models
 APP_MODELS_APIS_DIR = $(APP_MODELS_DIR)/apis
 APP_MODELS_DOMAIN_DIR = $(APP_MODELS_DIR)/domain
 APP_MODELS_CONFIG_DIR = $(APP_MODELS_DIR)/config
+APP_MODELS_IPC_DIR = $(APP_MODELS_DIR)/ipc
 APP_SERVICES_DIR = $(APPLICATION_DIR)/services
 APP_API_DIR = $(APPLICATION_DIR)/api
 APP_CONFIGS_DIR = $(APPLICATION_DIR)/configs
@@ -83,6 +84,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(APP_MODELS_APIS_DIR) \
            -I$(APP_MODELS_DOMAIN_DIR) \
            -I$(APP_MODELS_CONFIG_DIR) \
+           -I$(APP_MODELS_IPC_DIR) \
            -I$(APP_SERVICES_DIR) \
            -I$(APP_API_DIR) \
            -I$(APP_CONFIGS_DIR) \
@@ -126,7 +128,6 @@ SERVER_SRCS_C = $(SRC_DIR)/main.c \
                 $(APP_CORE_DIR)/Server.c \
                 $(APP_CORE_DIR)/ClientHandler.c \
                 $(APP_CORE_DIR)/GridGuard.c \
-                $(APP_WORKERS_DIR)/ComputeWorkerHybrid.c \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
