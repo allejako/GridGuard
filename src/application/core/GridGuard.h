@@ -8,23 +8,7 @@
 #include "SharedCache.h"
 #include "Database.h"
 #include "WorkCompletion.h"
-
-// Work request submitted by an HTTP worker thread.
-// I hybrid mode skickas detta via anonymous pipe till Fetch-processen.
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char lat[16];
-    char lon[16];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-} WorkRequest;
+#include "WorkRequest.h"
 
 // GridGuard application core - Process-based IPC architecture
 

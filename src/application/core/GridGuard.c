@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "GridGuard.h"
-#include "ComputeWorkerHybrid.h"
+#include "ComputeWorker.h"
 #include "CompletionRegistry.h"
 #include "Logger.h"
 #include "Config.h"
@@ -195,10 +195,10 @@ int GridGuard_Initiate(GridGuard *app)
     sleep(1);
 
     // Starta Compute worker thread (Unix socket client)
-    ComputeWorkerHybrid *computeWorker = calloc(1, sizeof(ComputeWorkerHybrid));
+    ComputeWorker *computeWorker = calloc(1, sizeof(ComputeWorker));
     if (!computeWorker)
     {
-        LOG_ERROR("Failed to allocate ComputeWorkerHybrid");
+        LOG_ERROR("Failed to allocate ComputeWorker");
         kill(app->fetchPid, SIGTERM);
         kill(app->parsePid, SIGTERM);
         waitpid(app->fetchPid, NULL, 0);
@@ -217,7 +217,7 @@ int GridGuard_Initiate(GridGuard *app)
     computeWorker->compute = &app->compute;
     computeWorker->isRunning = true;
 
-    if (pthread_create(&app->computeThread, NULL, ComputeWorkerHybrid_Run, computeWorker) != 0)
+    if (pthread_create(&app->computeThread, NULL, ComputeWorker_Run, computeWorker) != 0)
     {
         LOG_ERROR("Failed to create Compute worker thread");
         free(computeWorker);
