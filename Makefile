@@ -43,6 +43,7 @@ APP_MODELS_DIR = $(APPLICATION_DIR)/models
 APP_MODELS_APIS_DIR = $(APP_MODELS_DIR)/apis
 APP_MODELS_DOMAIN_DIR = $(APP_MODELS_DIR)/domain
 APP_MODELS_CONFIG_DIR = $(APP_MODELS_DIR)/config
+APP_MODELS_IPC_DIR = $(APP_MODELS_DIR)/ipc
 APP_SERVICES_DIR = $(APPLICATION_DIR)/services
 APP_API_DIR = $(APPLICATION_DIR)/api
 APP_CONFIGS_DIR = $(APPLICATION_DIR)/configs
@@ -90,6 +91,7 @@ INCLUDES = -I$(SRC_DIR) \
            -I$(APP_MODELS_APIS_DIR) \
            -I$(APP_MODELS_DOMAIN_DIR) \
            -I$(APP_MODELS_CONFIG_DIR) \
+           -I$(APP_MODELS_IPC_DIR) \
            -I$(APP_SERVICES_DIR) \
            -I$(APP_API_DIR) \
            -I$(APP_CONFIGS_DIR) \
@@ -117,17 +119,25 @@ CFLAGS = -Wall -Wextra -Werror -std=c11 -pthread -g $(INCLUDES)
 CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g $(INCLUDES)
 
 # Output binaries
-SERVER_BIN = $(BIN_DIR)/GridGuard-server
-FETCHER_BIN = $(BIN_DIR)/GridGuard-fetcher
-PARSER_BIN = $(BIN_DIR)/GridGuard-parser
+SERVER_BIN   = $(BIN_DIR)/GridGuard-server
+FETCHER_BIN  = $(BIN_DIR)/GridGuard-fetcher
+PARSER_BIN   = $(BIN_DIR)/GridGuard-parser
 WATCHDOG_BIN = $(BIN_DIR)/GridGuard-watchdog
+CLIENT_BIN   = $(BIN_DIR)/GridGuard-client
+
+# Client (C++ — demonstrates RAII, STL, namespaces, move semantics, C↔C++ integration)
+CLIENT_DIR  = $(SRC_DIR)/client
+CLIENT_SRCS = $(CLIENT_DIR)/main.cpp \
+              $(CLIENT_DIR)/HttpClient.cpp \
+              $(CLIENT_DIR)/GridGuardClient.cpp \
+              $(CLIENT_DIR)/UserConfigWrapper.cpp
+CLIENT_OBJS = $(CLIENT_SRCS:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 
 # Source files for server (main process with HTTP + Compute thread)
 SERVER_SRCS_C = $(SRC_DIR)/main.c \
                 $(APP_CORE_DIR)/Server.c \
                 $(APP_CORE_DIR)/ClientHandler.c \
                 $(APP_CORE_DIR)/GridGuard.c \
-                $(APP_WORKERS_DIR)/ComputeWorkerHybrid.c \
                 $(wildcard $(LOGGING_DIR)/*.c) \
                 $(wildcard $(SIGNALS_DIR)/*.c) \
                 $(wildcard $(DAEMON_DIR)/*.c) \
@@ -185,7 +195,7 @@ WATCHDOG_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(WATCHDOG_SRCS))
 
 # Default target - Build process-based IPC architecture
 .PHONY: all
-all: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN)
+all: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN) $(CLIENT_BIN)
 
 # Individual targets for CI
 .PHONY: server
@@ -223,6 +233,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/libs
 	@mkdir -p $(BUILD_DIR)/tests/unit
 	@mkdir -p $(BUILD_DIR)/tests/integration
+	@mkdir -p $(BUILD_DIR)/client
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p logs
 
@@ -255,6 +266,15 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<..."
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Build C++ client
+.PHONY: client
+client: directories $(CLIENT_BIN)
+
+$(CLIENT_BIN): $(CLIENT_OBJS)
+	@echo "Linking C++ client..."
+	$(CXX) $(CXXFLAGS) -o $@ $^
+	@echo "Client built successfully: $@"
 
 # Build watchdog
 .PHONY: watchdog

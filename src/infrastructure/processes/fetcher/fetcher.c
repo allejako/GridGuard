@@ -5,6 +5,8 @@
 #include "SharedCache.h"
 #include "APIEndpoints.h"
 #include "Logger.h"
+#include "WorkRequest.h"
+#include "FetchResult.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -12,38 +14,6 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdio.h>
-
-// Samma structs som GridGuard.h, men utan WorkCompletion-pekaren
-// eftersom den inte kan skickas över IPC
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char lat[16];
-    char lon[16];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-} WorkRequest;
-
-typedef struct
-{
-    char userId[64];
-    char location[64];
-    char region[16];
-    double solarAreaM2;
-    double solarEfficiency;
-    double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
-    char openMeteoJson[32768];
-    char priceJson[16384];
-} FetchResult;
 
 int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
 {
