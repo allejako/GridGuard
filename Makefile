@@ -286,7 +286,7 @@ run-watchdog: server watchdog
 	echo $$! > /tmp/gridguard-watchdog.pid
 	@echo "Watchdog igång. Loggar: logs/watchdog.log · logs/server.log"
 
-dev: server watchdog
+dev: server watchdog platform-objects
 	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
 	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi
 	@pkill -9 GridGuard 2>/dev/null || true
