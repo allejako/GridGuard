@@ -131,7 +131,7 @@ directories:
 	@mkdir -p $(BUILD)/compute $(BUILD)/domain $(BUILD)/api $(BUILD)/db
 	@mkdir -p $(BUILD)/cache $(BUILD)/auth $(BUILD)/net $(BUILD)/sys
 	@mkdir -p $(BUILD)/ipc $(BUILD)/libs $(BUILD)/client
-	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration
+	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration $(BUILD)/tests/benchmarks
 
 # ── Länkning ───────────────────────────────────────────────────────────
 $(SERVER_BIN): $(SERVER_OBJS)
@@ -188,6 +188,73 @@ coverage: CFLAGS += --coverage -O0
 coverage: CXXFLAGS += --coverage -O0
 coverage: LDFLAGS += --coverage
 coverage: clean all
+
+# ── Benchmarks ─────────────────────────────────────────────────────────
+BENCH_COMPUTE_BIN = $(BIN)/bench_compute
+BENCH_QUEUE_BIN   = $(BIN)/bench_queue
+BENCH_CACHE_BIN   = $(BIN)/bench_cache
+
+BENCH_COMPUTE_SRCS = \
+    $(SRC)/tests/benchmarks/bench_compute.c \
+    $(SRC)/compute/Compute.c \
+    $(SRC)/sys/Logger.c
+
+BENCH_QUEUE_SRCS = \
+    $(SRC)/tests/benchmarks/bench_queue.c \
+    $(SRC)/sys/Queue.c \
+    $(SRC)/sys/Logger.c
+
+BENCH_CACHE_SRCS = \
+    $(SRC)/tests/benchmarks/bench_cache.c \
+    $(SRC)/cache/SharedCache.c \
+    $(SRC)/sys/Logger.c
+
+$(BENCH_COMPUTE_BIN): directories $(BENCH_COMPUTE_SRCS)
+	$(CC) $(CFLAGS) -O2 -D_GNU_SOURCE -o $@ $(BENCH_COMPUTE_SRCS) $(LDFLAGS) -lm
+
+$(BENCH_QUEUE_BIN): directories $(BENCH_QUEUE_SRCS)
+	$(CC) $(CFLAGS) -O2 -o $@ $(BENCH_QUEUE_SRCS) $(LDFLAGS)
+
+$(BENCH_CACHE_BIN): directories $(BENCH_CACHE_SRCS)
+	$(CC) $(CFLAGS) -O2 -o $@ $(BENCH_CACHE_SRCS) $(LDFLAGS)
+
+.PHONY: bench-compute bench-queue bench-cache bench
+bench-compute: $(BENCH_COMPUTE_BIN)
+	@echo ""
+	@echo "Running bench_compute..."
+	@echo ""
+	@$(BENCH_COMPUTE_BIN)
+
+bench-queue: $(BENCH_QUEUE_BIN)
+	@echo ""
+	@echo "Running bench_queue..."
+	@echo ""
+	@$(BENCH_QUEUE_BIN)
+
+bench-cache: $(BENCH_CACHE_BIN)
+	@echo ""
+	@echo "Running bench_cache..."
+	@echo ""
+	@$(BENCH_CACHE_BIN)
+
+bench: bench-compute bench-queue bench-cache
+	@echo ""
+	@echo "All benchmarks completed."
+
+.PHONY: valgrind-bench cachegrind
+BENCH_COMPUTE_VALGRIND_BIN = $(BIN)/bench_compute_valgrind
+
+$(BENCH_COMPUTE_VALGRIND_BIN): directories $(BENCH_COMPUTE_SRCS)
+	$(CC) $(CFLAGS) -g -D_GNU_SOURCE -DVALGRIND_RUN -o $@ $(BENCH_COMPUTE_SRCS) $(LDFLAGS) -lm
+
+valgrind-bench: $(BENCH_COMPUTE_VALGRIND_BIN)
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes \
+	         --error-exitcode=1 $(BENCH_COMPUTE_VALGRIND_BIN)
+
+cachegrind: $(BENCH_COMPUTE_BIN)
+	valgrind --tool=cachegrind --cachegrind-out-file=cachegrind.out \
+	         $(BENCH_COMPUTE_BIN)
+	cg_annotate cachegrind.out
 
 # ── Tester ─────────────────────────────────────────────────────────────
 TEST_COMMON = $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
