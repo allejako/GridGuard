@@ -302,11 +302,18 @@ dev: server watchdog platform-objects
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
 	echo "[4/5] Starting server"; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
-	echo $$! > /tmp/gridguard-watchdog.pid; \
+	WDOG_PID=$$!; echo $$WDOG_PID > /tmp/gridguard-watchdog.pid; \
+	echo "      Watchdog PID: $$WDOG_PID"; \
 	printf "Waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
+	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	[ -n "$$SERVER_PID" ] && echo "      Server  PID: $$SERVER_PID"; \
+	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
+	[ -n "$$FETCHER_PID" ] && echo "      Fetcher PID: $$FETCHER_PID"; \
+	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
+	[ -n "$$PARSER_PID" ] && echo "      Parser  PID: $$PARSER_PID"; \
 	echo "[5/5] Testing authenticated requests"; \
 	echo "GET /forecast"; \
 	curl -s -X GET "http://localhost:8080/forecast" \
@@ -318,12 +325,23 @@ dev: server watchdog platform-objects
 stop:
 	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
 	    PID=$$(cat /tmp/gridguard-watchdog.pid 2>/dev/null); \
-	    [ -n "$$PID" ] && kill -9 $$PID 2>/dev/null && echo "Killed watchdog"; \
+	    if [ -n "$$PID" ] && kill -9 $$PID 2>/dev/null; then \
+	        echo "  [OK] Watchdog  PID $$PID killed"; \
+	    fi; \
 	    rm -f /tmp/gridguard-watchdog.pid; fi
-	@pkill -9 -f GridGuard-fetcher 2>/dev/null && echo "Killed fetcher" || true
-	@pkill -9 -f GridGuard-parser  2>/dev/null && echo "Killed parser"  || true
-	@pkill -9 GridGuard-server     2>/dev/null && echo "Killed server"  || true
-	@fuser -k -9 8080/tcp 2>/dev/null && echo "Freed port 8080" || true
+	@SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	if [ -n "$$SERVER_PID" ] && kill -9 $$SERVER_PID 2>/dev/null; then \
+	    echo "  [OK] Server    PID $$SERVER_PID killed"; \
+	fi
+	@FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
+	if [ -n "$$FETCHER_PID" ] && kill -9 $$FETCHER_PID 2>/dev/null; then \
+	    echo "  [OK] Fetcher   PID $$FETCHER_PID killed"; \
+	fi
+	@PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
+	if [ -n "$$PARSER_PID" ] && kill -9 $$PARSER_PID 2>/dev/null; then \
+	    echo "  [OK] Parser    PID $$PARSER_PID killed"; \
+	fi
+	@fuser -k -9 8080/tcp 2>/dev/null && echo "  [OK] Port 8080 freed" || true
 	@rm -f /tmp/gridguard_fetch_to_parse.fifo /tmp/gridguard_parse_to_compute.sock \
 	       /tmp/gridguard.status /tmp/gridguard*.pid 2>/dev/null || true
 	@echo "Stopped"
