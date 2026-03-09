@@ -3,7 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include "api/APIParser.h"
-#include "vendor/cJSON.h"
+#include "libs/cJSON.h"
 #include "sys/Logger.h"
 
 static double validate_temperature(double temp)

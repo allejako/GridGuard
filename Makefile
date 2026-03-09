@@ -60,7 +60,7 @@ SERVER_SRCS = \
     $(SRC)/net/HTTPRequest.c \
     $(SRC)/net/HTTPResponse.c \
     $(SRC)/net/HTTPClient.c \
-    $(SRC)/vendor/cJSON.c \
+    $(SRC)/libs/cJSON.c \
     $(SYS_SRCS)
 
 # ── Fetcher ────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ FETCHER_SRCS = \
     $(SRC)/cache/SharedCache.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/sys/Logger.c \
-    $(SRC)/vendor/cJSON.c
+    $(SRC)/libs/cJSON.c
 
 # ── Parser ─────────────────────────────────────────────────────────────
 PARSER_SRCS = \
@@ -80,7 +80,7 @@ PARSER_SRCS = \
     $(SRC)/parser/Parser.c \
     $(SRC)/api/APIParser.c \
     $(SRC)/sys/Logger.c \
-    $(SRC)/vendor/cJSON.c
+    $(SRC)/libs/cJSON.c
 
 # ── Watchdog ───────────────────────────────────────────────────────────
 WATCHDOG_SRCS = \
@@ -131,7 +131,7 @@ directories:
 	@mkdir -p $(BUILD)/server $(BUILD)/fetcher $(BUILD)/parser $(BUILD)/watchdog
 	@mkdir -p $(BUILD)/compute $(BUILD)/domain $(BUILD)/api $(BUILD)/db
 	@mkdir -p $(BUILD)/cache $(BUILD)/auth $(BUILD)/net $(BUILD)/sys
-	@mkdir -p $(BUILD)/ipc $(BUILD)/vendor $(BUILD)/client
+	@mkdir -p $(BUILD)/ipc $(BUILD)/libs $(BUILD)/client
 	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration
 
 # ── Länkning ───────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ coverage: LDFLAGS += --coverage
 coverage: clean all
 
 # ── Tester ─────────────────────────────────────────────────────────────
-TEST_COMMON = $(SRC)/sys/Logger.c $(SRC)/vendor/cJSON.c
+TEST_COMMON = $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 
 TEST_JWT_BIN      = $(BIN)/test_jwt_validator
 TEST_HTTP_REQ_BIN = $(BIN)/test_http_request
@@ -216,14 +216,14 @@ $(TEST_API_BIN): $(SRC)/tests/integration/test_api_fetch.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
     $(SRC)/domain/Energy.c \
-    $(SRC)/sys/Logger.c $(SRC)/vendor/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
     $(SRC)/domain/Energy.c \
-    $(SRC)/sys/Logger.c $(SRC)/vendor/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
@@ -240,7 +240,7 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/domain/Energy.c \
     $(SRC)/sys/Queue.c $(SRC)/sys/WorkCompletion.c $(SRC)/sys/CompletionRegistry.c \
     $(SRC)/sys/ThreadPool.c $(SRC)/sys/WorkerPool.c \
-    $(SRC)/sys/Logger.c $(SRC)/vendor/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline

@@ -16,7 +16,7 @@
 #include "db/ScheduleDB.h"
 #include "domain/Scheduler.h"
 #include "sys/Logger.h"
-#include "vendor/cJSON.h"
+#include "libs/cJSON.h"
 
 // These glibc extensions are not exposed by _POSIX_C_SOURCE — declare them directly.
 extern time_t  timegm(struct tm *tm);
