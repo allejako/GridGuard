@@ -6,9 +6,10 @@
 
 typedef enum
 {
-    ACTION_BUY_FROM_GRID,   // Low price — run flexible loads now (EV, laundry, dishwasher)
-    ACTION_SELL_TO_GRID,    // Solar surplus and positive spot price — export to grid
-    ACTION_IDLE             // Neither condition met — consume baseline only
+    ACTION_BUY_FROM_GRID,      // Low price — run flexible loads now (EV, laundry, dishwasher)
+    ACTION_SELL_TO_GRID,       // Solar surplus and positive spot price — export to grid
+    ACTION_AVOID_HIGH_PRICE,   // High price — defer flexible loads if possible
+    ACTION_IDLE                // Neither condition met — consume baseline only
 } EnergyAction;
 
 typedef struct
@@ -51,10 +52,11 @@ static inline const char *EnergyAction_ToString(EnergyAction action)
 {
     switch (action)
     {
-        case ACTION_BUY_FROM_GRID:  return "BUY";
-        case ACTION_SELL_TO_GRID:   return "SELL";
-        case ACTION_IDLE:           return "IDLE";
-        default:                    return "IDLE";
+        case ACTION_BUY_FROM_GRID:      return "BUY";
+        case ACTION_SELL_TO_GRID:       return "SELL";
+        case ACTION_AVOID_HIGH_PRICE:   return "AVOID";
+        case ACTION_IDLE:               return "IDLE";
+        default:                        return "IDLE";
     }
 }
 
