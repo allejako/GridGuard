@@ -33,6 +33,14 @@
 // are barely cheaper than average and shifting load isn't worth the effort.
 #define BUY_MIN_DISCOUNT 0.10
 
+// AVOID threshold: most expensive 30% of hours in the forecast window.
+#define AVOID_PERCENTILE 0.70
+
+// AVOID quality gate: the threshold must be at least this far above median.
+// Prevents false AVOID signals on flat-price days where the "expensive" hours
+// are barely more expensive than average.
+#define AVOID_MIN_PREMIUM 0.10
+
 static double grid_fee(int hour, double low, double normal, double high)
 {
     if (hour < 7)  return low;
@@ -133,19 +141,27 @@ int Compute_GenerateEnergyPlan(Compute *compute,
     int p30 = (int)(validCount * BUY_PERCENTILE);
     if (p30 >= validCount) p30 = validCount - 1;
     int p50 = validCount / 2;
+    int p70 = (int)(validCount * AVOID_PERCENTILE);
+    if (p70 >= validCount) p70 = validCount - 1;
 
-    double buyThreshold = sorted[p30];
-    double median       = sorted[p50];
+    double buyThreshold   = sorted[p30];
+    double median         = sorted[p50];
+    double avoidThreshold = sorted[p70];
 
     // Quality gate: only signal BUY if the price is meaningfully below median.
     // On flat-price days the p30 threshold may be nearly identical to median,
     // making the signal useless — don't cry wolf.
-    double qualityCap = median * (1.0 - BUY_MIN_DISCOUNT);
-    if (buyThreshold > qualityCap)
-        buyThreshold = qualityCap;
+    double buyQualityCap = median * (1.0 - BUY_MIN_DISCOUNT);
+    if (buyThreshold > buyQualityCap)
+        buyThreshold = buyQualityCap;
 
-    LOG_INFO("Compute: p30=%.4f  median=%.4f  max=%.4f  buy_cap=%.4f SEK/kWh",
-             sorted[p30], median, sorted[validCount - 1], buyThreshold);
+    // Quality gate: only signal AVOID if the price is meaningfully above median.
+    double avoidQualityFloor = median * (1.0 + AVOID_MIN_PREMIUM);
+    if (avoidThreshold < avoidQualityFloor)
+        avoidThreshold = avoidQualityFloor;
+
+    LOG_INFO("Compute: p30=%.4f  median=%.4f  p70=%.4f  max=%.4f  buy=%.4f  avoid=%.4f SEK/kWh",
+             sorted[p30], median, sorted[p70], sorted[validCount - 1], buyThreshold, avoidThreshold);
 
     memset(plan, 0, sizeof(EnergyData));
 
@@ -183,6 +199,10 @@ int Compute_GenerateEnergyPlan(Compute *compute,
         else if (cost <= buyThreshold)
         {
             action = ACTION_BUY_FROM_GRID;
+        }
+        else if (cost >= avoidThreshold)
+        {
+            action = ACTION_AVOID_HIGH_PRICE;
         }
         else
         {
