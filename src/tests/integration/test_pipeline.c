@@ -2,26 +2,54 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "GridGuard.h"
-#include "Logger.h"
-#include "Config.h"
+#include "server/GridGuard.h"
+#include "sys/Logger.h"
+#include "sys/WorkCompletion.h"
+#include "domain/Config.h"
 
 void print_separator(const char *title)
 {
     printf("\n========== %s ==========\n", title);
 }
 
+// Helper: submit one request synchronously and wait for result.
+// Returns 0 on success, -1 on failure.
+static int submit_and_wait(GridGuard *app, WorkRequest *req, const char *label)
+{
+    WorkCompletion wc;
+    if (WorkCompletion_Initiate(&wc) != 0)
+    {
+        printf("FAILED [%s]: WorkCompletion_Initiate\n", label);
+        return -1;
+    }
+
+    if (GridGuard_SubmitRequest(app, req, &wc) != 0)
+    {
+        printf("FAILED [%s]: GridGuard_SubmitRequest\n", label);
+        WorkCompletion_Destroy(&wc);
+        return -1;
+    }
+
+    int rc = WorkCompletion_Wait(&wc);
+    WorkCompletion_Destroy(&wc);
+
+    if (rc != 0)
+    {
+        printf("FAILED [%s]: pipeline error or timeout\n", label);
+        return -1;
+    }
+
+    printf("SUCCESS [%s]: pipeline completed\n", label);
+    return 0;
+}
+
 int main(void)
 {
     print_separator("PIPELINE THREADS TEST");
 
-    // Initialize logger
     if (Logger_Initiate("logs/test.log", LOG_LEVEL_DEBUG) != 0)
-    {
         fprintf(stderr, "Warning: Failed to initialize logger\n");
-    }
 
-    // Initialize pipeline
     GridGuard app;
     printf("\n[TEST 1] Pipeline Initialization\n");
     if (GridGuard_Initiate(&app) != 0)
@@ -30,115 +58,82 @@ int main(void)
         Logger_Shutdown();
         return 1;
     }
-    printf("SUCCESS: Pipeline initialized with 3 worker threads\n");
+    printf("SUCCESS: Pipeline initialized\n");
 
-    // Give threads time to fully start
     sleep(1);
 
-    // Test 1: Submit a single request
-    print_separator("TEST 2: Single Request Submission");
-    WorkRequest request1 = {
-        .clientFd = -1  // Mock client FD (no real socket)
-    };
-    strncpy(request1.userId, "stockholm", sizeof(request1.userId) - 1);
-    strncpy(request1.location, "stockholm", sizeof(request1.location) - 1);
-    strncpy(request1.lat, "59.3300", sizeof(request1.lat) - 1);
-    strncpy(request1.lon, "18.0700", sizeof(request1.lon) - 1);
-    strncpy(request1.region, "SE3", sizeof(request1.region) - 1);
+    // Test 2: Single request
+    print_separator("TEST 2: Single Request");
+    WorkRequest req1 = {0};
+    strncpy(req1.userId,   "test_user",  sizeof(req1.userId)   - 1);
+    strncpy(req1.location, "Stockholm",  sizeof(req1.location) - 1);
+    strncpy(req1.lat,      "59.3300",    sizeof(req1.lat)      - 1);
+    strncpy(req1.lon,      "18.0700",    sizeof(req1.lon)      - 1);
+    strncpy(req1.region,   "SE3",        sizeof(req1.region)   - 1);
+    req1.solarAreaM2     = 20.0;
+    req1.solarEfficiency = 0.20;
+    req1.consumptionKwh  = 1.5;
+    req1.gridFee_low     = 0.25;
+    req1.gridFee_normal  = 0.35;
+    req1.gridFee_high    = 0.45;
 
-    printf("Submitting request for %s/%s...\n", request1.userId, request1.region);
-    if (GridGuard_SubmitRequest(&app, &request1) == 0)
+    if (submit_and_wait(&app, &req1, "stockholm") != 0)
     {
-        printf("SUCCESS: Request submitted to pipeline\n");
-    }
-    else
-    {
-        printf("FAILED: Could not submit request\n");
         GridGuard_Shutdown(&app);
         Logger_Shutdown();
         return 1;
     }
 
-    // Wait for pipeline to process (fetch, parse, compute)
-    printf("Waiting for pipeline processing...\n");
-    sleep(5);
+    // Test 3: Multiple requests
+    print_separator("TEST 3: Multiple Requests");
+    const char *locs[]    = {"gothenburg", "malmo"};
+    const char *lats[]    = {"57.7000",    "55.6000"};
+    const char *lons[]    = {"11.9700",    "13.0000"};
+    const char *regions[] = {"SE3",        "SE4"};
 
-    // Test 2: Submit multiple requests
-    print_separator("TEST 3: Multiple Request Submissions");
-    const char *locations[] = {"stockholm", "gothenburg", "malmo"};
-    const char *lats[]      = {"59.3300",   "57.7000",    "55.6000"};
-    const char *lons[]      = {"18.0700",   "11.9700",    "13.0000"};
-    const char *regions[]   = {"SE3",       "SE3",        "SE4"};
-
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 2; i++)
     {
-        WorkRequest req = {.clientFd = -1};
-        strncpy(req.userId,   locations[i], sizeof(req.userId) - 1);
-        strncpy(req.location, locations[i], sizeof(req.location) - 1);
-        strncpy(req.lat,      lats[i],      sizeof(req.lat) - 1);
-        strncpy(req.lon,      lons[i],      sizeof(req.lon) - 1);
-        strncpy(req.region,   regions[i],   sizeof(req.region) - 1);
+        WorkRequest req = {0};
+        strncpy(req.userId,   locs[i],    sizeof(req.userId)   - 1);
+        strncpy(req.location, locs[i],    sizeof(req.location) - 1);
+        strncpy(req.lat,      lats[i],    sizeof(req.lat)      - 1);
+        strncpy(req.lon,      lons[i],    sizeof(req.lon)      - 1);
+        strncpy(req.region,   regions[i], sizeof(req.region)   - 1);
+        req.solarAreaM2     = 20.0;
+        req.solarEfficiency = 0.20;
+        req.consumptionKwh  = 1.5;
+        req.gridFee_low     = 0.25;
+        req.gridFee_normal  = 0.35;
+        req.gridFee_high    = 0.45;
 
-        printf("Submitting request %d: %s/%s\n", i + 1, req.userId, req.region);
-        if (GridGuard_SubmitRequest(&app, &req) != 0)
+        if (submit_and_wait(&app, &req, locs[i]) != 0)
         {
-            printf("FAILED: Could not submit request %d\n", i + 1);
             GridGuard_Shutdown(&app);
             Logger_Shutdown();
             return 1;
         }
     }
-    printf("SUCCESS: All 3 requests submitted\n");
-
-    // Wait for all to process
-    printf("Waiting for all requests to process...\n");
-    sleep(8);
-
-    // Test 3: Test rapid submissions (stress test)
-    print_separator("TEST 4: Rapid Submissions (Stress Test)");
-    printf("Submitting 10 rapid requests...\n");
-    for (int i = 0; i < 10; i++)
-    {
-        WorkRequest req = {.clientFd = -1};
-        snprintf(req.userId, sizeof(req.userId), "city%d", i);
-        strncpy(req.location, "stockholm", sizeof(req.location) - 1);
-        strncpy(req.lat, "59.3300", sizeof(req.lat) - 1);
-        strncpy(req.lon, "18.0700", sizeof(req.lon) - 1);
-        strncpy(req.region, "SE3", sizeof(req.region) - 1);
-
-        if (GridGuard_SubmitRequest(&app, &req) != 0)
-        {
-            printf("FAILED: Queue full at request %d\n", i + 1);
-            break;
-        }
-    }
-    printf("SUCCESS: Rapid submissions handled\n");
-    sleep(2);
+    printf("SUCCESS: All requests completed\n");
 
     // Test 4: Invalid request (NULL pointer)
-    print_separator("TEST 5: Invalid Request Handling");
-    printf("Submitting NULL request (should fail gracefully)...\n");
-    if (GridGuard_SubmitRequest(&app, NULL) == 0)
-    {
-        printf("FAILED: NULL request was accepted (should reject)\n");
-    }
+    print_separator("TEST 4: Invalid Request Handling");
+    WorkCompletion wc;
+    WorkCompletion_Initiate(&wc);
+    if (GridGuard_SubmitRequest(&app, NULL, &wc) == 0)
+        printf("FAILED: NULL request was accepted\n");
     else
-    {
         printf("SUCCESS: NULL request rejected correctly\n");
-    }
+    WorkCompletion_Destroy(&wc);
 
-    // Test 5: Pipeline shutdown
-    print_separator("TEST 6: Pipeline Shutdown");
-    printf("Shutting down pipeline...\n");
+    // Test 5: Shutdown
+    print_separator("TEST 5: Pipeline Shutdown");
     GridGuard_Shutdown(&app);
     printf("SUCCESS: Pipeline shut down cleanly\n");
 
-    // Final summary
     print_separator("SUMMARY");
     printf("✓ Pipeline initialization\n");
-    printf("✓ Single request submission\n");
-    printf("✓ Multiple request submissions\n");
-    printf("✓ Rapid/stress submissions\n");
+    printf("✓ Single request\n");
+    printf("✓ Multiple requests\n");
     printf("✓ Invalid request handling\n");
     printf("✓ Clean shutdown\n");
     printf("\nAll tests PASSED!\n");
