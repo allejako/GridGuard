@@ -228,10 +228,3 @@ JSON-serialisering            ~50 µs
                               ─────────
 Totalt                        ~1,2 s  (av 30 s budget)
 ```
-
-### Kursmål uppfyllda
-
-- Profilering med gprof (`make profile && make gprof-analyze`)
-- Minnesanalys med Valgrind (`make valgrind-bench`) → 0 läckor
-- Benchmarks med `clock_gettime` för tre kritiska komponenter
-- Dokumenterade hotspots med prioritering och åtgärdsförslag
