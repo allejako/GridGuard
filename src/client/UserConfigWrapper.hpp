@@ -13,7 +13,7 @@
 //   • Week 8  — RAII (constructor validates + owns the struct)
 //   • Week 9  — std::string, std::map via getAsMap()
 
-#include "../application/models/config/UserConfig.h"  // plain-C struct
+#include "domain/UserConfig.h"  // plain-C struct
 
 #include <string>
 #include <map>

@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "HTTPFetcher.h"
-#include "APIEndpoints.h"
-#include "APIParser.h"
-#include "OpenMeteoResponse.h"
-#include "ElprisetResponse.h"
-#include "Config.h"
+#include "net/HTTPFetcher.h"
+#include "api/APIEndpoints.h"
+#include "api/APIParser.h"
+#include "api/OpenMeteoResponse.h"
+#include "api/ElprisetResponse.h"
+#include "domain/Config.h"
 
 void print_separator(const char *title)
 {

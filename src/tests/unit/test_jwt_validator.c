@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "JWTValidator.h"
-#include "Logger.h"
+#include "auth/JWTValidator.h"
+#include "sys/Logger.h"
 
 // ---------------------------------------------------------------------------
 // Minimal test framework
