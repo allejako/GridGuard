@@ -188,6 +188,9 @@ TEST_BIN = $(BIN_DIR)/test_runner
 # Watchdog source files
 WATCHDOG_SRCS = $(WATCHDOG_DIR)/main.c \
                 $(WATCHDOG_DIR)/Watchdog.c \
+                $(WATCHDOG_DIR)/WatchdogSignals.c \
+                $(WATCHDOG_DIR)/Heartbeat.c \
+                $(WATCHDOG_DIR)/RestartPolicy.c \
                 $(DAEMON_DIR)/PidFile.c \
                 $(LOGGING_DIR)/Logger.c
 
