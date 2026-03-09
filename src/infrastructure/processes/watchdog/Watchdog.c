@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "Watchdog.h"
+#include "WatchdogSignals.h"
+#include "Heartbeat.h"
+#include "RestartPolicy.h"
 #include "Logger.h"
 
 #include <stdio.h>
@@ -11,121 +14,17 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <poll.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
 
-#define MAX_RESTARTS        5
-#define RESTART_WINDOW_SEC  300
-#define BASE_BACKOFF_SEC    2
-#define HEARTBEAT_INTERVAL  5
-#define HEARTBEAT_TIMEOUT   15
 #define MONITOR_POLL_SEC    2
-
 #define STATUS_FIFO_PATH    "/tmp/gridguard.status"
 
-static volatile sig_atomic_t watchdog_running = 1;
-static volatile pid_t daemon_pid = -1;
+volatile sig_atomic_t watchdog_running = 1;
+volatile pid_t        daemon_pid       = -1;
 
-static int heartbeat_pipe[2] = {-1, -1};
 static int status_fd = -1;
-
-// ============================================================
-// Signal handling
-// ============================================================
-
-static void Watchdog_SignalHandler(int signum)
-{
-    if (signum == SIGTERM || signum == SIGINT)
-    {
-        watchdog_running = 0;
-
-        if (daemon_pid > 0)
-            kill(daemon_pid, SIGTERM);
-    }
-    else if (signum == SIGHUP)
-    {
-        if (daemon_pid > 0)
-            kill(daemon_pid, SIGHUP);
-    }
-}
-
-static void Watchdog_SetupSignals(void)
-{
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = Watchdog_SignalHandler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT,  &sa, NULL);
-    sigaction(SIGHUP,  &sa, NULL);
-
-    signal(SIGPIPE, SIG_IGN);
-}
-
-// ============================================================
-// Heartbeat pipe
-// ============================================================
-
-static int Watchdog_CreateHeartbeatPipe(void)
-{
-    if (pipe(heartbeat_pipe) < 0)
-    {
-        LOG_ERROR("Watchdog: pipe() failed: %s", strerror(errno));
-        return -1;
-    }
-
-    LOG_INFO("Heartbeat pipe created (read=%d, write=%d)",
-             heartbeat_pipe[0], heartbeat_pipe[1]);
-    return 0;
-}
-
-static void Watchdog_CloseHeartbeatPipe(void)
-{
-    if (heartbeat_pipe[0] >= 0)
-    {
-        close(heartbeat_pipe[0]);
-        heartbeat_pipe[0] = -1;
-    }
-    if (heartbeat_pipe[1] >= 0)
-    {
-        close(heartbeat_pipe[1]);
-        heartbeat_pipe[1] = -1;
-    }
-}
-
-static int Watchdog_CheckHeartbeat(int timeout_sec)
-{
-    if (heartbeat_pipe[0] < 0)
-        return 1;
-
-    struct pollfd pfd;
-    pfd.fd     = heartbeat_pipe[0];
-    pfd.events = POLLIN;
-
-    int ret = poll(&pfd, 1, timeout_sec * 1000);
-
-    if (ret < 0)
-    {
-        if (errno == EINTR)
-            return 1;
-        LOG_ERROR("Watchdog: poll() failed: %s", strerror(errno));
-        return -1;
-    }
-
-    if (ret == 0)
-        return 0;
-
-    char buf[64];
-    ssize_t n = read(heartbeat_pipe[0], buf, sizeof(buf));
-    if (n <= 0)
-        return -1;
-
-    return 1;
-}
 
 // ============================================================
 // Status FIFO — named pipe for external readers (e.g. dashboard)
@@ -179,10 +78,11 @@ static void status_close(void)
 // Daemon spawning
 // ============================================================
 
-static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
+static pid_t Watchdog_SpawnDaemon(const char *daemon_path, Heartbeat **hb_out)
 {
-    Watchdog_CloseHeartbeatPipe();
-    if (Watchdog_CreateHeartbeatPipe() != 0)
+    Heartbeat_Destroy(*hb_out);
+    *hb_out = Heartbeat_Create();
+    if (!*hb_out)
         LOG_WARNING("Watchdog: Continuing without heartbeat pipe");
 
     pid_t pid = fork();
@@ -195,13 +95,13 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
 
     if (pid == 0)
     {
-        if (heartbeat_pipe[0] >= 0)
-            close(heartbeat_pipe[0]);
-
-        if (heartbeat_pipe[1] >= 0)
+        // Child: close read end, pass write fd via env
+        if (*hb_out)
         {
+            Heartbeat_CloseReadFd(*hb_out);
+            int write_fd = Heartbeat_GetWriteFd(*hb_out);
             char fd_str[16];
-            snprintf(fd_str, sizeof(fd_str), "%d", heartbeat_pipe[1]);
+            snprintf(fd_str, sizeof(fd_str), "%d", write_fd);
             setenv("GRIDGUARD_HEARTBEAT_FD", fd_str, 1);
         }
 
@@ -211,63 +111,11 @@ static pid_t Watchdog_SpawnDaemon(const char *daemon_path)
         _exit(127);
     }
 
-    if (heartbeat_pipe[1] >= 0)
-    {
-        close(heartbeat_pipe[1]);
-        heartbeat_pipe[1] = -1;
-    }
+    // Parent: close write end
+    if (*hb_out)
+        Heartbeat_CloseWriteFd(*hb_out);
 
     return pid;
-}
-
-// ============================================================
-// Restart logic
-// ============================================================
-
-typedef struct
-{
-    int    count;
-    time_t first_restart;
-    time_t timestamps[MAX_RESTARTS];
-} RestartTracker;
-
-static void RestartTracker_Init(RestartTracker *rt)
-{
-    memset(rt, 0, sizeof(RestartTracker));
-}
-
-static int RestartTracker_CanRestart(RestartTracker *rt)
-{
-    time_t now = time(NULL);
-
-    if (rt->count > 0 && difftime(now, rt->first_restart) > RESTART_WINDOW_SEC)
-    {
-        LOG_INFO("Watchdog: Restart window expired, resetting counter");
-        rt->count = 0;
-    }
-
-    return rt->count < MAX_RESTARTS;
-}
-
-static void RestartTracker_Record(RestartTracker *rt)
-{
-    time_t now = time(NULL);
-
-    if (rt->count == 0)
-        rt->first_restart = now;
-
-    if (rt->count < MAX_RESTARTS)
-        rt->timestamps[rt->count] = now;
-
-    rt->count++;
-}
-
-static int RestartTracker_GetBackoff(RestartTracker *rt)
-{
-    int delay = BASE_BACKOFF_SEC;
-    for (int i = 0; i < rt->count - 1 && delay < 32; i++)
-        delay *= 2;
-    return delay;
 }
 
 // ============================================================
@@ -276,18 +124,27 @@ static int RestartTracker_GetBackoff(RestartTracker *rt)
 
 int Watchdog_Run(const char *daemon_path)
 {
-    Watchdog_SetupSignals();
+    WatchdogSignals_Setup();
     status_open();
 
-    RestartTracker tracker;
-    RestartTracker_Init(&tracker);
+    RestartPolicy *policy = RestartPolicy_Create(MAX_RESTARTS, RESTART_WINDOW_SEC,
+                                                 BASE_BACKOFF_SEC);
+    if (!policy)
+    {
+        LOG_FATAL("Watchdog: Failed to create restart policy");
+        status_close();
+        return 1;
+    }
+
+    Heartbeat *hb = NULL;
 
     LOG_INFO("Starting daemon: %s", daemon_path);
 
-    daemon_pid = Watchdog_SpawnDaemon(daemon_path);
+    daemon_pid = Watchdog_SpawnDaemon(daemon_path, &hb);
     if (daemon_pid < 0)
     {
         LOG_FATAL("Watchdog: Failed to spawn daemon");
+        RestartPolicy_Destroy(policy);
         status_close();
         return 1;
     }
@@ -301,12 +158,12 @@ int Watchdog_Run(const char *daemon_path)
 
     while (watchdog_running)
     {
-        int hb = Watchdog_CheckHeartbeat(MONITOR_POLL_SEC);
-        if (hb == 1)
+        int hb_result = Heartbeat_Check(hb, MONITOR_POLL_SEC);
+        if (hb_result == 1)
         {
             last_heartbeat = time(NULL);
         }
-        else if (hb == 0)
+        else if (hb_result == 0)
         {
             double elapsed = difftime(time(NULL), last_heartbeat);
             if (elapsed < HEARTBEAT_TIMEOUT)
@@ -355,7 +212,8 @@ int Watchdog_Run(const char *daemon_path)
             {
                 LOG_INFO("Daemon exited cleanly (exit 0)");
                 status_write("STOP exit=0\n");
-                Watchdog_CloseHeartbeatPipe();
+                Heartbeat_Destroy(hb);
+                RestartPolicy_Destroy(policy);
                 status_close();
                 return 0;
             }
@@ -376,7 +234,8 @@ int Watchdog_Run(const char *daemon_path)
             {
                 LOG_INFO("Watchdog: Daemon terminated by signal %d during shutdown", sig);
                 status_write("STOP signal=%d\n", sig);
-                Watchdog_CloseHeartbeatPipe();
+                Heartbeat_Destroy(hb);
+                RestartPolicy_Destroy(policy);
                 status_close();
                 return 0;
             }
@@ -387,21 +246,22 @@ int Watchdog_Run(const char *daemon_path)
         if (!watchdog_running)
             break;
 
-        if (!RestartTracker_CanRestart(&tracker))
+        if (!RestartPolicy_CanRestart(policy))
         {
             LOG_FATAL("Watchdog: Max restarts (%d) exceeded in %d seconds, giving up",
-                      MAX_RESTARTS, RESTART_WINDOW_SEC);
-            status_write("FATAL max_restarts=%d\n", MAX_RESTARTS);
-            Watchdog_CloseHeartbeatPipe();
+                      RestartPolicy_GetMax(policy), RESTART_WINDOW_SEC);
+            status_write("FATAL max_restarts=%d\n", RestartPolicy_GetMax(policy));
+            Heartbeat_Destroy(hb);
+            RestartPolicy_Destroy(policy);
             status_close();
             return 1;
         }
 
-        RestartTracker_Record(&tracker);
-        int backoff = RestartTracker_GetBackoff(&tracker);
+        RestartPolicy_RecordRestart(policy);
+        int backoff = RestartPolicy_GetBackoffDelay(policy);
 
         LOG_INFO("Restarting daemon in %d seconds (attempt %d/%d)",
-                 backoff, tracker.count, MAX_RESTARTS);
+                 backoff, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
 
         for (int i = 0; i < backoff && watchdog_running; i++)
             sleep(1);
@@ -409,18 +269,20 @@ int Watchdog_Run(const char *daemon_path)
         if (!watchdog_running)
             break;
 
-        daemon_pid = Watchdog_SpawnDaemon(daemon_path);
+        daemon_pid = Watchdog_SpawnDaemon(daemon_path, &hb);
         if (daemon_pid < 0)
         {
             LOG_FATAL("Watchdog: Failed to respawn daemon");
+            Heartbeat_Destroy(hb);
+            RestartPolicy_Destroy(policy);
             status_close();
-            Watchdog_CloseHeartbeatPipe();
             return 1;
         }
 
         LOG_INFO("Daemon restarted (PID %d)", daemon_pid);
         status_write("RESTART attempt=%d/%d pid=%d delay=%ds\n",
-                     tracker.count, MAX_RESTARTS, (int)daemon_pid, backoff);
+                     RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy),
+                     (int)daemon_pid, backoff);
 
         last_heartbeat = time(NULL);
         killed_for_timeout = 0;
@@ -433,7 +295,8 @@ int Watchdog_Run(const char *daemon_path)
         LOG_INFO("Daemon stopped");
     }
 
-    Watchdog_CloseHeartbeatPipe();
+    Heartbeat_Destroy(hb);
+    RestartPolicy_Destroy(policy);
     status_close();
     LOG_INFO("Watchdog exiting");
     return 0;
