@@ -167,6 +167,7 @@ $(BUILD)/%.o: $(SRC)/%.cpp
 # ── Individuella targets ────────────────────────────────────────────────
 .PHONY: client watchdog
 client: directories $(CLIENT_BIN)
+	$(CLIENT_BIN)
 watchdog: directories $(WATCHDOG_BIN)
 
 # ── Bygg-varianter ─────────────────────────────────────────────────────
@@ -271,9 +272,12 @@ test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@$(TEST_PIPELINE_BIN)
 
 # ── Körning ────────────────────────────────────────────────────────────
-.PHONY: run-server run-watchdog dev stop
+.PHONY: run-server run-watchdog run-client dev stop
 run-server: server
 	env GRIDGUARD_JWT_SECRET=gridguard-test-secret GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(SERVER_BIN)
+
+run-client: client
+	$(CLIENT_BIN) $(ARGS)
 
 run-watchdog: server watchdog
 	@if [ -z "$$GRIDGUARD_JWT_SECRET" ]; then \
@@ -389,5 +393,5 @@ help:
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
-.PHONY: dev stop run-server run-watchdog
+.PHONY: dev stop run-server run-watchdog run-client
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help
