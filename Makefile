@@ -46,7 +46,6 @@ SERVER_SRCS = \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c \
     $(SRC)/compute/ComputeWorker.c \
-    $(SRC)/domain/Energy.c \
     $(SRC)/domain/Scheduler.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/api/APIEndpoints.c \
@@ -216,14 +215,12 @@ $(TEST_LOGGER_BIN): $(SRC)/tests/unit/test_logger.c $(SRC)/sys/Logger.c
 $(TEST_API_BIN): $(SRC)/tests/integration/test_api_fetch.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
-    $(SRC)/domain/Energy.c \
     $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
-    $(SRC)/domain/Energy.c \
     $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -238,7 +235,6 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/cache/SharedCache.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
     $(SRC)/db/ClientDB.c $(SRC)/db/UserConfigDB.c $(SRC)/db/ScheduleDB.c \
-    $(SRC)/domain/Energy.c \
     $(SRC)/sys/Queue.c $(SRC)/sys/WorkCompletion.c $(SRC)/sys/CompletionRegistry.c \
     $(SRC)/sys/ThreadPool.c $(SRC)/sys/WorkerPool.c \
     $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c

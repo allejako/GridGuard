@@ -8,6 +8,7 @@
 #include "sys/CompletionRegistry.h"
 #include "ipc/ParseResult.h"
 #include "sys/Logger.h"
+#include "libs/cJSON.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -15,168 +16,204 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <time.h>
-#include <stdio.h>
 
-// Serialiserar EnergyData till JSON-format som HTTP-tråden kan skicka i response.
-static int serialize_energy_plan(const EnergyData *plan, const char *userId, const char *location, const char *region, char *buf, size_t bufSize)
+static void iso8601_utc(time_t t, char *buf, size_t len)
 {
-    int written = snprintf(buf, bufSize,
-        "{\"user_id\":\"%s\",\"location\":\"%s\",\"region\":\"%s\","
-        "\"generated_at\":%ld,"
-        "\"summary\":{\"entries\":%d,\"total_cost_sek\":%.2f,"
-        "\"grid_import_kwh\":%.2f,\"grid_export_kwh\":%.2f},"
-        "\"forecast\":[",
-        userId, location, region,
-        (long)plan->generatedAt,
-        plan->count, plan->totalCostSek,
-        plan->totalGridImportKwh, plan->totalGridExportKwh);
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    strftime(buf, len, "%Y-%m-%dT%H:%M:%SZ", &tm);
+}
 
-    if (written < 0 || (size_t)written >= bufSize)
-        return -1;
+static void local_date(time_t t, char *buf, size_t len)
+{
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(buf, len, "%Y-%m-%d", &tm);
+}
 
-    int pos = written;
-    int first = 1;
+// Build the JSON response that the HTTP worker forwards to the client.
+// Returns a heap-allocated string (caller must free), or NULL on failure.
+static char *build_response_json(const EnergyData *plan, const ParseResult *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
+
+    cJSON_AddStringToObject(root, "user_id",      req->userId);
+    cJSON_AddStringToObject(root, "location",     req->location);
+    cJSON_AddStringToObject(root, "region",       req->region);
+    cJSON_AddNumberToObject(root, "generated_at", (double)plan->generatedAt);
+
+    // --- Summary ---
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "forecast_hours",  plan->count);
+    cJSON_AddNumberToObject(summary, "total_cost_sek",  plan->totalCostSek);
+    cJSON_AddNumberToObject(summary, "grid_import_kwh", plan->totalGridImportKwh);
+    cJSON_AddNumberToObject(summary, "grid_export_kwh", plan->totalGridExportKwh);
+
+    // Best BUY window: the single best block of cheap hours to run
+    // flexible loads (EV, laundry, dishwasher). Absent if no BUY signals.
+    if (plan->hasBuyWindow)
+    {
+        char startIso[32], endIso[32];
+        iso8601_utc(plan->bestBuyWindow.start, startIso, sizeof(startIso));
+        iso8601_utc(plan->bestBuyWindow.end,   endIso,   sizeof(endIso));
+
+        cJSON *win = cJSON_AddObjectToObject(summary, "best_buy_window");
+        cJSON_AddStringToObject(win, "start",            startIso);
+        cJSON_AddStringToObject(win, "end",              endIso);
+        cJSON_AddNumberToObject(win, "hours",            plan->bestBuyWindow.hours);
+        cJSON_AddNumberToObject(win, "avg_cost_sek_kwh", plan->bestBuyWindow.avgCostSek);
+        cJSON_AddNumberToObject(win, "savings_sek",      plan->bestBuyWindow.savingsSek);
+    }
+
+    // --- Forecast grouped by calendar day ---
+    // Days use local time (device is on-site); individual timestamps are UTC.
+    cJSON *days = cJSON_AddArrayToObject(root, "days");
+
+    cJSON *currentDay   = NULL;
+    cJSON *dayHours     = NULL;
+    char   currentDate[16] = {0};
 
     for (int i = 0; i < plan->count; i++)
     {
         const EnergyDataEntry *e = &plan->entries[i];
-        if (!e->valid)
-            continue;
+        if (!e->valid) continue;
 
-        char timeStr[32] = {0};
-        struct tm tm_info;
-        gmtime_r(&e->timestamp, &tm_info);
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%SZ", &tm_info);
+        char date[16];
+        local_date(e->timestamp, date, sizeof(date));
 
-        int n = snprintf(buf + pos, bufSize - pos,
-            "%s{\"time\":\"%s\",\"signal\":\"%s\","
-            "\"price_sek_kwh\":%.4f,\"total_cost_sek_kwh\":%.4f,"
-            "\"savings_vs_median_sek_kwh\":%.4f,"
-            "\"solar_kwh\":%.3f,\"consumption_kwh\":%.3f}",
-            first ? "" : ",",
-            timeStr,
-            EnergyAction_ToString(e->action),
-            e->spotPrice,
-            e->totalCostSek,
-            e->savingsVsMedianSek,
-            e->productionKwh,
-            e->consumptionKwh);
+        if (strcmp(date, currentDate) != 0)
+        {
+            strncpy(currentDate, date, sizeof(currentDate) - 1);
+            currentDay  = cJSON_CreateObject();
+            cJSON_AddStringToObject(currentDay, "date", date);
+            dayHours = cJSON_AddArrayToObject(currentDay, "hours");
+            cJSON_AddItemToArray(days, currentDay);
+        }
 
-        if (n < 0 || (size_t)(pos + n) >= bufSize)
-            return -1;
+        char iso[32];
+        iso8601_utc(e->timestamp, iso, sizeof(iso));
 
-        pos += n;
-        first = 0;
+        cJSON *entry = cJSON_CreateObject();
+        cJSON_AddStringToObject(entry, "time",                      iso);
+        cJSON_AddStringToObject(entry, "signal",                    EnergyAction_ToString(e->action));
+        cJSON_AddNumberToObject(entry, "price_sek_kwh",             e->spotPrice);
+        cJSON_AddNumberToObject(entry, "total_cost_sek_kwh",        e->totalCostSek);
+        cJSON_AddNumberToObject(entry, "price_vs_avg_pct",          e->priceVsAvgPct);
+        cJSON_AddNumberToObject(entry, "solar_kwh",                 e->productionKwh);
+        cJSON_AddNumberToObject(entry, "consumption_kwh",           e->consumptionKwh);
+        cJSON_AddItemToArray(dayHours, entry);
     }
 
-    int tail = snprintf(buf + pos, bufSize - pos, "]}");
-    if (tail < 0 || (size_t)(pos + tail) >= bufSize)
-        return -1;
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return json;
+}
 
-    return 0;
+static int connect_to_parser(const char *socketPath)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, socketPath, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        close(fd);
+        return -1;
+    }
+
+    return fd;
 }
 
 void *ComputeWorker_Run(void *arg)
 {
     ComputeWorker *worker = (ComputeWorker *)arg;
-    if (!worker)
-        return NULL;
+    if (!worker) return NULL;
 
     Compute *compute = (Compute *)worker->compute;
-    LOG_INFO("ComputeWorker: Thread started (Unix socket client)");
+    LOG_INFO("ComputeWorker: started");
 
     while (worker->isRunning)
     {
-        // Connect till Parse-process via Unix socket
-        int clientSocket = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (clientSocket < 0)
+        int fd = connect_to_parser(worker->socketPath);
+        if (fd < 0)
         {
-            LOG_ERROR("ComputeWorker: Failed to create socket");
             sleep(1);
             continue;
         }
 
-        struct sockaddr_un addr = {0};
-        addr.sun_family = AF_UNIX;
-        strncpy(addr.sun_path, worker->socketPath, sizeof(addr.sun_path) - 1);
+        ParseResult result;
+        ssize_t n = read(fd, &result, sizeof(result));
+        close(fd);
 
-        if (connect(clientSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+        if (n == 0)
+            break;  // Parser exited cleanly.
+
+        if (n != (ssize_t)sizeof(result))
         {
-            // Parse-processen kanske inte har startat än, eller är upptagen
-            close(clientSocket);
-            sleep(1);
+            LOG_ERROR("ComputeWorker: short read (%zd/%zu bytes)", n, sizeof(result));
             continue;
         }
 
-        LOG_DEBUG("ComputeWorker: Connected to Parse process");
+        LOG_INFO("ComputeWorker: %s — solar %.1fm² %.0f%%, avg load %.2f kWh/h, region %s",
+                 result.userId, result.solarAreaM2,
+                 result.solarEfficiency * 100.0, result.consumptionKwh, result.region);
 
-        // Läs ParseResult från Unix socket
-        ParseResult parseResult;
-        ssize_t bytesRead = read(clientSocket, &parseResult, sizeof(parseResult));
-
-        if (bytesRead == 0)
-        {
-            LOG_INFO("ComputeWorker: Socket closed by Parse process");
-            close(clientSocket);
-            break;
-        }
-
-        if (bytesRead != sizeof(parseResult))
-        {
-            LOG_ERROR("ComputeWorker: Partial read from socket (%zd bytes)", bytesRead);
-            close(clientSocket);
-            continue;
-        }
-
-        close(clientSocket);
-
-        LOG_INFO("ComputeWorker: Processing %s/%s (solar=%.1fm² %.0f%%, load=%.2fkWh/h)",
-                 parseResult.userId, parseResult.region,
-                 parseResult.solarAreaM2, parseResult.solarEfficiency * 100.0,
-                 parseResult.consumptionKwh);
-
-        // Hitta WorkCompletion via CompletionRegistry baserat på userId i ParseResult
-        WorkCompletion *completion = FindCompletionByUserId(parseResult.userId);
+        WorkCompletion *completion = FindCompletionByUserId(result.userId);
         if (!completion)
         {
-            LOG_ERROR("ComputeWorker: No completion channel for userId %s", parseResult.userId);
+            LOG_ERROR("ComputeWorker: no pending request for user %s", result.userId);
             continue;
         }
 
-        // Generera energy plan
         EnergyData plan;
-        if (Compute_GenerateEnergyPlan(compute, &parseResult.forecastData, parseResult.solarAreaM2,
-            parseResult.solarEfficiency, parseResult.consumptionKwh, parseResult.gridFee_low,
-            parseResult.gridFee_normal, parseResult.gridFee_high, &plan) != 0)
+        int rc = Compute_GenerateEnergyPlan(compute,
+                     &result.forecastData,
+                     result.solarAreaM2,
+                     result.solarEfficiency,
+                     result.consumptionKwh,
+                     result.gridFee_low,
+                     result.gridFee_normal,
+                     result.gridFee_high,
+                     &plan);
+
+        if (rc != 0)
         {
-            LOG_ERROR("ComputeWorker: Failed to generate energy plan");
-            UnregisterCompletion(parseResult.userId);
+            LOG_ERROR("ComputeWorker: plan generation failed for %s", result.userId);
+            UnregisterCompletion(result.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
 
-        LOG_INFO("ComputeWorker: Plan ready — %d entries, import=%.2f kWh, export=%.2f kWh",
-                 plan.count, plan.totalGridImportKwh, plan.totalGridExportKwh);
-
-        // Serialisera till JSON
-        char json[WORK_COMPLETION_BUFFER_SIZE];
-        if (serialize_energy_plan(&plan, parseResult.userId, parseResult.location,
-                                   parseResult.region, json, sizeof(json)) != 0)
+        char *json = build_response_json(&plan, &result);
+        if (!json)
         {
-            LOG_ERROR("ComputeWorker: JSON serialization failed");
-            UnregisterCompletion(parseResult.userId);
+            LOG_ERROR("ComputeWorker: JSON allocation failed for %s", result.userId);
+            UnregisterCompletion(result.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
 
-        // Avregistrera completion INNAN signal så att nästa request för samma
-        // userId kan registreras utan att hitta en redan förbrukad slot.
-        UnregisterCompletion(parseResult.userId);
+        if (strlen(json) >= WORK_COMPLETION_BUFFER_SIZE)
+        {
+            LOG_ERROR("ComputeWorker: JSON response too large for %s (%zu bytes)",
+                      result.userId, strlen(json));
+            free(json);
+            UnregisterCompletion(result.userId);
+            WorkCompletion_SignalError(completion);
+            continue;
+        }
 
-        // Signalera HTTP-tråden (Vecka 3: pthread_cond_signal via WorkCompletion)
+        // Unregister before signalling so a subsequent request from the same
+        // user can register immediately without racing against a stale slot.
+        UnregisterCompletion(result.userId);
         WorkCompletion_Signal(completion, json);
+        free(json);
     }
 
-    LOG_INFO("ComputeWorker: Thread exiting");
+    LOG_INFO("ComputeWorker: exiting");
     return NULL;
 }
