@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-#include "HTTPRequest.h"
+#include "net/HTTPRequest.h"
 
 // ---------------------------------------------------------------------------
 // Minimal test framework

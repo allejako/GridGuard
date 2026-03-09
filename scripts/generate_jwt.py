@@ -34,7 +34,8 @@ def generate_jwt_using_c(user):
 
     # Write a minimal C program that uses JWTIssuer
     c_code = f'''
-#include "JWTIssuer.h"
+#define _POSIX_C_SOURCE 200809L
+#include "auth/JWTIssuer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -78,10 +79,10 @@ int main() {{
 
         # Compile (use same flags as GridGuard)
         compile_cmd = [
-            'gcc', '-std=c11', '-Isrc', '-Isrc/platform/auth',
+            'gcc', '-std=c11', '-I', 'src',
             c_file,
-            'build/platform/auth/JWTIssuer.o',
-            'build/infrastructure/logging/Logger.o',
+            'build/auth/JWTIssuer.o',
+            'build/sys/Logger.o',
             '-lmbedtls', '-lmbedx509', '-lmbedcrypto',
             '-o', bin_file
         ]
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     user_id = sys.argv[2] if len(sys.argv) > 2 else "test_user"
 
     # Ensure GridGuard is built
-    if not os.path.exists("build/platform/auth/JWTIssuer.o"):
+    if not os.path.exists("build/auth/JWTIssuer.o"):
         print("Error: GridGuard not built. Run 'make' first.", file=sys.stderr)
         sys.exit(1)
 
