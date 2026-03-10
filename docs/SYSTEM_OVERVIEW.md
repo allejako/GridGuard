@@ -61,11 +61,352 @@ pthread_create(&computeThread, NULL, ComputeWorker_Run, computeWorker);
 
 ---
 
-## 2. IPC-mekanismer
+## 2. Thread Synchronization: WorkCompletion & CompletionRegistry
+
+### 2.1 Problemet som ska lösas
+
+När en HTTP-request kommer in startas en **lång pipeline** som involverar flera processer:
+
+```
+HTTP Worker Thread → Fetcher → Parser → ComputeWorker → HTTP Worker Thread
+     (väntar)         (API)     (JSON)    (beräkningar)    (svarar klient)
+```
+
+**Utmaningen:**
+- HTTP worker-tråden behöver **vänta** på att hela pipeline är klar
+- ComputeWorker-tråden behöver **väcka** HTTP-tråden när resultatet är klart
+- Pipeline kan ta 50-500ms → HTTP-tråden måste blocka under tiden
+- Vi behöver **timeout** (30s) om något går fel
+- Vi har **många samtidiga requests** från olika användare → måste matcha rätt svar till rätt request
+
+### 2.2 WorkCompletion: One-shot completion primitive
+
+**WorkCompletion** är en synkroniseringsprimitiv baserad på Linux kernel's `struct completion` pattern.
+
+```c
+typedef struct {
+    pthread_mutex_t mutex;           // Skyddar shared state
+    pthread_cond_t  cond;            // Condition variable för signaling
+    char            json[32768];     // Buffer för JSON-resultat
+    int             done;            // Flag: är arbetet klart?
+    int             error;           // Flag: gick något fel?
+} WorkCompletion;
+```
+
+**Hur den fungerar:**
+
+1. **Initiering** (HTTP worker thread):
+```c
+WorkCompletion wc;  // Stack-allocated! (säkert eftersom tråden blockar)
+WorkCompletion_Initiate(&wc);
+```
+
+2. **Vänta på completion** (HTTP worker thread):
+```c
+int result = WorkCompletion_Wait(&wc);  // Blockar här tills Signal() anropas
+if (result == 0) {
+    // Success: wc.json innehåller resultatet
+    HTTPResponse_SendJson(fd, wc.json);
+} else {
+    // Timeout eller error
+    HTTPResponse_SendError(fd, HTTP_STATUS_500, "Pipeline error");
+}
+WorkCompletion_Destroy(&wc);
+```
+
+**Implementation av Wait:**
+```c
+int WorkCompletion_Wait(WorkCompletion *wc) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += 30;  // 30 sekunders timeout
+
+    pthread_mutex_lock(&wc->mutex);
+
+    while (!wc->done) {  // Loop för att hantera spurious wakeups
+        int rc = pthread_cond_timedwait(&wc->cond, &wc->mutex, &deadline);
+        if (rc != 0) {  // Timeout!
+            pthread_mutex_unlock(&wc->mutex);
+            return -1;
+        }
+    }
+
+    int err = wc->error;
+    pthread_mutex_unlock(&wc->mutex);
+    return err ? -1 : 0;
+}
+```
+
+**Viktiga detaljer:**
+- **CLOCK_MONOTONIC**: Timeout påverkas inte av NTP-justeringar eller systemklocka
+- **pthread_cond_timedwait**: Atomic unlock + sleep + relock när wakeup
+- **Spurious wakeups**: Därför `while (!wc->done)` istället för `if`
+
+3. **Signalera completion** (ComputeWorker thread):
+```c
+WorkCompletion_Signal(completion, jsonResult);
+```
+
+**Implementation av Signal:**
+```c
+void WorkCompletion_Signal(WorkCompletion *wc, const char *json) {
+    pthread_mutex_lock(&wc->mutex);
+
+    // Kopiera resultat till buffer
+    strncpy(wc->json, json, WORK_COMPLETION_BUFFER_SIZE - 1);
+    wc->json[WORK_COMPLETION_BUFFER_SIZE - 1] = '\0';
+
+    // Markera som klar
+    wc->done = 1;
+    wc->error = 0;
+
+    // Väck den väntande tråden
+    pthread_cond_signal(&wc->cond);
+
+    pthread_mutex_unlock(&wc->mutex);
+}
+```
+
+### 2.3 CompletionRegistry: Global userId → WorkCompletion mapping
+
+**Problemet:** ComputeWorker får bara `userId` i ParseResult. Hur hittar den rätt WorkCompletion-objekt att signalera?
+
+**Lösningen:** En global thread-safe registry som mappar `userId` → `WorkCompletion *`
+
+```c
+typedef struct {
+    char userId[64];
+    WorkCompletion *completion;
+    bool active;
+} CompletionEntry;
+
+static CompletionEntry g_registry[1024];  // Max 1024 samtidiga requests
+static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
+```
+
+**API:**
+```c
+// Registrera ett nytt request (HTTP worker thread)
+RegisterCompletion("user123", &wc);
+
+// Hitta WorkCompletion via userId (ComputeWorker thread)
+WorkCompletion *wc = FindCompletionByUserId("user123");
+
+// Ta bort när klart (ComputeWorker thread)
+UnregisterCompletion("user123");
+```
+
+**Implementation av FindCompletionByUserId:**
+```c
+WorkCompletion *FindCompletionByUserId(const char *userId) {
+    pthread_mutex_lock(&g_mutex);
+
+    for (int i = 0; i < MAX_COMPLETIONS; i++) {
+        if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0) {
+            WorkCompletion *completion = g_registry[i].completion;
+            pthread_mutex_unlock(&g_mutex);
+            return completion;
+        }
+    }
+
+    pthread_mutex_unlock(&g_mutex);
+    return NULL;  // Ingen request väntande för denna user
+}
+```
+
+**Thread-safety:**
+- Global mutex skyddar alla operationer på registry
+- Linjär sökning (O(n)) men snabb för typiska antal requests (<100)
+- Lock-tid är minimal: bara array-scanning och strcmp
+
+### 2.4 Fullständigt flöde med exempel
+
+**Steg 1: HTTP request kommer in** (ClientHandler.c:38-88)
+```c
+// Thread: HTTP Worker #7 (från ThreadPool)
+static void HandleForecast(int fd, GridGuard *app, const JWTClaims *claims) {
+    // Stack-allocate WorkCompletion (säkert eftersom tråden blockar här)
+    WorkCompletion wc;
+    WorkCompletion_Initiate(&wc);
+
+    // Bygg WorkRequest
+    WorkRequest req;
+    strncpy(req.userId, claims->subject, sizeof(req.userId) - 1);
+    // ... fyll i lat, lon, solarAreaM2, etc.
+
+    // Submit till pipeline OCH registrera completion
+    GridGuard_SubmitRequest(app, &req, &wc);
+
+    // BLOCKA här och vänta på resultat (max 30s)
+    if (WorkCompletion_Wait(&wc) == 0) {
+        HTTPResponse_SendJson(fd, wc.json);  // Success!
+    } else {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500, "Pipeline timeout");
+    }
+
+    WorkCompletion_Destroy(&wc);
+}
+```
+
+**Steg 2: Registrera i CompletionRegistry** (GridGuard.c:250)
+```c
+// Thread: HTTP Worker #7
+int GridGuard_SubmitRequest(GridGuard *app, WorkRequest *req, WorkCompletion *wc) {
+    // Registrera så ComputeWorker kan hitta den senare
+    RegisterCompletion(req->userId, wc);
+
+    // Skicka request till Fetcher via pipe
+    write(app->requestPipeFd, req, sizeof(WorkRequest));
+
+    return 0;
+}
+```
+
+**Registry state nu:**
+```
+g_registry[0] = { userId: "user123", completion: 0x7ffc1234abcd, active: true }
+```
+
+**Steg 3-5: Pipeline kör** (Fetcher → Parser → data flows)
+```
+Fetcher: HTTP GET SMHI, Sourceful → FIFO
+Parser:  Läs FIFO, parse JSON → Unix socket
+```
+
+**Steg 6: ComputeWorker får ParseResult** (ComputeWorker.c:148-214)
+```c
+// Thread: ComputeWorker (dedikerad thread)
+void *ComputeWorker_Run(void *arg) {
+    while (running) {
+        // Läs ParseResult från Unix socket
+        ParseResult result;
+        read(fd, &result, sizeof(result));
+
+        // Hitta rätt WorkCompletion via userId
+        WorkCompletion *completion = FindCompletionByUserId(result.userId);
+        if (!completion) {
+            LOG_ERROR("No pending request for user %s", result.userId);
+            continue;
+        }
+
+        // Kör beräkningar
+        EnergyData plan;
+        Compute_GenerateEnergyPlan(compute, &result.forecastData, ..., &plan);
+
+        // Bygg JSON response
+        char *json = build_response_json(&plan, &result);
+
+        // VIKTIGT: Unregister FÖRE signal (undviker race condition)
+        UnregisterCompletion(result.userId);
+
+        // Väck HTTP worker thread och ge den resultatet
+        WorkCompletion_Signal(completion, json);
+
+        free(json);
+    }
+}
+```
+
+**Steg 7: HTTP worker vaknar** (automatiskt av pthread_cond_signal)
+```c
+// Thread: HTTP Worker #7 (fortsätter från Wait())
+WorkCompletion_Wait(&wc);  // Returnerar 0 (success)
+HTTPResponse_SendJson(fd, wc.json);  // Skicka till klient
+WorkCompletion_Destroy(&wc);  // Cleanup
+```
+
+### 2.5 Varför stack-allocation är säkert
+
+**Kritisk insikt:** WorkCompletion allokeras på HTTP worker thread's stack, men är säker trots att ComputeWorker-tråden accesar den!
+
+**Varför?**
+1. HTTP worker-tråden **blockar i WorkCompletion_Wait()** under hela pipeline
+2. Stack-framen förblir giltig så länge funktionen inte returnerat
+3. ComputeWorker-tråden signalerar INNAN HTTP-tråden lämnar funktionen
+4. Efter Signal() accesar ComputeWorker aldrig WorkCompletion igen
+
+**Timing-garanti:**
+```
+HTTP Thread:          ComputeWorker Thread:
+────────────          ─────────────────────
+Stack: [wc]
+Register(&wc)    ───→ (registry now has pointer to stack)
+Wait() blocks         ...
+  │                   FindCompletion() → &wc
+  │                   Signal(&wc)  ──→ wake HTTP thread
+  ↓                   (never touches wc again)
+Wait() returns
+Use wc.json
+Destroy(wc)
+[stack popped]
+```
+
+**Alternativ (sämre):**
+- Heap-allocation: Kräver free(), mer komplex lifecycle, fragmentering
+- Static buffer per thread: Begränsat antal threads, memory waste
+
+**Linux kernel pattern:**
+Detta är exakt hur `struct completion` fungerar i Linux kernel, testat i miljontals användningar.
+
+### 2.6 Error-hantering
+
+**Timeout (30s):**
+```c
+if (WorkCompletion_Wait(&wc) != 0) {
+    // Kan hända om:
+    // - Fetcher hängde på API-anrop
+    // - Parser kraschade
+    // - ComputeWorker fastnade i infinite loop
+    LOG_ERROR("Pipeline timeout for user %s", userId);
+    UnregisterCompletion(userId);  // Cleanup registry
+    HTTPResponse_SendError(fd, HTTP_STATUS_500, "Timeout");
+}
+```
+
+**Pipeline error:**
+```c
+// I ComputeWorker om något går fel:
+if (Compute_GenerateEnergyPlan(...) != 0) {
+    UnregisterCompletion(result.userId);
+    WorkCompletion_SignalError(completion);  // Väcker med error=1
+}
+```
+
+**Race condition prevention:**
+```c
+// Unregister FÖRE Signal så att en ny request från samma user
+// kan registrera sig direkt utan att kollidera med gamla slotten
+UnregisterCompletion(result.userId);
+WorkCompletion_Signal(completion, json);
+```
+
+### 2.7 Sammanfattning: Varför denna design?
+
+**Fördelar:**
+1. **Zero-copy result passing**: JSON kopieras direkt in i WorkCompletion buffer
+2. **Automatic cleanup**: Stack-allocation → ingen explicit free() krävs
+3. **Timeout support**: Klient hänger inte vid API-fel eller deadlock
+4. **Decoupling**: ComputeWorker känner bara till userId, inte HTTP connection
+5. **Battle-tested pattern**: Baserad på Linux kernel's completion API
+
+**Alternative rejected:**
+- **Callbacks**: Kräver heap-allocation av closure, svårare error handling
+- **Polling**: Waste CPU, högre latency
+- **Blocking queue**: Kräver separate response queue, mer memory
+- **Future/Promise**: Overkill för C, kräver runtime library
+
+**Performance:**
+- Register/Unregister: O(n) scan men typiskt <100 entries, ~1-2 μs
+- Wait/Signal: pthread condition variable overhead, ~0.5 μs
+- Total synchronization overhead: <5 μs per request (försumbart vs 50-500ms pipeline)
+
+---
+
+## 3. IPC-mekanismer
 
 GridGuard använder **fyra olika IPC-tekniker** för olika ändamål:
 
-### 2.1 Anonymous Pipe (HTTP → Fetcher)
+### 3.1 Anonymous Pipe (HTTP → Fetcher)
 
 **Typ:** `pipe()` + `dup2()` för stdin-redirection
 
