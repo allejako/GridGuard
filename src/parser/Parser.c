@@ -6,10 +6,12 @@
 #include "api/OpenMeteoResponse.h"
 #include "api/ElprisetResponse.h"
 #include "sys/Logger.h"
+#include "sys/ProcessHeartbeat.h"
 #include "ipc/FetchResult.h"
 #include "ipc/ParseResult.h"
 
 #include <stdlib.h>
+#include <sys/select.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -154,13 +156,36 @@ int ParserProcess_Run(ParserProcess *proc)
         return -1;
 
     APIParser *parser = (APIParser *)proc->parser;
+
+    ProcessHeartbeat heartbeat;
+    ProcessHeartbeat_Initiate(&heartbeat, 5);
+
     LOG_INFO("ParserProcess: Starting main loop");
 
     while (proc->isRunning)
     {
-        FetchResult fetchResult;
+        ProcessHeartbeat_Send(&heartbeat);
 
-        // Läs FetchResult från FIFO 
+        // Use select() with timeout to check if FIFO has data, allowing periodic heartbeats.
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(proc->fifoFd, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(proc->fifoFd + 1, &readfds, NULL, NULL, &timeout);
+        if (ready < 0)
+        {
+            LOG_ERROR("ParserProcess: select() failed");
+            break;
+        }
+
+        if (ready == 0)
+            continue; // Timeout, no data - loop again to send heartbeat.
+
+        FetchResult fetchResult;
         ssize_t bytesRead = read(proc->fifoFd, &fetchResult, sizeof(fetchResult));
 
         if (bytesRead == 0)

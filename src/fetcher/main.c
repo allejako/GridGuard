@@ -1,6 +1,7 @@
 #include "fetcher/Fetcher.h"
 #include "sys/Logger.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <signal.h>
 #include <unistd.h>
 
@@ -12,9 +13,16 @@ static void signal_handler(int sig)
     g_process.isRunning = false;
 }
 
-int main(int argc __attribute__((unused)), char *argv[])
+int main(int argc, char *argv[])
 {
-    const char *fifoPath = argv[1];
+    if (argc != 3)
+    {
+        fprintf(stderr, "Usage: %s <request_fifo_path> <result_fifo_path>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    const char *requestFifoPath = argv[1];
+    const char *resultFifoPath = argv[2];
 
     Logger_Initiate("logs/fetcher.log", LOG_LEVEL_DEBUG);
 
@@ -23,7 +31,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
     LOG_INFO("fetcher_main: Starting Fetcher process (PID %d)", getpid());
 
-    if (FetcherProcess_Initiate(&g_process, fifoPath) != 0)
+    if (FetcherProcess_Initiate(&g_process, requestFifoPath, resultFifoPath) != 0)
     {
         LOG_FATAL("fetcher_main: Failed to initiate FetcherProcess");
         Logger_Shutdown();

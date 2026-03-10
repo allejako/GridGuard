@@ -5,6 +5,8 @@
 #include "cache/SharedCache.h"
 #include "api/APIEndpoints.h"
 #include "sys/Logger.h"
+#include "sys/ProcessHeartbeat.h"
+#include <sys/select.h>
 #include "ipc/WorkRequest.h"
 #include "ipc/FetchResult.h"
 
@@ -15,13 +17,14 @@
 #include <time.h>
 #include <stdio.h>
 
-int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
+int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath)
 {
-    if (!proc || !fifoPath) 
+    if (!proc || !requestFifoPath || !resultFifoPath)
         return -1;
 
     memset(proc, 0, sizeof(FetcherProcess));
-    strncpy(proc->fifoPath, fifoPath, sizeof(proc->fifoPath) - 1);
+    strncpy(proc->requestFifoPath, requestFifoPath, sizeof(proc->requestFifoPath) - 1);
+    strncpy(proc->resultFifoPath, resultFifoPath, sizeof(proc->resultFifoPath) - 1);
 
     // Allokera HTTPFetcher service
     proc->fetcher = calloc(1, sizeof(HTTPFetcher));
@@ -74,11 +77,11 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         return -1;
     }
 
-    // Öppna FIFO för skrivning (blockerar tills parse-processen öppnar read end)
-    proc->fifoFd = open(fifoPath, O_WRONLY);
-    if (proc->fifoFd < 0)
+    // Öppna request FIFO för läsning (blockerar tills server öppnar write end)
+    proc->requestFifoFd = open(requestFifoPath, O_RDONLY);
+    if (proc->requestFifoFd < 0)
     {
-        LOG_ERROR("FetcherProcess: Failed to open FIFO %s for writing", fifoPath);
+        LOG_ERROR("FetcherProcess: Failed to open request FIFO %s for reading", requestFifoPath);
         SharedCache_Destroy((SharedCache *)proc->priceCache);
         SharedCache_Destroy((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
@@ -88,10 +91,25 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         return -1;
     }
 
-    proc->stdinFd = STDIN_FILENO;
+    // Öppna result FIFO för skrivning (blockerar tills parse-processen öppnar read end)
+    proc->resultFifoFd = open(resultFifoPath, O_WRONLY);
+    if (proc->resultFifoFd < 0)
+    {
+        LOG_ERROR("FetcherProcess: Failed to open result FIFO %s for writing", resultFifoPath);
+        close(proc->requestFifoFd);
+        SharedCache_Destroy((SharedCache *)proc->priceCache);
+        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
+        free(proc->fetcher);
+        free(proc->weatherCache);
+        free(proc->priceCache);
+        return -1;
+    }
+
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, FIFO %s)", getpid(), fifoPath);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s)",
+             getpid(), requestFifoPath, resultFifoPath);
     return 0;
 }
 
@@ -104,24 +122,46 @@ int FetcherProcess_Run(FetcherProcess *proc)
     SharedCache *weatherCache = (SharedCache *)proc->weatherCache;
     SharedCache *priceCache = (SharedCache *)proc->priceCache;
 
+    ProcessHeartbeat heartbeat;
+    ProcessHeartbeat_Initiate(&heartbeat, 5);
+
     LOG_INFO("FetcherProcess: Starting main loop");
 
     while (proc->isRunning)
     {
-        WorkRequest request;
+        ProcessHeartbeat_Send(&heartbeat);
 
-        // Läs WorkRequest från stdin, pipe kommer från main process i GridGuard.c 
-        ssize_t bytesRead = read(proc->stdinFd, &request, sizeof(request));
+        // Use select() with timeout to check if request FIFO has data, allowing periodic heartbeats.
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(proc->requestFifoFd, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(proc->requestFifoFd + 1, &readfds, NULL, NULL, &timeout);
+        if (ready < 0)
+        {
+            LOG_ERROR("FetcherProcess: select() failed");
+            break;
+        }
+
+        if (ready == 0)
+            continue; // Timeout, no data - loop again to send heartbeat.
+
+        WorkRequest request;
+        ssize_t bytesRead = read(proc->requestFifoFd, &request, sizeof(request));
 
         if (bytesRead == 0)
         {
-            LOG_INFO("FetcherProcess: stdin closed, exiting");
+            LOG_INFO("FetcherProcess: request FIFO closed, exiting");
             break;
         }
 
         if (bytesRead != sizeof(request))
         {
-            LOG_ERROR("FetcherProcess: Partial read from stdin (%zd bytes)", bytesRead);
+            LOG_ERROR("FetcherProcess: Partial read from request FIFO (%zd bytes)", bytesRead);
             continue;
         }
 
@@ -200,16 +240,15 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
         }
 
-        // Skriv FetchResult till FIFO (Fetch -> Parse)
-        // Vecka 4: Named pipe write
-        ssize_t written = write(proc->fifoFd, &result, sizeof(result));
+        // Skriv FetchResult till result FIFO (Fetch -> Parse)
+        ssize_t written = write(proc->resultFifoFd, &result, sizeof(result));
         if (written != sizeof(result))
         {
-            LOG_ERROR("FetcherProcess: Failed to write to FIFO (%zd bytes)", written);
+            LOG_ERROR("FetcherProcess: Failed to write to result FIFO (%zd bytes)", written);
             break;
         }
 
-        LOG_INFO("FetcherProcess: Wrote FetchResult to FIFO (%zd bytes)", written);
+        LOG_INFO("FetcherProcess: Wrote FetchResult to result FIFO (%zd bytes)", written);
     }
 
     LOG_INFO("FetcherProcess: Main loop exited");
@@ -225,8 +264,11 @@ void FetcherProcess_Shutdown(FetcherProcess *proc)
 
     proc->isRunning = false;
 
-    if (proc->fifoFd >= 0)
-        close(proc->fifoFd);
+    if (proc->requestFifoFd >= 0)
+        close(proc->requestFifoFd);
+
+    if (proc->resultFifoFd >= 0)
+        close(proc->resultFifoFd);
 
     if (proc->priceCache)
     {

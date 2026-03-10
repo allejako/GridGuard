@@ -11,16 +11,17 @@
 
 typedef struct
 {
-    int stdinFd;           // read end of pipe from main process
-    int fifoFd;            // write end of FIFO to parse process
-    char fifoPath[256];
+    int requestFifoFd;     // read end of request FIFO from server
+    int resultFifoFd;      // write end of result FIFO to parser
+    char requestFifoPath[256];
+    char resultFifoPath[256];
     void *fetcher;         // Fetcher service (opaque pointer)
     void *weatherCache;    // SharedCache for weather data
     void *priceCache;      // SharedCache for price data
     bool isRunning;
 } FetcherProcess;
 
-int  FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath);
+int  FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath);
 int  FetcherProcess_Run(FetcherProcess *proc);
 void FetcherProcess_Shutdown(FetcherProcess *proc);
 
