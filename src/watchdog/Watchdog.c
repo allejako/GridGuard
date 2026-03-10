@@ -213,6 +213,13 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
         // === Failure Handling and Recovery ===
 
+        // If shutdown is in progress, don't restart - just wait for other processes
+        if (!watchdog_running)
+        {
+            LOG_INFO("Watchdog: Process died during shutdown, waiting for others...");
+            continue;
+        }
+
         // Identify which process triggered the restart
         const char *deadProcess = "Unknown";
         if (result == fetcher_pid)
@@ -225,24 +232,12 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         if (WIFEXITED(wait_status))
         {
             int code = WEXITSTATUS(wait_status);
-            if (code == 0 && !watchdog_running)
-            {
-                LOG_INFO("%s exited cleanly (exit 0)", deadProcess);
-                Status_Write(status, "STOP process=%s exit=0\n", deadProcess);
-                break;
-            }
             LOG_WARNING("Watchdog: %s exited with code %d", deadProcess, code);
             Status_Write(status, "CRASH process=%s code=%d\n", deadProcess, code);
         }
         else if (WIFSIGNALED(wait_status))
         {
             int sig = WTERMSIG(wait_status);
-            if (!watchdog_running)
-            {
-                LOG_INFO("Watchdog: %s terminated by signal %d during shutdown", deadProcess, sig);
-                Status_Write(status, "STOP process=%s signal=%d\n", deadProcess, sig);
-                break;
-            }
             LOG_WARNING("Watchdog: %s killed by signal %d (%s)", deadProcess, sig, strsignal(sig));
             Status_Write(status, "CRASH process=%s signal=%d\n", deadProcess, sig);
         }
@@ -255,8 +250,12 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         waitpid(parser_pid, NULL, WNOHANG);
         waitpid(server_pid, NULL, WNOHANG);
 
+        // Double-check shutdown wasn't triggered while we were killing processes
         if (!watchdog_running)
+        {
+            LOG_INFO("Watchdog: Shutdown requested during crash handling, exiting");
             break;
+        }
 
         // Check restart policy (exponential backoff + rate limiting)
         if (!RestartPolicy_CanRestart(policy))
@@ -316,7 +315,30 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         }
     }
 
-    LOG_INFO("Waiting for all processes to exit");
+    LOG_INFO("Watchdog: Main loop exited, ensuring all processes are terminated");
+
+    // If we exited the loop due to shutdown, give children time to exit cleanly
+    if (!watchdog_running)
+    {
+        LOG_INFO("Watchdog: Waiting up to 3 seconds for graceful shutdown");
+        for (int i = 0; i < 3; i++)
+        {
+            // Check if all processes are dead
+            if (waitpid(fetcher_pid, NULL, WNOHANG) == fetcher_pid &&
+                waitpid(parser_pid, NULL, WNOHANG) == parser_pid &&
+                waitpid(server_pid, NULL, WNOHANG) == server_pid)
+            {
+                LOG_INFO("Watchdog: All processes exited gracefully");
+                break;
+            }
+            sleep(1);
+        }
+
+        // Force kill any remaining processes
+        ProcessGroup_KillAll(&group, SIGKILL);
+    }
+
+    // Wait for all processes to be reaped
     ProcessGroup_WaitAll(&group);
 
     ProcessGroup_Cleanup(&group);

@@ -3,7 +3,10 @@
 #include <string.h>
 #include <unistd.h>
 
-#define WATCHDOG_PATH "bin/GridGuard-watchdog"
+// Path to the watchdog executable that runs the fetcher, parser, and server for GridGuard. 
+// This main function simply starts the watchdog process with the provided arguments.
+
+#define WATCHDOG_PATH "bin/GridGuard-watchdog" 
 
 int main(int argc, char *argv[])
 {
