@@ -11,13 +11,21 @@ static void signal_handler(int signum)
     {
         watchdog_running = 0;
 
-        if (daemon_pid > 0)
-            kill(daemon_pid, SIGTERM);
+        if (fetcher_pid > 0)
+            kill(fetcher_pid, SIGTERM);
+        if (parser_pid > 0)
+            kill(parser_pid, SIGTERM);
+        if (server_pid > 0)
+            kill(server_pid, SIGTERM);
     }
     else if (signum == SIGHUP)
     {
-        if (daemon_pid > 0)
-            kill(daemon_pid, SIGHUP);
+        if (fetcher_pid > 0)
+            kill(fetcher_pid, SIGHUP);
+        if (parser_pid > 0)
+            kill(parser_pid, SIGHUP);
+        if (server_pid > 0)
+            kill(server_pid, SIGHUP);
     }
 }
 

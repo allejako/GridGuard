@@ -71,6 +71,7 @@ FETCHER_SRCS = \
     $(SRC)/cache/SharedCache.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/sys/Logger.c \
+    $(SRC)/sys/ProcessHeartbeat.c \
     $(SRC)/libs/cJSON.c
 
 # ── Parser ─────────────────────────────────────────────────────────────
@@ -79,6 +80,7 @@ PARSER_SRCS = \
     $(SRC)/parser/Parser.c \
     $(SRC)/api/APIParser.c \
     $(SRC)/sys/Logger.c \
+    $(SRC)/sys/ProcessHeartbeat.c \
     $(SRC)/libs/cJSON.c
 
 # ── Watchdog ───────────────────────────────────────────────────────────

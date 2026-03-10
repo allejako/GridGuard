@@ -8,6 +8,7 @@
 
 #include "server/ClientHandler.h"
 #include "server/GridGuard.h"
+#include "cache/SharedCache.h"
 #include "net/HTTPRequest.h"
 #include "net/HTTPResponse.h"
 #include "sys/WorkCompletion.h"
@@ -18,23 +19,27 @@
 #include "sys/Logger.h"
 #include "libs/cJSON.h"
 
-// These glibc extensions are not exposed by _POSIX_C_SOURCE — declare them directly.
 extern time_t  timegm(struct tm *tm);
 extern char   *strptime(const char *s, const char *format, struct tm *tm);
 
-// ---------------------------------------------------------------------------
-// Route handlers
-// ---------------------------------------------------------------------------
+// Parse ISO 8601 UTC timestamp ("2026-03-09T14:30:00Z") to time_t.
+static time_t ParseISO8601(const char *s)
+{
+    if (!s) return 0;
+    struct tm tm = {0};
+    if (!strptime(s, "%Y-%m-%dT%H:%M:%SZ", &tm))
+        return 0;
+    tm.tm_isdst = 0;
+    return timegm(&tm);
+}
 
-// GET /health — public, no auth required
+// GET /health
 static void HandleHealth(int fd)
 {
     HTTPResponse_SendJson(fd, "{\"status\":\"ok\",\"service\":\"GridGuard\"}");
 }
 
-// GET /forecast — requires valid JWT + user config in DB.
-// WorkCompletion lives on this thread's stack; safe because this thread
-// blocks in WorkCompletion_Wait for the entire pipeline duration.
+// GET /forecast - returns 96h energy forecast with pricing and recommendations.
 static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claims)
 {
     UserConfig cfg;
@@ -50,14 +55,32 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
         return;
     }
 
-    WorkCompletion wc; // Stack-allocated WorkCompletion for this request's pipeline.
+    // Check cache before running pipeline.
+    char cacheKey[SHARED_CACHE_KEY_MAX];
+    snprintf(cacheKey, sizeof(cacheKey), "fc:%.4f:%.4f:%s:%.1f:%.2f:%.2f:%.2f:%.2f:%.2f",
+             cfg.latitude, cfg.longitude, cfg.region,
+             cfg.solarAreaM2, cfg.solarEfficiency, cfg.consumptionKwh,
+             cfg.gridFee_low, cfg.gridFee_normal, cfg.gridFee_high);
+
+    char cachedJson[SHARED_CACHE_DATA_MAX];
+    if (SharedCache_Lookup(&app->forecastCache, cacheKey, cachedJson, sizeof(cachedJson)) == 0)
+    {
+        LOG_INFO("ClientHandler: Cache HIT for user=%s key=%s (skipping Fetch+Parse)", claims->subject, cacheKey);
+        HTTPResponse_SendJson(fd, cachedJson);
+        return;
+    }
+
+    LOG_INFO("ClientHandler: Cache MISS for user=%s key=%s (running full pipeline)", claims->subject, cacheKey);
+
+    // Run full pipeline: Fetcher → Parser → Compute.
+    WorkCompletion wc;
     if (WorkCompletion_Initiate(&wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Internal error");
         return;
     }
 
-    WorkRequest req; // Build the WorkRequest from the user config and JWT claims.
+    WorkRequest req;
     snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
     snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
     strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
@@ -80,14 +103,19 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     }
 
     if (WorkCompletion_Wait(&wc) == 0)
+    {
+        SharedCache_Store(&app->forecastCache, cacheKey, wc.json);
         HTTPResponse_SendJson(fd, wc.json);
+    }
     else
+    {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Pipeline error or timeout");
+    }
 
     WorkCompletion_Destroy(&wc);
 }
 
-// GET /user/config — returns the stored config for the authenticated user.
+// GET /user/config
 static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims)
 {
     UserConfig cfg;
@@ -103,19 +131,23 @@ static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
-    char json[512];
-    snprintf(json, sizeof(json),
-             "{\"location\":\"%s\",\"latitude\":%.4f,\"longitude\":%.4f,"
-             "\"region\":\"%s\",\"solar_area_m2\":%.2f,"
-             "\"solar_efficiency\":%.3f,\"consumption_kwh\":%.3f,"
-             "\"updated_at\":%ld}",
-             cfg.location, cfg.latitude, cfg.longitude, cfg.region,
-             cfg.solarAreaM2, cfg.solarEfficiency,
-             cfg.consumptionKwh, cfg.updatedAt);
-    HTTPResponse_SendJson(fd, json);
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "location", cfg.location);
+    cJSON_AddNumberToObject(json, "latitude", cfg.latitude);
+    cJSON_AddNumberToObject(json, "longitude", cfg.longitude);
+    cJSON_AddStringToObject(json, "region", cfg.region);
+    cJSON_AddNumberToObject(json, "solar_area_m2", cfg.solarAreaM2);
+    cJSON_AddNumberToObject(json, "solar_efficiency", cfg.solarEfficiency);
+    cJSON_AddNumberToObject(json, "consumption_kwh", cfg.consumptionKwh);
+    cJSON_AddNumberToObject(json, "updated_at", cfg.updatedAt);
+
+    char *jsonStr = cJSON_PrintUnformatted(json);
+    HTTPResponse_SendJson(fd, jsonStr);
+    free(jsonStr);
+    cJSON_Delete(json);
 }
 
-// PUT /user/config — persist lat/lon/region/solar for the authenticated user.
+// PUT /user/config
 static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *claims, const HTTPRequest *request)
 {
     cJSON *json = cJSON_Parse(request->body);
@@ -156,8 +188,6 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     double area = cJSON_IsNumber(jArea) ? jArea->valuedouble : 0.0;
     double eff  = cJSON_IsNumber(jEff)  ? jEff->valuedouble  : 0.0;
     double load = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
-
-    // Grid fees with defaults (typical Swedish Ellevio-like tariffs)
     double gridFeeLow = cJSON_IsNumber(jGridFeeLow) ? jGridFeeLow->valuedouble : 0.25;
     double gridFeeNormal = cJSON_IsNumber(jGridFeeNormal) ? jGridFeeNormal->valuedouble : 0.35;
     double gridFeeHigh = cJSON_IsNumber(jGridFeeHigh) ? jGridFeeHigh->valuedouble : 0.45;
@@ -215,24 +245,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     HTTPResponse_SendJson(fd, "{\"status\":\"ok\"}");
 }
 
-// ---------------------------------------------------------------------------
-// Parse an ISO 8601 UTC time string ("2026-03-02T00:00:00Z") to time_t.
-// Returns 0 on parse failure.
-// ---------------------------------------------------------------------------
-static time_t ParseISO8601UTC(const char *s)
-{
-    if (!s) return 0;
-    struct tm tm = {0};
-    if (!strptime(s, "%Y-%m-%dT%H:%M:%SZ", &tm))
-        return 0;
-    tm.tm_isdst = 0;
-    return timegm(&tm);
-}
-
-// ---------------------------------------------------------------------------
-// POST /schedule — find the cheapest time window for a shiftable load and
-// save it to the database.
-// ---------------------------------------------------------------------------
+// POST /schedule - find cheapest time window for a shiftable load.
 static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *claims,
                                 const HTTPRequest *request)
 {
@@ -279,7 +292,6 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     strncpy(loadId, jLoadId->valuestring, sizeof(loadId) - 1);
     cJSON_Delete(body);
 
-    // Load user config to build the WorkRequest.
     UserConfig cfg;
     int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
     if (found != 0)
@@ -290,7 +302,6 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
         return;
     }
 
-    // Run the forecast pipeline to get hourly cost data.
     WorkCompletion wc;
     if (WorkCompletion_Initiate(&wc) != 0)
     {
@@ -328,7 +339,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
         return;
     }
 
-    // Parse the forecast JSON to build SchedulerEntry array.
+    // Parse forecast to extract hourly prices.
     cJSON *forecast = cJSON_Parse(wc.json);
     WorkCompletion_Destroy(&wc);
 
@@ -374,7 +385,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
         cJSON *jCost = cJSON_GetObjectItemCaseSensitive(item, "total_cost_sek_kwh");
         if (!cJSON_IsString(jTime) || !cJSON_IsNumber(jCost))
             continue;
-        time_t ts = ParseISO8601UTC(jTime->valuestring);
+        time_t ts = ParseISO8601(jTime->valuestring);
         if (ts == 0)
             continue;
         entries[validCount].timestamp       = ts;
@@ -403,7 +414,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     }
     free(entries);
 
-    // Build and persist the schedule entry.
+    // Save schedule to database.
     ScheduleEntry sched;
     memset(&sched, 0, sizeof(sched));
     snprintf(sched.scheduleId, sizeof(sched.scheduleId), "%.127s_%ld",
@@ -420,88 +431,78 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
 
     if (ScheduleDB_Insert(&app->db, &sched) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Failed to save schedule");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Failed to save schedule");
         return;
     }
 
-    // Format scheduled_start as ISO 8601 for the response.
-    char startStr[32] = {0};
+    char startStr[32];
     struct tm startTm;
     gmtime_r(&window.scheduledStart, &startTm);
     strftime(startStr, sizeof(startStr), "%Y-%m-%dT%H:%M:%SZ", &startTm);
 
-    char json[512];
-    snprintf(json, sizeof(json),
-             "{\"schedule_id\":\"%s\",\"load_id\":\"%s\","
-             "\"scheduled_start\":\"%s\","
-             "\"duration_minutes\":%d,\"power_kw\":%.2f,"
-             "\"estimated_cost_sek\":%.2f,\"savings_sek\":%.2f,"
-             "\"status\":\"pending\"}",
-             sched.scheduleId, sched.loadId, startStr,
-             sched.durationMinutes, sched.powerKw,
-             sched.estimatedCostSek, sched.savingsSek);
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "schedule_id", sched.scheduleId);
+    cJSON_AddStringToObject(json, "load_id", sched.loadId);
+    cJSON_AddStringToObject(json, "scheduled_start", startStr);
+    cJSON_AddNumberToObject(json, "duration_minutes", sched.durationMinutes);
+    cJSON_AddNumberToObject(json, "power_kw", sched.powerKw);
+    cJSON_AddNumberToObject(json, "estimated_cost_sek", sched.estimatedCostSek);
+    cJSON_AddNumberToObject(json, "savings_sek", sched.savingsSek);
+    cJSON_AddStringToObject(json, "status", "pending");
 
-    LOG_INFO("ClientHandler: Schedule created %s for user=%s load=%s start=%s savings=%.2f SEK",
-             sched.scheduleId, claims->subject, loadId, startStr, window.savingsSek);
+    char *jsonStr = cJSON_PrintUnformatted(json);
+    HTTPResponse_SendJson(fd, jsonStr);
+    free(jsonStr);
+    cJSON_Delete(json);
 
-    HTTPResponse_SendJson(fd, json);
+    LOG_INFO("ClientHandler: Schedule created %s for user=%s load=%s start=%s savings=%.2f SEK", sched.scheduleId, claims->subject, loadId, startStr, window.savingsSek);
 }
 
-// ---------------------------------------------------------------------------
-// GET /schedule — list all pending/active schedules for the authenticated user.
-// ---------------------------------------------------------------------------
+// GET /schedule
 static void HandleGetSchedules(int fd, struct GridGuard *app, const JWTClaims *claims)
 {
     ScheduleEntry entries[SCHEDULE_MAX_PER_USER];
     int count = 0;
 
-    if (ScheduleDB_GetByUser(&app->db, claims->subject,
-                             entries, SCHEDULE_MAX_PER_USER, &count) != 0)
+    if (ScheduleDB_GetByUser(&app->db, claims->subject, entries, SCHEDULE_MAX_PER_USER, &count) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Database error");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Database error");
         return;
     }
 
-    // Build JSON array (fixed buffer — each entry is ~250 chars max).
-    char buf[SCHEDULE_MAX_PER_USER * 300 + 32];
-    int pos = snprintf(buf, sizeof(buf), "{\"schedules\":[");
+    cJSON *root = cJSON_CreateObject();
+    cJSON *schedules = cJSON_CreateArray();
 
     for (int i = 0; i < count; i++)
     {
         const ScheduleEntry *e = &entries[i];
 
-        char startStr[32] = {0};
+        char startStr[32];
         struct tm tm_s;
         gmtime_r(&e->scheduledStart, &tm_s);
         strftime(startStr, sizeof(startStr), "%Y-%m-%dT%H:%M:%SZ", &tm_s);
 
-        int n = snprintf(buf + pos, sizeof(buf) - pos,
-                         "%s{\"schedule_id\":\"%s\",\"load_id\":\"%s\","
-                         "\"scheduled_start\":\"%s\","
-                         "\"duration_minutes\":%d,\"power_kw\":%.2f,"
-                         "\"estimated_cost_sek\":%.2f,\"savings_sek\":%.2f,"
-                         "\"status\":\"%s\"}",
-                         i == 0 ? "" : ",",
-                         e->scheduleId, e->loadId, startStr,
-                         e->durationMinutes, e->powerKw,
-                         e->estimatedCostSek, e->savingsSek,
-                         e->status);
-        if (n < 0 || (size_t)(pos + n) >= sizeof(buf) - 2)
-            break;
-        pos += n;
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "schedule_id", e->scheduleId);
+        cJSON_AddStringToObject(item, "load_id", e->loadId);
+        cJSON_AddStringToObject(item, "scheduled_start", startStr);
+        cJSON_AddNumberToObject(item, "duration_minutes", e->durationMinutes);
+        cJSON_AddNumberToObject(item, "power_kw", e->powerKw);
+        cJSON_AddNumberToObject(item, "estimated_cost_sek", e->estimatedCostSek);
+        cJSON_AddNumberToObject(item, "savings_sek", e->savingsSek);
+        cJSON_AddStringToObject(item, "status", e->status);
+        cJSON_AddItemToArray(schedules, item);
     }
 
-    snprintf(buf + pos, sizeof(buf) - pos, "]}");
-    HTTPResponse_SendJson(fd, buf);
+    cJSON_AddItemToObject(root, "schedules", schedules);
+    char *jsonStr = cJSON_PrintUnformatted(root);
+    HTTPResponse_SendJson(fd, jsonStr);
+    free(jsonStr);
+    cJSON_Delete(root);
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /schedule/:id — cancel a schedule.
-// ---------------------------------------------------------------------------
-static void HandleDeleteSchedule(int fd, struct GridGuard *app, const JWTClaims *claims,
-                                 const char *scheduleId)
+// DELETE /schedule/:id
+static void HandleDeleteSchedule(int fd, struct GridGuard *app, const JWTClaims *claims, const char *scheduleId)
 {
     int rc = ScheduleDB_Delete(&app->db, scheduleId, claims->subject);
     if (rc == -1)
@@ -520,9 +521,7 @@ static void HandleDeleteSchedule(int fd, struct GridGuard *app, const JWTClaims 
     HTTPResponse_SendJson(fd, "{\"status\":\"cancelled\"}");
 }
 
-// ---------------------------------------------------------------------------
-// Main entry point — called once per HTTP connection by a ThreadPool worker.
-// ---------------------------------------------------------------------------
+// Parse HTTP request, route to handler, and send response.
 void Client_HandleRequest(int fd, struct GridGuard *app)
 {
     HTTPRequest request;
@@ -536,9 +535,7 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
 
     LOG_INFO("ClientHandler: %s %s (fd=%d)", request.method, request.path, fd);
 
-    // -----------------------------------------------------------------------
-    // Public endpoints — no auth required.
-    // -----------------------------------------------------------------------
+    // Public endpoint.
     if (strcmp(request.path, "/health") == 0)
     {
         HandleHealth(fd);
@@ -546,9 +543,7 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
         return;
     }
 
-    // -----------------------------------------------------------------------
-    // Auth gate — all other endpoints require a valid JWT.
-    // -----------------------------------------------------------------------
+    // Validate JWT for protected endpoints.
     const char *token = HTTPRequest_GetBearerToken(&request);
     JWTClaims claims;
 
@@ -560,9 +555,6 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
         return;
     }
 
-    // -----------------------------------------------------------------------
-    // Protected endpoints.
-    // -----------------------------------------------------------------------
     if (strcmp(request.path, "/forecast") == 0)
     {
         HandleForecast(fd, app, &claims);
