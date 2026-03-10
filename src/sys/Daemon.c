@@ -119,10 +119,12 @@ int Daemon_Init(void)
     }
 
     // Step 6: Write PID file
-    if (PidFile_Write(GRIDGUARD_PID_FILE) != 0)
-    {
-        return -1;
-    }
+    // NOTE: Server runs under watchdog, so watchdog owns the PID file
+    // Do not write server PID to avoid overwriting watchdog PID
+    // if (PidFile_Write(GRIDGUARD_PID_FILE) != 0)
+    // {
+    //     return -1;
+    // }
 
     // Step 7: Ignore SIGPIPE (clients disconnecting should not kill daemon)
     signal(SIGPIPE, SIG_IGN);
@@ -179,5 +181,6 @@ void Daemon_StopHeartbeat(void)
 void Daemon_Cleanup(void)
 {
     Daemon_StopHeartbeat();
-    PidFile_Remove(GRIDGUARD_PID_FILE);
+    // Do not remove PID file - watchdog owns it
+    // PidFile_Remove(GRIDGUARD_PID_FILE);
 }

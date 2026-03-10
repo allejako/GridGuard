@@ -113,8 +113,7 @@ int SharedCache_Store(SharedCache *cache, const char *key, const char *data)
 
     if (strlen(data) >= SHARED_CACHE_DATA_MAX)
     {
-        LOG_ERROR("SharedCache: data too large for key '%s' (%zu bytes, max %d)",
-                  key, strlen(data), SHARED_CACHE_DATA_MAX - 1);
+        LOG_ERROR("SharedCache: data too large for key '%s' (%zu bytes, max %d)", key, strlen(data), SHARED_CACHE_DATA_MAX - 1);
         return -1;
     }
 

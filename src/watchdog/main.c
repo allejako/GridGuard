@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "watchdog/Watchdog.h"
 #include "sys/Logger.h"
+#include "sys/PidFile.h"
 
 int main(int argc, char *argv[])
 {
@@ -27,10 +29,19 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Watchdog is the main process - write PID file
+    if (PidFile_Write(GRIDGUARD_PID_FILE) != 0)
+    {
+        LOG_FATAL("Watchdog: Failed to write PID file");
+        Logger_Shutdown();
+        return 1;
+    }
+
     LOG_INFO("Watchdog: Starting with fetcher=%s, parser=%s, server=%s", fetcherPath, parserPath, serverPath);
 
     int result = Watchdog_Run(fetcherPath, parserPath, serverPath);
 
+    PidFile_Remove(GRIDGUARD_PID_FILE);
     Logger_Shutdown();
     return result;
 }
