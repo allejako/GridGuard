@@ -402,6 +402,37 @@ start: server
 	echo "      Seed manually: python3 scripts/seed_platform.py platform.db"; \
 	echo "                     python3 scripts/seed_client.py gridguard.db"
 
+daemon: server watchdog
+	@echo "=== GridGuard Daemon Start ==="
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    echo "Stopping existing instance..."; \
+	    $(MAKE) stop 2>/dev/null || true; fi
+	@pkill -9 GridGuard 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
+	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@sleep 0.5
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
+	echo "[1/2] Starting GridGuard in daemon mode..."; \
+	env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) --daemon; \
+	sleep 0.5; \
+	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	if [ -n "$$WATCHDOG_PID" ]; then \
+	    echo "      GridGuard PID: $$WATCHDOG_PID (daemon)"; \
+	else \
+	    echo "      ERROR: Failed to start daemon"; \
+	    exit 1; \
+	fi; \
+	printf "      Waiting for server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; done; echo " ready"; \
+	echo "[2/2] System running in background"; \
+	echo "      API:  http://localhost:8080"; \
+	echo "      Stop: make stop"; \
+	echo "      Logs: logs/*.log"; \
+	echo ""; \
+	echo "Daemon started successfully. Use 'make stop' to terminate."
+
 dev: server watchdog platform-objects
 	@if [ -f /tmp/gridguard.pid ]; then \
 	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
@@ -534,7 +565,8 @@ help:
 	@echo "  test-jwt / test-http-request / test-http-response"
 	@echo "  test-logger / test-api / test-weather / test-pipeline"
 	@echo ""
-	@echo "  start            Snabbstart med watchdog (rekommenderad)"
+	@echo "  start            Snabbstart med watchdog i foreground (development)"
+	@echo "  daemon           Starta watchdog i bakgrund (production)"
 	@echo "  run-server       Starta server med watchdog (samma som start)"
 	@echo "  server-run       Alias för run-server"
 	@echo "  dev              Utvecklingsmiljö med watchdog + test requests"
@@ -551,5 +583,5 @@ help:
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
-.PHONY: start run-server server-run run-watchdog run-client dev stop
+.PHONY: start daemon run-server server-run run-watchdog run-client dev stop
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help
