@@ -16,6 +16,7 @@
 #include "db/UserConfigDB.h"
 #include "db/ScheduleDB.h"
 #include "domain/Scheduler.h"
+#include "watchdog/Metrics.h"
 #include "sys/Logger.h"
 #include "libs/cJSON.h"
 
@@ -37,6 +38,68 @@ static time_t ParseISO8601(const char *s)
 static void HandleHealth(int fd)
 {
     HTTPResponse_SendJson(fd, "{\"status\":\"ok\",\"service\":\"GridGuard\"}");
+}
+
+// GET /metrics — returns watchdog and process metrics for monitoring
+static void HandleMetrics(int fd)
+{
+    WatchdogMetrics *metrics = Metrics_Open();
+    if (!metrics)
+    {
+        HTTPResponse_SendJson(fd, "{\"error\":\"Watchdog metrics not available\"}");
+        return;
+    }
+
+    time_t now = time(NULL);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "service", "GridGuard");
+    cJSON_AddNumberToObject(root, "timestamp", (double)now);
+
+    // Watchdog info
+    cJSON *watchdog = cJSON_AddObjectToObject(root, "watchdog");
+    cJSON_AddNumberToObject(watchdog, "uptime_seconds", (double)difftime(now, metrics->watchdog_start_time));
+    cJSON_AddNumberToObject(watchdog, "restart_count", metrics->restart_count);
+    cJSON_AddNumberToObject(watchdog, "max_restarts", metrics->max_restarts);
+    cJSON_AddNumberToObject(watchdog, "restart_window_seconds", metrics->restart_window_sec);
+
+    if (metrics->last_restart_time > 0)
+    {
+        cJSON_AddNumberToObject(watchdog, "last_restart_seconds_ago",
+                                 (double)difftime(now, metrics->last_restart_time));
+    }
+
+    // Fetcher process
+    cJSON *fetcher = cJSON_AddObjectToObject(root, "fetcher");
+    cJSON_AddNumberToObject(fetcher, "pid", (int)metrics->fetcher_pid);
+    cJSON_AddNumberToObject(fetcher, "uptime_seconds", (double)difftime(now, metrics->fetcher_start_time));
+    cJSON_AddNumberToObject(fetcher, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->fetcher_last_heartbeat));
+
+    // Parser process
+    cJSON *parser = cJSON_AddObjectToObject(root, "parser");
+    cJSON_AddNumberToObject(parser, "pid", (int)metrics->parser_pid);
+    cJSON_AddNumberToObject(parser, "uptime_seconds", (double)difftime(now, metrics->parser_start_time));
+    cJSON_AddNumberToObject(parser, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->parser_last_heartbeat));
+
+    // Server process
+    cJSON *server = cJSON_AddObjectToObject(root, "server");
+    cJSON_AddNumberToObject(server, "pid", (int)metrics->server_pid);
+    cJSON_AddNumberToObject(server, "uptime_seconds", (double)difftime(now, metrics->server_start_time));
+    cJSON_AddNumberToObject(server, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->server_last_heartbeat));
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    Metrics_Close(metrics);
+
+    if (json)
+    {
+        HTTPResponse_SendJson(fd, json);
+        free(json);
+    }
+    else
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Failed to generate metrics");
+    }
 }
 
 // GET /forecast - returns 96h energy forecast with pricing and recommendations.
@@ -170,8 +233,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
 
     if (!cJSON_IsNumber(jLat) || !cJSON_IsNumber(jLon) || !cJSON_IsString(jRegion))
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Missing required fields: latitude, longitude, region");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Missing required fields: latitude, longitude, region");
         cJSON_Delete(json);
         return;
     }
@@ -217,7 +279,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
-    UserConfig cfg;
+    UserConfig cfg;  
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.userId, claims->subject, sizeof(cfg.userId) - 1);
     if (cJSON_IsString(jLocation) && jLocation->valuestring)
@@ -246,8 +308,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
 }
 
 // POST /schedule - find cheapest time window for a shiftable load.
-static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *claims,
-                                const HTTPRequest *request)
+static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *claims, const HTTPRequest *request)
 {
     cJSON *body = cJSON_Parse(request->body);
     if (!body)
@@ -275,15 +336,13 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
 
     if (durationMinutes <= 0 || durationMinutes > 1440)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid duration_minutes: must be 1..1440");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid duration_minutes: must be 1..1440");
         cJSON_Delete(body);
         return;
     }
     if (powerKw <= 0.0 || powerKw > 1000.0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "Invalid power_kw: must be > 0 and <= 1000");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid power_kw: must be > 0 and <= 1000");
         cJSON_Delete(body);
         return;
     }
@@ -325,16 +384,14 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
 
     if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Queue full, try again later");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Queue full, try again later");
         WorkCompletion_Destroy(&wc);
         return;
     }
 
     if (WorkCompletion_Wait(&wc) != 0)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Pipeline error or timeout");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Pipeline error or timeout");
         WorkCompletion_Destroy(&wc);
         return;
     }
@@ -345,8 +402,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
 
     if (!forecast)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Failed to parse forecast data");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Failed to parse forecast data");
         return;
     }
 
@@ -354,8 +410,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     if (!cJSON_IsArray(fcArray))
     {
         cJSON_Delete(forecast);
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Invalid forecast data");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Invalid forecast data");
         return;
     }
 
@@ -363,8 +418,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     if (fcCount <= 0)
     {
         cJSON_Delete(forecast);
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "No forecast entries");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "No forecast entries");
         return;
     }
 
@@ -372,8 +426,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     if (!entries)
     {
         cJSON_Delete(forecast);
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "Out of memory");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Out of memory");
         return;
     }
 
@@ -397,28 +450,24 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     if (validCount == 0)
     {
         free(entries);
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR,
-                               "No valid forecast entries for scheduling");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "No valid forecast entries for scheduling");
         return;
     }
 
     ScheduleWindow window;
     time_t nowTime = time(NULL);
-    if (LoadScheduler_FindWindow(entries, validCount, durationMinutes, powerKw,
-                                 deadline, nowTime, &window) != 0)
+    if (LoadScheduler_FindWindow(entries, validCount, durationMinutes, powerKw, deadline, nowTime, &window) != 0)
     {
         free(entries);
-        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST,
-                               "No valid window found within forecast and deadline");
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "No valid window found within forecast and deadline");
         return;
     }
     free(entries);
 
     // Save schedule to database.
-    ScheduleEntry sched;
+    ScheduleEntry sched; 
     memset(&sched, 0, sizeof(sched));
-    snprintf(sched.scheduleId, sizeof(sched.scheduleId), "%.127s_%ld",
-             claims->subject, (long)nowTime);
+    snprintf(sched.scheduleId, sizeof(sched.scheduleId), "%.127s_%ld", claims->subject, (long)nowTime);
     strncpy(sched.userId,  claims->subject, sizeof(sched.userId)  - 1);
     strncpy(sched.loadId,  loadId,          sizeof(sched.loadId)  - 1);
     sched.scheduledStart   = window.scheduledStart;
@@ -512,8 +561,7 @@ static void HandleDeleteSchedule(int fd, struct GridGuard *app, const JWTClaims 
     }
     if (rc == 1)
     {
-        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND,
-                               "Schedule not found or not owned by user");
+        HTTPResponse_SendError(fd, HTTP_STATUS_404_NOT_FOUND, "Schedule not found or not owned by user");
         return;
     }
 
@@ -535,10 +583,17 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
 
     LOG_INFO("ClientHandler: %s %s (fd=%d)", request.method, request.path, fd);
 
-    // Public endpoint.
+    // Public endpoints.
     if (strcmp(request.path, "/health") == 0)
     {
         HandleHealth(fd);
+        close(fd);
+        return;
+    }
+
+    if (strcmp(request.path, "/metrics") == 0)
+    {
+        HandleMetrics(fd);
         close(fd);
         return;
     }
