@@ -49,7 +49,7 @@ static void *Daemon_HeartbeatLoop(void *arg)
     return NULL;
 }
 
-int Daemon_Init(void)
+int Daemon_Initiate(void)
 {
     // When running under a watchdog (GRIDGUARD_HEARTBEAT_FD is set), skip the
     // double-fork: the watchdog already owns process supervision via waitpid.
@@ -178,7 +178,7 @@ void Daemon_StopHeartbeat(void)
     }
 }
 
-void Daemon_Cleanup(void)
+void Daemon_Shutdown(void)
 {
     Daemon_StopHeartbeat();
     // Do not remove PID file - watchdog owns it
