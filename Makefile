@@ -401,63 +401,50 @@ run-client: client
 
 # Quick start: build and run (no DB seeding)
 start: server
-	@echo "=== GridGuard Start ==="
 	@if [ -f /tmp/gridguard.pid ]; then \
-	    echo "Stopping existing instance..."; \
+	    echo "stopping existing instance..."; \
 	    $(MAKE) stop 2>/dev/null || true; fi
 	@pkill -9 GridGuard 2>/dev/null || true
 	@fuser -k -9 8080/tcp 2>/dev/null || true
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
-	echo "[1/2] Starting GridGuard..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
 	sleep 0.2; \
 	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	echo "      GridGuard PID: $$WATCHDOG_PID"; \
-	printf "      Waiting for server"; \
+	echo "gridguard started (pid $$WATCHDOG_PID)"; \
+	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
-	echo "[2/2] System running"; \
-	echo "      API:  http://localhost:8080"; \
-	echo "      Stop: make stop"; \
-	echo "      Logs: logs/*.log"; \
+	echo "http://localhost:8080"; \
 	echo ""; \
-	echo "NOTE: Databases are NOT seeded automatically."; \
-	echo "      Seed manually: python3 scripts/seed_platform.py platform.db"; \
-	echo "                     python3 scripts/seed_client.py gridguard.db"
+	echo "databases not seeded - run manually:"; \
+	echo "  python3 scripts/seed_platform.py platform.db"; \
+	echo "  python3 scripts/seed_client.py gridguard.db"
 
 daemon: server watchdog
-	@echo "=== GridGuard Daemon Start ==="
 	@if [ -f /tmp/gridguard.pid ]; then \
-	    echo "Stopping existing instance..."; \
+	    echo "stopping existing instance..."; \
 	    $(MAKE) stop 2>/dev/null || true; fi
 	@pkill -9 GridGuard 2>/dev/null || true
 	@fuser -k -9 8080/tcp 2>/dev/null || true
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
-	echo "[1/2] Starting GridGuard in daemon mode..."; \
 	env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) --daemon; \
 	sleep 0.5; \
 	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	if [ -n "$$WATCHDOG_PID" ]; then \
-	    echo "      GridGuard PID: $$WATCHDOG_PID (daemon)"; \
-	else \
-	    echo "      ERROR: Failed to start daemon"; \
+	if [ -z "$$WATCHDOG_PID" ]; then \
+	    echo "failed to start daemon"; \
 	    exit 1; \
 	fi; \
-	printf "      Waiting for server"; \
+	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
-	echo "[2/2] System running in background"; \
-	echo "      API:  http://localhost:8080"; \
-	echo "      Stop: make stop"; \
-	echo "      Logs: logs/*.log"; \
-	echo ""; \
-	echo "Daemon started successfully. Use 'make stop' to terminate."
+	echo "daemon running (pid $$WATCHDOG_PID)"; \
+	echo "http://localhost:8080"
 
 dev: server watchdog platform-objects
 	@if [ -f /tmp/gridguard.pid ]; then \
@@ -466,84 +453,65 @@ dev: server watchdog platform-objects
 	@fuser -k -9 8080/tcp 2>/dev/null || true
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
-	@echo "GridGuard Development Environment"
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
-	echo "[1/5] Platform registration"; \
+	echo "seeding platform.db..."; \
 	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
-	echo "[2/5] JWT token issuance"; \
+	echo "generating jwt token..."; \
 	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
-	if [ -z "$$DEV_TOKEN" ]; then echo "ERROR: Token generation failed"; exit 1; fi; \
-	echo "      Token: $$(echo $$DEV_TOKEN | cut -c1-50)..."; \
-	echo "[3/5] Client device setup"; \
+	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
+	echo "seeding gridguard.db..."; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
-	echo "[4/5] Starting GridGuard"; \
+	echo "starting gridguard..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
 	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
-	echo "      GridGuard PID: $$MAIN_PID"; \
-	printf "Waiting for server"; \
+	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
 	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	[ -n "$$SERVER_PID" ] && echo "      Server  PID: $$SERVER_PID"; \
 	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
-	[ -n "$$FETCHER_PID" ] && echo "      Fetcher PID: $$FETCHER_PID"; \
 	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	[ -n "$$PARSER_PID" ] && echo "      Parser  PID: $$PARSER_PID"; \
-	echo "[5/5] Testing authenticated requests"; \
-	echo "GET /forecast"; \
+	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo ""; \
+	echo "testing /forecast:"; \
 	curl -s -X GET "http://localhost:8080/forecast" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
-	echo "GET /schedule"; \
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed"; \
+	echo ""; \
+	echo "testing /schedule:"; \
 	curl -s -X GET "http://localhost:8080/schedule" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed";
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed";
 
 stop:
-	@echo "Stopping GridGuard gracefully..."
+	@echo "stopping gridguard..."
 	@if [ -f /tmp/gridguard.pid ]; then \
 	    PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
 	    if [ -n "$$PID" ]; then \
-	        echo "  [→] Sending SIGTERM to watchdog PID $$PID"; \
-	        if kill -TERM $$PID 2>/dev/null; then \
-	            echo "  [→] Waiting for graceful shutdown..."; \
-	            for i in 1 2 3 4 5; do \
-	                if ! kill -0 $$PID 2>/dev/null; then \
-	                    echo "  [OK] Watchdog stopped gracefully"; \
-	                    rm -f /tmp/gridguard.pid; \
-	                    exit 0; \
-	                fi; \
-	                sleep 1; \
-	            done; \
-	            echo "  [!!] Watchdog did not stop, forcing..."; \
-	            kill -9 $$PID 2>/dev/null; \
-	            echo "  [OK] Watchdog killed (SIGKILL)"; \
-	        fi; \
+	        kill -TERM $$PID 2>/dev/null; \
+	        for i in 1 2 3 4 5; do \
+	            if ! kill -0 $$PID 2>/dev/null; then \
+	                echo "stopped"; \
+	                rm -f /tmp/gridguard.pid; \
+	                exit 0; \
+	            fi; \
+	            sleep 1; \
+	        done; \
+	        echo "watchdog not responding, force killing..."; \
+	        kill -9 $$PID 2>/dev/null; \
 	        rm -f /tmp/gridguard.pid; \
 	    fi; \
 	else \
-	    echo "  [i] No PID file found"; \
+	    echo "no pid file found"; \
 	fi
-	@echo "  [→] Cleaning up stray processes (if any)..."
 	@sleep 1
 	@FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
-	if [ -n "$$FETCHER_PID" ]; then \
-	    echo "  [!!] Stray fetcher PID $$FETCHER_PID found, killing..."; \
-	    kill -9 $$FETCHER_PID 2>/dev/null; \
-	fi
+	[ -n "$$FETCHER_PID" ] && echo "cleaning up fetcher ($$FETCHER_PID)" && kill -9 $$FETCHER_PID 2>/dev/null || true
 	@PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	if [ -n "$$PARSER_PID" ]; then \
-	    echo "  [!!] Stray parser PID $$PARSER_PID found, killing..."; \
-	    kill -9 $$PARSER_PID 2>/dev/null; \
-	fi
+	[ -n "$$PARSER_PID" ] && echo "cleaning up parser ($$PARSER_PID)" && kill -9 $$PARSER_PID 2>/dev/null || true
 	@SERVER_PID=$$(pgrep -f GridGuard-server 2>/dev/null | head -1); \
-	if [ -n "$$SERVER_PID" ]; then \
-	    echo "  [!!] Stray server PID $$SERVER_PID found, killing..."; \
-	    kill -9 $$SERVER_PID 2>/dev/null; \
-	fi
-	@fuser -k -9 8080/tcp 2>/dev/null && echo "  [→] Port 8080 freed" || true
+	[ -n "$$SERVER_PID" ] && echo "cleaning up server ($$SERVER_PID)" && kill -9 $$SERVER_PID 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
 	@rm -f /tmp/gridguard_*.fifo /tmp/gridguard_*.sock /tmp/gridguard.status 2>/dev/null || true
-	@echo "  [✓] GridGuard stopped"
 
 # ── Analys ─────────────────────────────────────────────────────────────
 .PHONY: valgrind-server helgrind gprof-analyze
