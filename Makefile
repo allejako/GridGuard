@@ -346,6 +346,32 @@ test-weather: directories $(TEST_WEATHER_BIN)
 test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@$(TEST_PIPELINE_BIN)
 
+# ── Google Test (CMake-based) ──────────────────────────────────────────
+CMAKE_BUILD_DIR = build
+
+.PHONY: build-gtest test-gtest clean-gtest test-all
+
+build-gtest:
+	@echo "Configuring CMake build system..."
+	@cmake -S . -B $(CMAKE_BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
+	@echo "Building Google Tests..."
+	@cmake --build $(CMAKE_BUILD_DIR) -j$$(nproc)
+
+test-gtest: build-gtest
+	@echo "======================================"
+	@echo "Running Google Tests with ASAN/UBSAN"
+	@echo "======================================"
+	@cd $(CMAKE_BUILD_DIR) && ctest --output-on-failure
+
+test-all: test test-gtest
+	@echo "======================================"
+	@echo "All legacy and Google tests passed!"
+	@echo "======================================"
+
+clean-gtest:
+	@rm -rf $(CMAKE_BUILD_DIR)
+	@echo "CMake build directory cleaned"
+
 # ── Körning ────────────────────────────────────────────────────────────
 .PHONY: run-server server-run run-watchdog run-client start dev stop
 
@@ -544,6 +570,9 @@ clean-ipc:
 .PHONY: clean distclean
 clean:
 	rm -rf $(BUILD) $(BIN) gmon.out *.gcda *.gcno *.gcov profile_report.txt vgcore.*
+	rm -rf $(CMAKE_BUILD_DIR) CMakeCache.txt CMakeFiles cmake_install.cmake CTestTestfile.cmake Makefile.cmake
+	rm -rf _deps lib tests/CMakeFiles tests/cmake_install.cmake tests/CTestTestfile.cmake
+	rm -f tests/test_*_gtest
 
 distclean: clean
 	rm -f logs/*.log *.sock *.pid
@@ -561,9 +590,13 @@ help:
 	@echo ""
 	@echo "  debug / release / profile / coverage"
 	@echo ""
-	@echo "  test             Kör alla tester"
+	@echo "  test             Kör alla legacy C-tester"
 	@echo "  test-jwt / test-http-request / test-http-response"
 	@echo "  test-logger / test-api / test-weather / test-pipeline"
+	@echo "  test-gtest       Kör Google Tests med ASAN/UBSAN sanitizers"
+	@echo "  build-gtest      Bygg Google Tests (CMake-baserade)"
+	@echo "  test-all         Kör alla tester (legacy + Google Test)"
+	@echo "  clean-gtest      Rensa CMake build-katalog"
 	@echo ""
 	@echo "  start            Snabbstart med watchdog i foreground (development)"
 	@echo "  daemon           Starta watchdog i bakgrund (production)"
@@ -583,5 +616,6 @@ help:
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
+.PHONY: build-gtest test-gtest clean-gtest test-all
 .PHONY: start daemon run-server server-run run-watchdog run-client dev stop
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help
