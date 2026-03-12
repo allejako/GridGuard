@@ -51,12 +51,22 @@ int WorkerPool_Start(WorkerPool *pool)
                            pool->threadFunc, &pool->workers[i]) != 0)
         {
             LOG_FATAL("WorkerPool: Failed to create thread %d", i);
+
+            // Cleanup already-created threads
             for (int j = 0; j < i; j++)
             {
                 pool->workers[j].isRunning = false;
                 pthread_cond_signal(&pool->workers[j].cond);
                 pthread_join(pool->workers[j].thread, NULL);
+                pthread_mutex_destroy(&pool->workers[j].mutex);
+                pthread_cond_destroy(&pool->workers[j].cond);
             }
+
+            // Cleanup pool-level resources
+            pthread_mutex_destroy(&pool->mutex);
+            free(pool->workers);
+            pool->workers = NULL;
+
             return -1;
         }
     }
