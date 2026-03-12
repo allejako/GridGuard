@@ -83,7 +83,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->parser.pid = spawn_process(group->parser.path, group->parser.name,
+    group->parser.pid = spawnProcess(group->parser.path, group->parser.name,
                                      parser_argv, &group->parser.heartbeat);
     if (group->parser.pid < 0)
     {
@@ -102,7 +102,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->fetcher.pid = spawn_process(group->fetcher.path, group->fetcher.name,
+    group->fetcher.pid = spawnProcess(group->fetcher.path, group->fetcher.name,
                                       fetcher_argv, &group->fetcher.heartbeat);
     if (group->fetcher.pid < 0)
     {
@@ -120,7 +120,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->server.pid = spawn_process(group->server.path, group->server.name,
+    group->server.pid = spawnProcess(group->server.path, group->server.name,
                                      server_argv, &group->server.heartbeat);
     if (group->server.pid < 0)
     {
