@@ -3,9 +3,9 @@
 
 #include "sys/WorkCompletion.h"
 
-// Maps userId -> WorkCompletion pointer so the compute thread can signal
-// the right HTTP worker without needing a direct pointer in the work request.
-// All operations are protected by an internal mutex.
+// Maps userId -> WorkCompletion pointer.
+// Thread-safe (internal mutex). Max 1024 concurrent entries.
+// Lock level 1 - do not call Queue_Push while holding registry lock.
 
 void RegisterCompletion(const char *userId, WorkCompletion *completion);
 WorkCompletion *FindCompletionByUserId(const char *userId);

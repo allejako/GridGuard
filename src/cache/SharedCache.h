@@ -1,6 +1,11 @@
 #ifndef SHARED_CACHE_H
 #define SHARED_CACHE_H
 
+// Process-shared cache using POSIX shared memory and pthread_rwlock.
+// Thread-safe and process-safe. 16 entries max, 32KB per entry, LRU eviction.
+// Uses mmap() - each process maps at different virtual address.
+// Do not store pointers in shared region (invalid across processes).
+
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
