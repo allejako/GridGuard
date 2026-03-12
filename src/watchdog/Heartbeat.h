@@ -6,8 +6,7 @@
 
 typedef struct Heartbeat Heartbeat;
 
-Heartbeat *Heartbeat_Create(void);
-void Heartbeat_Destroy(Heartbeat *hb);
+Heartbeat *Heartbeat_Initiate(void);
 
 // For child process after fork
 int Heartbeat_GetWriteFd(const Heartbeat *hb);
@@ -18,5 +17,7 @@ int Heartbeat_CloseReadFd(Heartbeat *hb);   // Child closes this
 
 // Returns 1 if heartbeat received, 0 on timeout, -1 on error
 int Heartbeat_Check(Heartbeat *hb, int timeout_sec);
+
+void Heartbeat_Shutdown(Heartbeat *hb);
 
 #endif

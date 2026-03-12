@@ -46,7 +46,7 @@ SERVER_SRCS = \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c \
     $(SRC)/compute/ComputeWorker.c \
-    $(SRC)/domain/Scheduler.c \
+    $(SRC)/domain/LoadScheduler.c \
     $(SRC)/watchdog/Metrics.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/api/APIEndpoints.c \
@@ -303,7 +303,7 @@ $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
 $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/server/ClientHandler.c $(SRC)/server/Server.c \
     $(SRC)/net/TCPServer.c $(SRC)/net/HTTPRequest.c $(SRC)/net/HTTPResponse.c \
-    $(SRC)/auth/JWTValidator.c $(SRC)/db/ScheduleDB.c $(SRC)/domain/Scheduler.c \
+    $(SRC)/auth/JWTValidator.c $(SRC)/db/ScheduleDB.c $(SRC)/domain/LoadScheduler.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c $(SRC)/compute/ComputeWorker.c \
@@ -416,9 +416,24 @@ start: server
 	    printf "."; sleep 0.5; done; echo " ready"; \
 	echo "http://localhost:8080"; \
 	echo ""; \
-	echo "databases not seeded - run manually:"; \
-	echo "  python3 scripts/seed_platform.py platform.db"; \
-	echo "  python3 scripts/seed_client.py gridguard.db"
+	echo "DEMO FLOW:"; \
+	echo ""; \
+	echo "  For automated demo with everything set up: make dev"; \
+	echo ""; \
+	echo "  Manual setup (for demonstrations):"; \
+	echo ""; \
+	echo "  1. Seed databases:"; \
+	echo "     python3 scripts/seed_platform.py platform.db"; \
+	echo "     python3 scripts/seed_client.py gridguard.db"; \
+	echo ""; \
+	echo "  2. Generate JWT token:"; \
+	echo "     export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\""; \
+	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db test_user)"; \
+	echo ""; \
+	echo "  3. Test endpoint:"; \
+	echo "     curl -H \"Authorization: Bearer \$$TOKEN\" http://localhost:8080/forecast"; \
+	echo ""; \
+	echo "  Open http://localhost:8080 for API documentation"
 
 daemon: server watchdog
 	@if [ -f /tmp/gridguard.pid ]; then \
@@ -470,6 +485,21 @@ dev: server watchdog platform-objects
 	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
 	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
 	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "DEMO READY"; \
+	echo ""; \
+	echo "  1. Open browser → http://localhost:8080"; \
+	echo ""; \
+	echo "  2. JWT Token (already generated):"; \
+	echo "     $$DEV_TOKEN"; \
+	echo ""; \
+	echo "  3. Test authenticated endpoint:"; \
+	echo "     curl -H \"Authorization: Bearer $$DEV_TOKEN\" \\"; \
+	echo "          http://localhost:8080/forecast"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo ""; \
 	echo "testing /forecast:"; \
 	curl -s -X GET "http://localhost:8080/forecast" \

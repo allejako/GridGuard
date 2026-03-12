@@ -12,11 +12,10 @@
 #include <sys/wait.h>
 #include <stdio.h>
 
-static pid_t spawnProcess(const char *path, const char *name,
-                          char *const argv[], Heartbeat **hbOut)
+static pid_t spawnProcess(const char *path, const char *name, char *const argv[], Heartbeat **hbOut)
 {
-    Heartbeat_Destroy(*hbOut);
-    *hbOut = Heartbeat_Create();
+    Heartbeat_Shutdown(*hbOut);
+    *hbOut = Heartbeat_Initiate();
     if (!*hbOut)
         LOG_WARNING("ProcessSpawner: Continuing without %s heartbeat pipe", name);
 
@@ -51,10 +50,10 @@ static pid_t spawnProcess(const char *path, const char *name,
     return pid;
 }
 
-void ProcessGroup_Init(ProcessGroup *group,
-                       const char *fetcherPath,
-                       const char *parserPath,
-                       const char *serverPath)
+void ProcessGroup_Initiate(ProcessGroup *group,
+                           const char *fetcherPath,
+                           const char *parserPath,
+                           const char *serverPath)
 {
     group->fetcher.pid = -1;
     group->fetcher.heartbeat = NULL;
@@ -80,6 +79,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         "GridGuard-parser",
         FETCH_TO_PARSE_FIFO_PATH,
         PARSE_TO_COMPUTE_SOCK_PATH,
+        PARSE_TO_COMPUTE_NOTIFY_PATH,
         NULL
     };
 
@@ -159,9 +159,9 @@ void ProcessGroup_WaitAll(ProcessGroup *group)
 // Cleanup heartbeats and reset PIDs
 void ProcessGroup_Cleanup(ProcessGroup *group)
 {
-    Heartbeat_Destroy(group->fetcher.heartbeat);
-    Heartbeat_Destroy(group->parser.heartbeat);
-    Heartbeat_Destroy(group->server.heartbeat);
+    Heartbeat_Shutdown(group->fetcher.heartbeat);
+    Heartbeat_Shutdown(group->parser.heartbeat);
+    Heartbeat_Shutdown(group->server.heartbeat);
 
     group->fetcher.heartbeat = NULL;
     group->parser.heartbeat = NULL;

@@ -15,7 +15,7 @@ struct Heartbeat
     int write_fd;
 };
 
-Heartbeat *Heartbeat_Create(void)
+Heartbeat *Heartbeat_Initiate(void)
 {
     int fds[2];
     if (pipe(fds) < 0)
@@ -39,7 +39,7 @@ Heartbeat *Heartbeat_Create(void)
     return hb;
 }
 
-void Heartbeat_Destroy(Heartbeat *hb)
+void Heartbeat_Shutdown(Heartbeat *hb)
 {
     if (!hb)
         return;

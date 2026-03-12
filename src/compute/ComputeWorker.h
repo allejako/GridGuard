@@ -10,6 +10,7 @@
 typedef struct
 {
     const char *socketPath; // Unix socket path served by the Parser process
+    const char *notifyPath; // Notify FIFO path from Parser process
     void       *compute;    // Compute service (opaque pointer to Compute)
     bool        isRunning;
 } ComputeWorker;

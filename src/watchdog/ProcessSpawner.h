@@ -17,7 +17,7 @@ typedef struct {
     ManagedProcess server;
 } ProcessGroup;
 
-void ProcessGroup_Init(ProcessGroup *group, const char *fetcherPath, const char *parserPath, const char *serverPath);
+void ProcessGroup_Initiate(ProcessGroup *group, const char *fetcherPath, const char *parserPath, const char *serverPath);
 int ProcessGroup_SpawnAll(ProcessGroup *group);
 void ProcessGroup_KillAll(ProcessGroup *group, int signal);
 void ProcessGroup_WaitAll(ProcessGroup *group);

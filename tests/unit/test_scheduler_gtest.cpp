@@ -6,7 +6,7 @@
 #include <vector>
 
 extern "C" {
-    #include "domain/Scheduler.h"
+    #include "domain/LoadScheduler.h"
 }
 
 class LoadSchedulerTest : public ::testing::Test {

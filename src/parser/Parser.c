@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -19,14 +20,13 @@
 #include <sys/un.h>
 #include <time.h>
 #include <math.h>
+#include <errno.h>
 
 // Helper: parse ISO 8601 timestamp till time_t
 static time_t parse_iso8601(const char *timeStr)
 {
     struct tm tm = {0};
-    sscanf(timeStr, "%d-%d-%dT%d:%d:%d",
-           &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-           &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
+    sscanf(timeStr, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
     tm.tm_year -= 1900;
     tm.tm_mon -= 1;
     return mktime(&tm);
@@ -73,14 +73,15 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
     LOG_INFO("ParserProcess: Built forecast with %d entries", count);
 }
 
-int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath)
+int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath, const char *notifyPath)
 {
-    if (!proc || !fifoPath || !socketPath)
+    if (!proc || !fifoPath || !socketPath || !notifyPath)
         return -1;
 
     memset(proc, 0, sizeof(ParserProcess));
     strncpy(proc->fifoPath, fifoPath, sizeof(proc->fifoPath) - 1);
     strncpy(proc->socketPath, socketPath, sizeof(proc->socketPath) - 1);
+    strncpy(proc->notifyPath, notifyPath, sizeof(proc->notifyPath) - 1);
 
     // Allokera APIParser service
     proc->parser = calloc(1, sizeof(APIParser));
@@ -145,8 +146,39 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
+    // Skapa notify FIFO för att signalera Compute när data är redo
+    unlink(notifyPath); // Ta bort gammal FIFO om den finns
+    if (mkfifo(notifyPath, 0600) < 0 && errno != EEXIST)
+    {
+        LOG_ERROR("ParserProcess: Failed to create notify FIFO %s: %s", notifyPath, strerror(errno));
+        close(proc->fifoFd);
+        close(proc->serverSocket);
+        unlink(socketPath);
+        APIParser_Shutdown((APIParser *)proc->parser);
+        free(proc->parser);
+        return -1;
+    }
+
+    // Öppna notify FIFO för skrivning (will block until ComputeWorker opens read end)
+    // This synchronizes Parser and ComputeWorker startup
+    LOG_INFO("ParserProcess: Waiting for ComputeWorker to open notify FIFO %s", notifyPath);
+    proc->notifyFd = open(notifyPath, O_WRONLY);
+    if (proc->notifyFd < 0)
+    {
+        LOG_ERROR("ParserProcess: Failed to open notify FIFO %s: %s", notifyPath, strerror(errno));
+        close(proc->fifoFd);
+        close(proc->serverSocket);
+        unlink(socketPath);
+        unlink(notifyPath);
+        APIParser_Shutdown((APIParser *)proc->parser);
+        free(proc->parser);
+        return -1;
+    }
+
+    LOG_INFO("ParserProcess: ComputeWorker connected via notify FIFO");
+
     proc->isRunning = true;
-    LOG_INFO("ParserProcess: Initialized (PID %d, FIFO %s, Socket %s)", getpid(), fifoPath, socketPath);
+    LOG_INFO("ParserProcess: Initialized (PID %d, FIFO %s, Socket %s, Notify %s)", getpid(), fifoPath, socketPath, notifyPath);
     return 0;
 }
 
@@ -162,128 +194,205 @@ int ParserProcess_Run(ParserProcess *proc)
 
     LOG_INFO("ParserProcess: Starting main loop");
 
+    // State: we might have parsed data waiting to be sent, and/or a pending client connection
+    ParseResult *pendingResult = NULL;
+    int pendingClientSocket = -1;
+
     while (proc->isRunning)
     {
         ProcessHeartbeat_Send(&heartbeat);
 
-        // Use select() with timeout to check if FIFO has data, allowing periodic heartbeats.
+        // Monitor BOTH FIFO and server socket simultaneously
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(proc->fifoFd, &readfds);
+        FD_SET(proc->serverSocket, &readfds);
+
+        int maxFd = (proc->fifoFd > proc->serverSocket) ? proc->fifoFd : proc->serverSocket;
 
         struct timeval timeout;
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
-        int ready = select(proc->fifoFd + 1, &readfds, NULL, NULL, &timeout);
+        int ready = select(maxFd + 1, &readfds, NULL, NULL, &timeout);
         if (ready < 0)
         {
-            LOG_ERROR("ParserProcess: select() failed");
+            LOG_ERROR("ParserProcess: select() failed: %s", strerror(errno));
             break;
         }
 
         if (ready == 0)
-            continue; // Timeout, no data - loop again to send heartbeat.
+            continue; // Timeout - loop again to send heartbeat
 
-        FetchResult fetchResult;
-        ssize_t bytesRead = read(proc->fifoFd, &fetchResult, sizeof(fetchResult));
-
-        if (bytesRead == 0)
+        // Check if we have a new client connection
+        if (FD_ISSET(proc->serverSocket, &readfds) && pendingClientSocket < 0)
         {
-            LOG_INFO("ParserProcess: FIFO closed, exiting");
-            break;
-        }
-
-        if (bytesRead != sizeof(fetchResult))
-        {
-            LOG_ERROR("ParserProcess: Partial read from FIFO (%zd bytes)", bytesRead);
-            continue;
-        }
-
-        LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
-
-        // Parsa JSON data från FetchResult
-        OpenMeteoResponse omData = {0};
-        ElprisetResponse elprisetData = {0};
-        bool omParsed = false;
-        bool pricesParsed = false;
-
-        if (strlen(fetchResult.openMeteoJson) > 0)
-        {
-            if (APIParser_ParseOpenMeteo(parser, fetchResult.openMeteoJson, &omData) == 0)
+            pendingClientSocket = accept(proc->serverSocket, NULL, NULL);
+            if (pendingClientSocket < 0)
             {
-                LOG_INFO("ParserProcess: Parsed %d Open-Meteo entries", omData.count);
-                omParsed = true;
+                LOG_ERROR("ParserProcess: Failed to accept connection: %s", strerror(errno));
             }
             else
             {
-                LOG_ERROR("ParserProcess: Open-Meteo parse failed");
+                LOG_INFO("ParserProcess: Accepted connection from Compute thread");
             }
         }
 
-        if (strlen(fetchResult.priceJson) > 0)
+        // Check if we have new FIFO data to process
+        if (FD_ISSET(proc->fifoFd, &readfds) && !pendingResult)
         {
-            if (APIParser_ParseElpriset(parser, fetchResult.priceJson, &elprisetData) == 0)
+            FetchResult fetchResult;
+            ssize_t bytesRead = read(proc->fifoFd, &fetchResult, sizeof(fetchResult));
+
+            if (bytesRead == 0)
             {
-                LOG_INFO("ParserProcess: Parsed %d price entries", elprisetData.count);
-                pricesParsed = true;
+                LOG_INFO("ParserProcess: FIFO closed, exiting");
+                break;
+            }
+
+            if (bytesRead != sizeof(fetchResult))
+            {
+                LOG_ERROR("ParserProcess: Partial read from FIFO (%zd bytes)", bytesRead);
+                continue;
+            }
+
+            LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
+
+            // Parsa JSON data från FetchResult
+            OpenMeteoResponse omData = {0};
+            ElprisetResponse elprisetData = {0};
+            bool omParsed = false;
+            bool pricesParsed = false;
+
+            if (strlen(fetchResult.openMeteoJson) > 0)
+            {
+                if (APIParser_ParseOpenMeteo(parser, fetchResult.openMeteoJson, &omData) == 0)
+                {
+                    LOG_INFO("ParserProcess: Parsed %d Open-Meteo entries", omData.count);
+                    omParsed = true;
+                }
+                else
+                {
+                    LOG_ERROR("ParserProcess: Open-Meteo parse failed");
+                }
+            }
+
+            if (strlen(fetchResult.priceJson) > 0)
+            {
+                if (APIParser_ParseElpriset(parser, fetchResult.priceJson, &elprisetData) == 0)
+                {
+                    LOG_INFO("ParserProcess: Parsed %d price entries", elprisetData.count);
+                    pricesParsed = true;
+                }
+                else
+                {
+                    LOG_ERROR("ParserProcess: Elpriset parse failed");
+                }
+            }
+
+            if (!omParsed)
+            {
+                LOG_ERROR("ParserProcess: Cannot create forecast without Open-Meteo data");
+                continue;
+            }
+
+            // Allocate and build ParseResult with data from FetchResult + parsed API responses
+            pendingResult = calloc(1, sizeof(ParseResult));
+            if (!pendingResult)
+            {
+                LOG_ERROR("ParserProcess: Failed to allocate ParseResult");
+                continue;
+            }
+
+            strncpy(pendingResult->userId, fetchResult.userId, sizeof(pendingResult->userId) - 1);
+            strncpy(pendingResult->location, fetchResult.location, sizeof(pendingResult->location) - 1);
+            strncpy(pendingResult->region, fetchResult.region, sizeof(pendingResult->region) - 1);
+            pendingResult->solarAreaM2 = fetchResult.solarAreaM2;
+            pendingResult->solarEfficiency = fetchResult.solarEfficiency;
+            pendingResult->consumptionKwh = fetchResult.consumptionKwh;
+            pendingResult->gridFee_low = fetchResult.gridFee_low;
+            pendingResult->gridFee_normal = fetchResult.gridFee_normal;
+            pendingResult->gridFee_high = fetchResult.gridFee_high;
+
+            if (pricesParsed)
+            {
+                build_forecast_data(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
             }
             else
             {
-                LOG_ERROR("ParserProcess: Elpriset parse failed");
+                // Build forecast without prices
+                build_forecast_data(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
+            }
+
+            LOG_INFO("ParserProcess: Data ready for %s, notifying Compute", pendingResult->userId);
+
+            // Send notification to Compute via notify FIFO
+            char notifySignal = 1; // Single byte to signal data ready
+            ssize_t written = write(proc->notifyFd, &notifySignal, 1);
+            if (written < 0)
+            {
+                LOG_ERROR("ParserProcess: Failed to write notify signal: %s", strerror(errno));
             }
         }
 
-        if (!omParsed)
+        // If we have BOTH parsed data AND a client connection, send the data
+        if (pendingResult && pendingClientSocket >= 0)
         {
-            LOG_ERROR("ParserProcess: Cannot create forecast without Open-Meteo data");
-            continue;
-        }
+            // Verify socket is still valid before writing
+            int socket_error = 0;
+            socklen_t error_len = sizeof(socket_error);
+            if (getsockopt(pendingClientSocket, SOL_SOCKET, SO_ERROR, &socket_error, &error_len) < 0 || socket_error != 0)
+            {
+                LOG_ERROR("ParserProcess: Socket is in error state: %s", socket_error ? strerror(socket_error) : "getsockopt failed");
+                close(pendingClientSocket);
+                pendingClientSocket = -1;
+                free(pendingResult);
+                pendingResult = NULL;
+                continue;
+            }
 
-        // Bygg ParseResult med data från FetchResult + parsade API-responser
-        ParseResult parseResult = {0};
-        strncpy(parseResult.userId, fetchResult.userId, sizeof(parseResult.userId) - 1);
-        strncpy(parseResult.location, fetchResult.location, sizeof(parseResult.location) - 1);
-        strncpy(parseResult.region, fetchResult.region, sizeof(parseResult.region) - 1);
-        parseResult.solarAreaM2 = fetchResult.solarAreaM2;
-        parseResult.solarEfficiency = fetchResult.solarEfficiency;
-        parseResult.consumptionKwh = fetchResult.consumptionKwh;
-        parseResult.gridFee_low = fetchResult.gridFee_low;
-        parseResult.gridFee_normal = fetchResult.gridFee_normal;
-        parseResult.gridFee_high = fetchResult.gridFee_high;
+            // Send ParseResult to Compute via socket (handle partial writes)
+            size_t totalSize = sizeof(ParseResult);
+            size_t totalWritten = 0;
+            const char *buf = (const char *)pendingResult;
 
-        if (pricesParsed)
-        {
-            build_forecast_data(&omData, &elprisetData, fetchResult.region, &parseResult.forecastData);
-        }
-        else
-        {
-            // Bygg forecast utan prices
-            build_forecast_data(&omData, &elprisetData, fetchResult.region, &parseResult.forecastData);
-        }
+            while (totalWritten < totalSize)
+            {
+                ssize_t written = write(pendingClientSocket, buf + totalWritten, totalSize - totalWritten);
+                if (written < 0)
+                {
+                    LOG_ERROR("ParserProcess: Failed to write ParseResult to socket: %s (written %zu/%zu bytes)", strerror(errno), totalWritten, totalSize);
+                    break;
+                }
+                if (written == 0)
+                {
+                    LOG_WARNING("ParserProcess: Socket closed by peer after %zu/%zu bytes", totalWritten, totalSize);
+                    break;
+                }
+                totalWritten += written;
+            }
 
-        // Vänta på connection från Compute-tråd
-        int clientSocket = accept(proc->serverSocket, NULL, NULL);
-        if (clientSocket < 0)
-        {
-            LOG_ERROR("ParserProcess: Failed to accept connection");
-            continue;
-        }
+            if (totalWritten == totalSize)
+            {
+                LOG_INFO("ParserProcess: Sent ParseResult to Compute (%zu bytes)", totalWritten);
+            }
 
-        LOG_INFO("ParserProcess: Accepted connection from Compute thread");
-
-        // Skicka ParseResult till Compute via socket 
-        ssize_t written = write(clientSocket, &parseResult, sizeof(parseResult));
-        if (written != sizeof(parseResult))
-        {
-            LOG_ERROR("ParserProcess: Failed to write ParseResult to socket (%zd bytes)", written);
+            // Clean up - transaction complete
+            close(pendingClientSocket);
+            pendingClientSocket = -1;
+            free(pendingResult);
+            pendingResult = NULL;
         }
-        else
-        {
-            LOG_INFO("ParserProcess: Sent ParseResult to Compute (%zd bytes)", written);
-        }
+    }
 
-        close(clientSocket);
+    // Cleanup any pending state before exit
+    if (pendingResult)
+    {
+        free(pendingResult);
+    }
+    if (pendingClientSocket >= 0)
+    {
+        close(pendingClientSocket);
     }
 
     LOG_INFO("ParserProcess: Main loop exited");
@@ -305,7 +414,11 @@ void ParserProcess_Shutdown(ParserProcess *proc)
     if (proc->serverSocket >= 0)
         close(proc->serverSocket);
 
+    if (proc->notifyFd >= 0)
+        close(proc->notifyFd);
+
     unlink(proc->socketPath);
+    unlink(proc->notifyPath);
 
     if (proc->parser)
     {

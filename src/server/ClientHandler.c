@@ -15,7 +15,7 @@
 #include "auth/JWTValidator.h"
 #include "db/UserConfigDB.h"
 #include "db/ScheduleDB.h"
-#include "domain/Scheduler.h"
+#include "domain/LoadScheduler.h"
 #include "watchdog/Metrics.h"
 #include "sys/Logger.h"
 #include "libs/cJSON.h"
@@ -32,6 +32,81 @@ static time_t ParseISO8601(const char *s)
         return 0;
     tm.tm_isdst = 0;
     return timegm(&tm);
+}
+
+// GET / - GRIDGUARD ROOT // Simple welcome page with API documentation and quick start instructions.
+static void HandleRoot(int fd)
+{
+    const char *welcome =
+        "<!DOCTYPE html>\n"
+        "<html><head><title>GridGuard</title>\n"
+        "<meta charset='utf-8'>\n"
+        "<style>\n"
+        "body { background: #fff; color: #1a1a1a; margin: 0; padding: 60px 20px; font-family: 'SF Mono', 'Monaco', 'Courier New', monospace; }\n"
+        "pre { font-size: 14px; line-height: 1.6; max-width: 800px; margin: 0 auto; white-space: pre; }\n"
+        ".brand { font-size: 28px; font-weight: 900; color: #000; letter-spacing: 0.15em; }\n"
+        ".separator { color: #000; margin: 6px 0 20px 0; }\n"
+        ".tagline { color: #666; font-size: 13px; margin-bottom: 40px; }\n"
+        ".section-title { color: #000; font-weight: bold; }\n"
+        ".endpoint { color: #333; }\n"
+        ".arrow { color: #999; }\n"
+        ".comment { color: #999; }\n"
+        ".divider { color: #ddd; }\n"
+        "</style>\n"
+        "</head><body>\n"
+        "<pre>\n"
+        "\n"
+        "  <span class='brand'>GRIDGUARD</span>\n"
+        "  <span class='separator'>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>\n"
+        "  <span class='tagline'>Energy optimization for Swedish households</span>\n"
+        "\n"
+        "\n"
+        "  <span class='section-title'>PUBLIC ENDPOINTS</span>\n"
+        "\n"
+        "    <span class='endpoint'>GET  /</span>              <span class='arrow'>→</span> This page\n"
+        "    <span class='endpoint'>GET  /health</span>        <span class='arrow'>→</span> Health check\n"
+        "    <span class='endpoint'>GET  /metrics</span>       <span class='arrow'>→</span> Process metrics\n"
+        "\n"
+        "\n"
+        "  <span class='section-title'>AUTHENTICATED ENDPOINTS</span> <span class='comment'>(JWT required)</span>\n"
+        "\n"
+        "    <span class='endpoint'>GET     /forecast</span>      <span class='arrow'>→</span> 96h energy forecast\n"
+        "    <span class='endpoint'>GET/PUT /user/config</span>   <span class='arrow'>→</span> User configuration\n"
+        "    <span class='endpoint'>GET     /schedule</span>      <span class='arrow'>→</span> List scheduled loads\n"
+        "    <span class='endpoint'>POST    /schedule</span>      <span class='arrow'>→</span> Schedule new load\n"
+        "    <span class='endpoint'>DELETE  /schedule/:id</span> <span class='arrow'>→</span> Cancel schedule\n"
+        "\n"
+        "\n"
+        "  <span class='section-title'>QUICK START</span>\n"
+        "\n"
+        "    <span class='comment'># Automated demo (recommended)</span>\n"
+        "    make dev\n"
+        "\n"
+        "    <span class='comment'># Manual setup</span>\n"
+        "    python3 scripts/seed_platform.py platform.db\n"
+        "    python3 scripts/seed_client.py gridguard.db\n"
+        "    export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\"\n"
+        "    export TOKEN=$(python3 scripts/generate_jwt.py platform.db test_user)\n"
+        "    curl -H \"Authorization: Bearer $TOKEN\" http://localhost:8080/forecast\n"
+        "\n"
+        "\n"
+        "  <span class='section-title'>DOCUMENTATION</span>\n"
+        "\n"
+        "    docs/API.md          <span class='comment'>Complete API reference</span>\n"
+        "    docs/ARCHITECTURE.md <span class='comment'>System design deep-dive</span>\n"
+        "    README.md            <span class='comment'>Getting started</span>\n"
+        "\n"
+        "\n"
+        "  <span class='divider'>─────────────────────────────────────────────────────────────────────</span>\n"
+        "\n"
+        "  <span class='comment'>LINTECH 2026</span>\n"
+        "\n"
+        "</pre>\n"
+        "</body></html>";
+
+    char response[8192];
+    snprintf(response, sizeof(response), "HTTP/1.1 200 OK\r\n" "Content-Type: text/html; charset=utf-8\r\n" "Content-Length: %zu\r\n" "Connection: close\r\n" "\r\n" "%s", strlen(welcome), welcome);
+    write(fd, response, strlen(response));
 }
 
 // GET /health
@@ -584,6 +659,13 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
     LOG_INFO("ClientHandler: %s %s (fd=%d)", request.method, request.path, fd);
 
     // Public endpoints.
+    if (strcmp(request.path, "/") == 0)
+    {
+        HandleRoot(fd);
+        close(fd);
+        return;
+    }
+
     if (strcmp(request.path, "/health") == 0)
     {
         HandleHealth(fd);

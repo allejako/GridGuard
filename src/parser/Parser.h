@@ -13,13 +13,15 @@ typedef struct
 {
     int fifoFd;              // Read end av FIFO från fetch process
     int serverSocket;        // Unix domain socket server
+    int notifyFd;            // Write end av notify FIFO till Compute
     char fifoPath[256];      // Path till FIFO-filen
     char socketPath[256];    // Path till Unix socket
+    char notifyPath[256];    // Path till notify FIFO
     void *parser;            // Parser service (opaque pointer)
     bool isRunning;
 } ParserProcess;
 
-int  ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath);
+int  ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath, const char *notifyPath);
 int  ParserProcess_Run(ParserProcess *proc);
 void ParserProcess_Shutdown(ParserProcess *proc);
 

@@ -139,7 +139,7 @@ static void signalHandler(int signum)
 {
     if (signum == SIGTERM || signum == SIGINT)
     {
-        watchdogRunning = 0;
+        watchdogRunning = 0; 
 
         if (fetcherPid > 0)
             kill(fetcherPid, SIGTERM);
@@ -220,7 +220,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     }
 
     ProcessGroup group;
-    ProcessGroup_Init(&group, fetcherPath, parserPath, serverPath);
+    ProcessGroup_Initiate(&group, fetcherPath, parserPath, serverPath);
 
     LOG_INFO("Starting all processes");
 
@@ -428,6 +428,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             return 1;
         }
 
+        // Update pids after respawn
         fetcherPid = group.fetcher.pid;
         parserPid = group.parser.pid;
         serverPid = group.server.pid;

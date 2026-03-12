@@ -13,9 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/select.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <errno.h>
 
 static void iso8601_utc(time_t t, char *buf, size_t len)
 {
@@ -136,25 +140,100 @@ void *ComputeWorker_Run(void *arg)
     Compute *compute = (Compute *)worker->compute;
     LOG_INFO("ComputeWorker: started");
 
+    // Wait for Parser to create notify FIFO, then open it (blocking until Parser opens write end)
+    LOG_INFO("ComputeWorker: Waiting for Parser to create and open notify FIFO %s", worker->notifyPath);
+
+    int notifyFd = -1;
+    for (int attempt = 0; attempt < 60 && worker->isRunning; attempt++)
+    {
+        // Check if FIFO exists first
+        struct stat st;
+        if (stat(worker->notifyPath, &st) == 0)
+        {
+            // FIFO exists, now open it (this will block until Parser opens write end)
+            notifyFd = open(worker->notifyPath, O_RDONLY);
+            if (notifyFd >= 0)
+            {
+                break;
+            }
+
+            LOG_ERROR("ComputeWorker: Failed to open notify FIFO %s: %s", worker->notifyPath, strerror(errno));
+            return NULL;
+        }
+
+        // FIFO doesn't exist yet, wait for Parser to create it
+        sleep(1);
+    }
+
+    if (notifyFd < 0)
+    {
+        LOG_ERROR("ComputeWorker: Notify FIFO %s not available after 60s", worker->notifyPath);
+        return NULL;
+    }
+
+    LOG_INFO("ComputeWorker: Connected to Parser via notify FIFO, listening for notifications");
+
     while (worker->isRunning)
     {
-        int fd = connect_to_parser(worker->socketPath);
-        if (fd < 0)
+        // Wait for notification from Parser that data is ready
+        char notifySignal;
+        ssize_t n = read(notifyFd, &notifySignal, 1);
+        if (n <= 0)
         {
+            if (n == 0)
+            {
+                LOG_INFO("ComputeWorker: Parser closed notify FIFO, exiting");
+                break;
+            }
+            LOG_ERROR("ComputeWorker: Failed to read from notify FIFO: %s", strerror(errno));
             sleep(1);
             continue;
         }
 
+        LOG_INFO("ComputeWorker: Received notification, connecting to Parser");
+
+        // Now connect to Parser to receive the data
+        int fd = connect_to_parser(worker->socketPath);
+        if (fd < 0)
+        {
+            LOG_ERROR("ComputeWorker: Failed to connect to Parser after notification");
+            continue;
+        }
+
         ParseResult result;
-        ssize_t n = read(fd, &result, sizeof(result));
+        size_t totalSize = sizeof(result);
+        size_t totalRead = 0;
+        char *buf = (char *)&result;
+
+        // Read in loop to handle partial reads
+        while (totalRead < totalSize)
+        {
+            ssize_t n = read(fd, buf + totalRead, totalSize - totalRead);
+            if (n < 0)
+            {
+                LOG_ERROR("ComputeWorker: read failed: %s (read %zu/%zu bytes)",
+                         strerror(errno), totalRead, totalSize);
+                break;
+            }
+            if (n == 0)
+            {
+                if (totalRead == 0)
+                {
+                    // Parser exited cleanly before sending any data
+                    close(fd);
+                    goto exit_loop;
+                }
+                LOG_WARNING("ComputeWorker: Parser closed socket after %zu/%zu bytes", totalRead, totalSize);
+                break;
+            }
+            totalRead += n;
+        }
+
         close(fd);
 
-        if (n == 0)
-            break;  // Parser exited cleanly.
-
-        if (n != (ssize_t)sizeof(result))
+        if (totalRead != totalSize)
         {
-            LOG_ERROR("ComputeWorker: short read (%zd/%zu bytes)", n, sizeof(result));
+            LOG_ERROR("ComputeWorker: incomplete read (%zu/%zu bytes)", totalRead, totalSize);
             continue;
         }
 
@@ -214,6 +293,8 @@ void *ComputeWorker_Run(void *arg)
         free(json);
     }
 
+exit_loop:
+    close(notifyFd);
     LOG_INFO("ComputeWorker: exiting");
     return NULL;
 }
