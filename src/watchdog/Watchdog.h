@@ -3,4 +3,4 @@
 
 int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *serverPath);
 
-#endif // WATCHDOG_H
+#endif

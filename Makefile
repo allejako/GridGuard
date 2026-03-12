@@ -90,10 +90,7 @@ WATCHDOG_SRCS = \
     $(SRC)/watchdog/Watchdog.c \
     $(SRC)/watchdog/Heartbeat.c \
     $(SRC)/watchdog/RestartPolicy.c \
-    $(SRC)/watchdog/Signals.c \
     $(SRC)/watchdog/Metrics.c \
-    $(SRC)/watchdog/IPC.c \
-    $(SRC)/watchdog/Status.c \
     $(SRC)/watchdog/ProcessSpawner.c \
     $(SRC)/sys/Daemon.c \
     $(SRC)/sys/PidFile.c \

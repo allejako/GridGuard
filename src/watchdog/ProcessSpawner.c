@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "watchdog/ProcessSpawner.h"
-#include "watchdog/IPC.h"
+#include "watchdog/IPCPaths.h"
 #include "sys/Logger.h"
 
 #include <stdlib.h>
@@ -12,11 +12,9 @@
 #include <sys/wait.h>
 #include <stdio.h>
 
-// Internal helper to spawn a single process with heartbeat
-static pid_t spawn_process(const char *path, const char *name,
+static pid_t spawnProcess(const char *path, const char *name,
                           char *const argv[], Heartbeat **hbOut)
 {
-    // Cleanup old heartbeat and create new one
     Heartbeat_Destroy(*hbOut);
     *hbOut = Heartbeat_Create();
     if (!*hbOut)
@@ -30,7 +28,7 @@ static pid_t spawn_process(const char *path, const char *name,
         return -1;
     }
 
-    if (pid == 0)  // Child process
+    if (pid == 0)
     {
         if (*hbOut)
         {
@@ -43,19 +41,16 @@ static pid_t spawn_process(const char *path, const char *name,
 
         execv(path, argv);
 
-        // execv only returns on error
         fprintf(stderr, "ProcessSpawner: execv(%s) failed: %s\n", path, strerror(errno));
         _exit(127);
     }
 
-    // Parent process
     if (*hbOut)
         Heartbeat_CloseWriteFd(*hbOut);
 
     return pid;
 }
 
-// Initialize process group structure
 void ProcessGroup_Init(ProcessGroup *group,
                        const char *fetcherPath,
                        const char *parserPath,
