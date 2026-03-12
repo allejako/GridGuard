@@ -1,13 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "watchdog/Watchdog.h"
-#include "watchdog/Signals.h"
 #include "watchdog/Heartbeat.h"
 #include "watchdog/RestartPolicy.h"
 #include "watchdog/Metrics.h"
-#include "watchdog/IPC.h"
-#include "watchdog/Status.h"
 #include "watchdog/ProcessSpawner.h"
+#include "watchdog/IPCPaths.h"
 #include "sys/Logger.h"
 
 #include <stdio.h>
@@ -15,30 +13,188 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <fcntl.h>
+#include <stdarg.h>
 
+#define STATUS_FIFO_PATH "/tmp/gridguard.status"
 #define MONITOR_POLL_SEC  2
-#define STATUS_FIFO_PATH  "/tmp/gridguard.status"
 
-// Global state shared with signal handler
-volatile sig_atomic_t watchdog_running = 1;
-volatile pid_t        fetcher_pid      = -1;
-volatile pid_t        parser_pid       = -1;
-volatile pid_t        server_pid       = -1;
+typedef struct {
+    char *fifoPath;
+    int fd;
+} Status;
+
+static Status *statusCreate(const char *fifoPath)
+{
+    if (!fifoPath)
+        return NULL;
+
+    Status *status = malloc(sizeof(Status));
+    if (!status)
+        return NULL;
+
+    status->fifoPath = strdup(fifoPath);
+    if (!status->fifoPath)
+    {
+        free(status);
+        return NULL;
+    }
+
+    if (mkfifo(fifoPath, 0600) < 0 && errno != EEXIST)
+    {
+        LOG_WARNING("Status: mkfifo failed: %s", strerror(errno));
+        free(status->fifoPath);
+        free(status);
+        return NULL;
+    }
+
+    status->fd = open(fifoPath, O_RDWR | O_NONBLOCK);
+    if (status->fd < 0)
+    {
+        LOG_WARNING("Status: could not open status fifo: %s", strerror(errno));
+        free(status->fifoPath);
+        free(status);
+        return NULL;
+    }
+
+    LOG_INFO("Status FIFO opened: %s", fifoPath);
+    return status;
+}
+
+static void statusWrite(Status *status, const char *fmt, ...)
+{
+    if (!status || status->fd < 0)
+        return;
+
+    char buf[128];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    if (n > 0)
+        write(status->fd, buf, (size_t)n);
+}
+
+static void statusDestroy(Status *status)
+{
+    if (!status)
+        return;
+
+    if (status->fd >= 0)
+    {
+        close(status->fd);
+        status->fd = -1;
+    }
+
+    if (status->fifoPath)
+    {
+        unlink(status->fifoPath);
+        free(status->fifoPath);
+    }
+
+    free(status);
+}
+
+static int ipcCreateFifos(void)
+{
+    int errors = 0;
+
+    if (mkfifo(REQUEST_FIFO_PATH, 0644) < 0 && errno != EEXIST)
+    {
+        LOG_WARNING("IPC: mkfifo(%s) failed: %s", REQUEST_FIFO_PATH, strerror(errno));
+        errors++;
+    }
+
+    if (mkfifo(FETCH_TO_PARSE_FIFO_PATH, 0644) < 0 && errno != EEXIST)
+    {
+        LOG_WARNING("IPC: mkfifo(%s) failed: %s", FETCH_TO_PARSE_FIFO_PATH, strerror(errno));
+        errors++;
+    }
+
+    unlink(PARSE_TO_COMPUTE_SOCK_PATH);
+
+    return errors > 0 ? -1 : 0;
+}
+
+static void ipcCleanup(void)
+{
+    unlink(REQUEST_FIFO_PATH);
+    unlink(FETCH_TO_PARSE_FIFO_PATH);
+    unlink(PARSE_TO_COMPUTE_SOCK_PATH);
+}
+
+static volatile sig_atomic_t watchdogRunning = 1;
+static volatile sig_atomic_t logProcessStatus = 0;
+static volatile sig_atomic_t manualRestart = 0;
+static volatile pid_t        fetcherPid = -1;
+static volatile pid_t        parserPid = -1;
+static volatile pid_t        serverPid = -1;
+
+static void signalHandler(int signum)
+{
+    if (signum == SIGTERM || signum == SIGINT)
+    {
+        watchdogRunning = 0;
+
+        if (fetcherPid > 0)
+            kill(fetcherPid, SIGTERM);
+        if (parserPid > 0)
+            kill(parserPid, SIGTERM);
+        if (serverPid > 0)
+            kill(serverPid, SIGTERM);
+    }
+    else if (signum == SIGHUP)
+    {
+        if (fetcherPid > 0)
+            kill(fetcherPid, SIGHUP);
+        if (parserPid > 0)
+            kill(parserPid, SIGHUP);
+        if (serverPid > 0)
+            kill(serverPid, SIGHUP);
+    }
+    else if (signum == SIGUSR1)
+    {
+        logProcessStatus = 1;
+    }
+    else if (signum == SIGUSR2)
+    {
+        manualRestart = 1;
+    }
+}
+
+static void signalsSetup(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signalHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT,  &sa, NULL);
+    sigaction(SIGHUP,  &sa, NULL);
+    sigaction(SIGUSR1, &sa, NULL);
+    sigaction(SIGUSR2, &sa, NULL);
+
+    signal(SIGPIPE, SIG_IGN);
+}
 
 int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *serverPath)
 {
-    Signals_Initiate();
+    signalsSetup();
 
-    Status *status = Status_Initiate(STATUS_FIFO_PATH);
+    Status *status = statusCreate(STATUS_FIFO_PATH);
     if (!status)
     {
         LOG_WARNING("Watchdog: Failed to create status FIFO, continuing without it");
     }
 
-    if (IPC_Initiate() != 0)
+    if (ipcCreateFifos() != 0)
     {
         LOG_WARNING("Watchdog: Some FIFOs failed to create");
     }
@@ -58,8 +214,8 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     if (!policy)
     {
         LOG_FATAL("Watchdog: Failed to create restart policy");
-        IPC_Shutdown();
-        Status_Shutdown(status);
+        ipcCleanup();
+        statusDestroy(status);
         return 1;
     }
 
@@ -73,70 +229,62 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         LOG_FATAL("Watchdog: Failed to spawn all processes");
         ProcessGroup_Cleanup(&group);
         RestartPolicy_Destroy(policy);
-        IPC_Shutdown();
-        Status_Shutdown(status);
+        ipcCleanup();
+        statusDestroy(status);
         return 1;
     }
 
-    // Update global PIDs for signal handler
-    fetcher_pid = group.fetcher.pid;
-    parser_pid = group.parser.pid;
-    server_pid = group.server.pid;
+    fetcherPid = group.fetcher.pid;
+    parserPid = group.parser.pid;
+    serverPid = group.server.pid;
 
-    Status_Write(status, "START fetcher=%d parser=%d server=%d\n", (int)fetcher_pid, (int)parser_pid, (int)server_pid);
+    statusWrite(status, "START fetcher=%d parser=%d server=%d\n", (int)fetcherPid, (int)parserPid, (int)serverPid);
 
-    int wait_status;
+    int waitStatus;
     time_t lastFetcherHb = time(NULL);
     time_t lastParserHb = time(NULL);
     time_t lastServerHb = time(NULL);
-    time_t process_start_time = time(NULL);
+    time_t processStartTime = time(NULL);
 
     if (metrics)
     {
-        metrics->fetcher_pid = fetcher_pid;
-        metrics->fetcher_start_time = process_start_time;
-        metrics->parser_pid = parser_pid;
-        metrics->parser_start_time = process_start_time;
-        metrics->server_pid = server_pid;
-        metrics->server_start_time = process_start_time;
+        metrics->fetcher_pid = fetcherPid;
+        metrics->fetcher_start_time = processStartTime;
+        metrics->parser_pid = parserPid;
+        metrics->parser_start_time = processStartTime;
+        metrics->server_pid = serverPid;
+        metrics->server_start_time = processStartTime;
     }
 
-    while (watchdog_running)
+    while (watchdogRunning)
     {
-        // === Signal-based Commands ===
-
-        // SIGUSR1: Report current status without disrupting processes
-        if (log_process_status)
+        if (logProcessStatus)
         {
-            log_process_status = 0;
+            logProcessStatus = 0;
             time_t now = time(NULL);
             LOG_INFO("GRIDGUARD PROCESSES STATUS REPORT:");
-            LOG_INFO("Fetcher: PID %d, Last heartbeat %.0fs ago", (int)fetcher_pid, difftime(now, lastFetcherHb));
-            LOG_INFO("Parser:  PID %d, Last heartbeat %.0fs ago", (int)parser_pid, difftime(now, lastParserHb));
-            LOG_INFO("Server:  PID %d, Last heartbeat %.0fs ago", (int)server_pid, difftime(now, lastServerHb));
+            LOG_INFO("Fetcher: PID %d, Last heartbeat %.0fs ago", (int)fetcherPid, difftime(now, lastFetcherHb));
+            LOG_INFO("Parser:  PID %d, Last heartbeat %.0fs ago", (int)parserPid, difftime(now, lastParserHb));
+            LOG_INFO("Server:  PID %d, Last heartbeat %.0fs ago", (int)serverPid, difftime(now, lastServerHb));
             LOG_INFO("Restarts: %d/%d (window: %ds)", RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy), RESTART_WINDOW_SEC);
             LOG_INFO("///---///---//---///");
-            Status_Write(status, "STATUS fetcher=%d parser=%d server=%d restarts=%d/%d\n", (int)fetcher_pid, (int)parser_pid, (int)server_pid, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
+            statusWrite(status, "STATUS fetcher=%d parser=%d server=%d restarts=%d/%d\n", (int)fetcherPid, (int)parserPid, (int)serverPid, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
         }
 
-        // SIGUSR2: Force immediate restart of all processes
-        if (manual_restart)
+        if (manualRestart)
         {
-            manual_restart = 0;
+            manualRestart = 0;
             LOG_INFO("Manual restart requested via SIGUSR2");
-            Status_Write(status, "MANUAL_RESTART fetcher=%d parser=%d server=%d\n", (int)fetcher_pid, (int)parser_pid, (int)server_pid);
+            statusWrite(status, "MANUAL_RESTART fetcher=%d parser=%d server=%d\n", (int)fetcherPid, (int)parserPid, (int)serverPid);
 
             ProcessGroup_KillAll(&group, SIGTERM);
             sleep(2);
             ProcessGroup_KillAll(&group, SIGKILL);
             ProcessGroup_WaitAll(&group);
 
-            goto manual_restart_all;
+            goto manualRestartAll;
         }
 
-        // === Heartbeat Monitoring ===
-
-        // Check if any process has sent a heartbeat in this poll interval
         int fetcherHbResult = Heartbeat_Check(group.fetcher.heartbeat, MONITOR_POLL_SEC);
         if (fetcherHbResult == 1)
             lastFetcherHb = time(NULL);
@@ -149,51 +297,44 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         if (serverHbResult == 1)
             lastServerHb = time(NULL);
 
-        // Update metrics
         if (metrics)
         {
-            Metrics_Update(metrics, fetcher_pid, lastFetcherHb, parser_pid, lastParserHb, server_pid, lastServerHb, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
+            Metrics_Update(metrics, fetcherPid, lastFetcherHb, parserPid, lastParserHb, serverPid, lastServerHb, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
         }
 
-        // === Freeze Detection ===
-
-        // Identify processes that haven't sent heartbeat within timeout window
         pid_t frozenPid = -1;
         const char *frozenName = NULL;
 
         if (difftime(time(NULL), lastFetcherHb) >= HEARTBEAT_TIMEOUT)
         {
-            frozenPid = fetcher_pid;
+            frozenPid = fetcherPid;
             frozenName = "Fetcher";
         }
         else if (difftime(time(NULL), lastParserHb) >= HEARTBEAT_TIMEOUT)
         {
-            frozenPid = parser_pid;
+            frozenPid = parserPid;
             frozenName = "Parser";
         }
         else if (difftime(time(NULL), lastServerHb) >= HEARTBEAT_TIMEOUT)
         {
-            frozenPid = server_pid;
+            frozenPid = serverPid;
             frozenName = "Server";
         }
 
         if (frozenPid > 0)
         {
             LOG_WARNING("Watchdog: %s (PID %d) frozen, killing all processes", frozenName, frozenPid);
-            Status_Write(status, "FROZEN process=%s pid=%d\n", frozenName, frozenPid);
+            statusWrite(status, "FROZEN process=%s pid=%d\n", frozenName, frozenPid);
 
             ProcessGroup_KillAll(&group, SIGTERM);
             sleep(2);
             ProcessGroup_KillAll(&group, SIGKILL);
             ProcessGroup_WaitAll(&group);
 
-            goto all_died;
+            goto allDied;
         }
 
-        // === Crash Detection ===
-
-        // Non-blocking check for terminated child processes
-        pid_t result = waitpid(-1, &wait_status, WNOHANG);
+        pid_t result = waitpid(-1, &waitStatus, WNOHANG);
 
         if (result < 0)
         {
@@ -208,64 +349,57 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         if (result == 0)
             continue;
 
-        all_died:
-        manual_restart_all:
+        allDied:
+        manualRestartAll:
 
-        // === Failure Handling and Recovery ===
-
-        // If shutdown is in progress, don't restart - just wait for other processes
-        if (!watchdog_running)
+        if (!watchdogRunning)
         {
             LOG_INFO("Watchdog: Process died during shutdown, waiting for others...");
             continue;
         }
 
-        // Identify which process triggered the restart
         const char *deadProcess = "Unknown";
-        if (result == fetcher_pid)
+        if (result == fetcherPid)
             deadProcess = "Fetcher";
-        else if (result == parser_pid)
+        else if (result == parserPid)
             deadProcess = "Parser";
-        else if (result == server_pid)
+        else if (result == serverPid)
             deadProcess = "Server";
 
-        if (WIFEXITED(wait_status))
+        if (WIFEXITED(waitStatus))
         {
-            int code = WEXITSTATUS(wait_status);
+            int code = WEXITSTATUS(waitStatus);
             LOG_WARNING("Watchdog: %s exited with code %d", deadProcess, code);
-            Status_Write(status, "CRASH process=%s code=%d\n", deadProcess, code);
+            statusWrite(status, "CRASH process=%s code=%d\n", deadProcess, code);
         }
-        else if (WIFSIGNALED(wait_status))
+        else if (WIFSIGNALED(waitStatus))
         {
-            int sig = WTERMSIG(wait_status);
+            int sig = WTERMSIG(waitStatus);
             LOG_WARNING("Watchdog: %s killed by signal %d (%s)", deadProcess, sig, strsignal(sig));
-            Status_Write(status, "CRASH process=%s signal=%d\n", deadProcess, sig);
+            statusWrite(status, "CRASH process=%s signal=%d\n", deadProcess, sig);
         }
 
-        // Terminate all processes for clean slate (one failure affects whole pipeline)
         LOG_INFO("Killing all processes due to %s crash", deadProcess);
         ProcessGroup_KillAll(&group, SIGTERM);
         sleep(1);
-        waitpid(fetcher_pid, NULL, WNOHANG);
-        waitpid(parser_pid, NULL, WNOHANG);
-        waitpid(server_pid, NULL, WNOHANG);
+        waitpid(fetcherPid, NULL, WNOHANG);
+        waitpid(parserPid, NULL, WNOHANG);
+        waitpid(serverPid, NULL, WNOHANG);
 
-        // Double-check shutdown wasn't triggered while we were killing processes
-        if (!watchdog_running)
+        if (!watchdogRunning)
         {
             LOG_INFO("Watchdog: Shutdown requested during crash handling, exiting");
             break;
         }
 
-        // Check restart policy (exponential backoff + rate limiting)
         if (!RestartPolicy_CanRestart(policy))
         {
             LOG_FATAL("Watchdog: Max restarts (%d) exceeded in %d seconds, giving up", RestartPolicy_GetMax(policy), RESTART_WINDOW_SEC);
-            Status_Write(status, "FATAL max_restarts=%d\n", RestartPolicy_GetMax(policy));
+            statusWrite(status, "FATAL max_restarts=%d\n", RestartPolicy_GetMax(policy));
             ProcessGroup_Cleanup(&group);
             RestartPolicy_Destroy(policy);
-            IPC_Shutdown();
-            Status_Shutdown(status);
+            ipcCleanup();
+            statusDestroy(status);
             return 1;
         }
 
@@ -275,58 +409,55 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         LOG_INFO("Restarting all processes in %d seconds (attempt %d/%d)",
                  backoff, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
 
-        for (int i = 0; i < backoff && watchdog_running; i++)
+        for (int i = 0; i < backoff && watchdogRunning; i++)
             sleep(1);
 
-        if (!watchdog_running)
+        if (!watchdogRunning)
             break;
 
-        IPC_Shutdown();
-        IPC_Initiate();
+        ipcCleanup();
+        ipcCreateFifos();
 
         if (ProcessGroup_SpawnAll(&group) != 0)
         {
             LOG_FATAL("Watchdog: Failed to respawn processes");
             ProcessGroup_Cleanup(&group);
             RestartPolicy_Destroy(policy);
-            IPC_Shutdown();
-            Status_Shutdown(status);
+            ipcCleanup();
+            statusDestroy(status);
             return 1;
         }
 
-        // Update global PIDs for signal handler
-        fetcher_pid = group.fetcher.pid;
-        parser_pid = group.parser.pid;
-        server_pid = group.server.pid;
+        fetcherPid = group.fetcher.pid;
+        parserPid = group.parser.pid;
+        serverPid = group.server.pid;
 
-        Status_Write(status, "RESTART attempt=%d/%d fetcher=%d parser=%d server=%d delay=%ds\n", RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy), (int)fetcher_pid, (int)parser_pid, (int)server_pid, backoff);
+        statusWrite(status, "RESTART attempt=%d/%d fetcher=%d parser=%d server=%d delay=%ds\n", RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy), (int)fetcherPid, (int)parserPid, (int)serverPid, backoff);
 
         lastFetcherHb = time(NULL);
         lastParserHb = time(NULL);
         lastServerHb = time(NULL);
-        time_t restart_time = time(NULL);
+        time_t restartTime = time(NULL);
 
         if (metrics)
         {
-            metrics->fetcher_start_time = restart_time;
-            metrics->parser_start_time = restart_time;
-            metrics->server_start_time = restart_time;
-            metrics->last_restart_time = restart_time;
+            metrics->fetcher_start_time = restartTime;
+            metrics->parser_start_time = restartTime;
+            metrics->server_start_time = restartTime;
+            metrics->last_restart_time = restartTime;
         }
     }
 
     LOG_INFO("Watchdog: Main loop exited, ensuring all processes are terminated");
 
-    // If we exited the loop due to shutdown, give children time to exit cleanly
-    if (!watchdog_running)
+    if (!watchdogRunning)
     {
         LOG_INFO("Watchdog: Waiting up to 3 seconds for graceful shutdown");
         for (int i = 0; i < 3; i++)
         {
-            // Check if all processes are dead
-            if (waitpid(fetcher_pid, NULL, WNOHANG) == fetcher_pid &&
-                waitpid(parser_pid, NULL, WNOHANG) == parser_pid &&
-                waitpid(server_pid, NULL, WNOHANG) == server_pid)
+            if (waitpid(fetcherPid, NULL, WNOHANG) == fetcherPid &&
+                waitpid(parserPid, NULL, WNOHANG) == parserPid &&
+                waitpid(serverPid, NULL, WNOHANG) == serverPid)
             {
                 LOG_INFO("Watchdog: All processes exited gracefully");
                 break;
@@ -334,11 +465,9 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             sleep(1);
         }
 
-        // Force kill any remaining processes
         ProcessGroup_KillAll(&group, SIGKILL);
     }
 
-    // Wait for all processes to be reaped
     ProcessGroup_WaitAll(&group);
 
     ProcessGroup_Cleanup(&group);
@@ -346,8 +475,8 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
     Metrics_Shutdown();
 
-    IPC_Shutdown();
-    Status_Shutdown(status);
+    ipcCleanup();
+    statusDestroy(status);
     LOG_INFO("Watchdog exiting");
     return 0;
 }
