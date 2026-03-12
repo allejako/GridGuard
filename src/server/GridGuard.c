@@ -19,6 +19,7 @@
 // IPC paths - definierade här för att vara tillgängliga överallt
 static const char *FIFO_PATH = "/tmp/gridguard_fetch_to_parse.fifo";
 static const char *SOCKET_PATH = "/tmp/gridguard_parse_to_compute.sock";
+static const char *NOTIFY_PATH = "/tmp/gridguard_parse_to_compute.fifo";
 
 int GridGuard_Initiate(GridGuard *app)
 {
@@ -133,6 +134,7 @@ int GridGuard_Initiate(GridGuard *app)
     }
 
     computeWorker->socketPath = app->socketPath;
+    computeWorker->notifyPath = NOTIFY_PATH;
     computeWorker->compute = &app->compute;
     computeWorker->isRunning = true;
 

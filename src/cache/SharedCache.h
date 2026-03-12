@@ -1,9 +1,13 @@
 #ifndef SHARED_CACHE_H
 #define SHARED_CACHE_H
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdbool.h>
 #include <time.h>
-#include <semaphore.h>
+#include <pthread.h>
 #include <stddef.h>
 
 #define SHARED_CACHE_MAX_ENTRIES  16
@@ -25,9 +29,10 @@ typedef struct
 // Must be mmap'd before use; never copy this struct.
 typedef struct
 {
-    unsigned int     magic;       // SHARED_CACHE_MAGIC when initialized
-    int              ttlSeconds;
-    SharedCacheEntry entries[SHARED_CACHE_MAX_ENTRIES];
+    unsigned int       magic;       // SHARED_CACHE_MAGIC when initialized
+    int                ttlSeconds;
+    pthread_rwlock_t   rwlock;      // Read-write lock (process-shared)
+    SharedCacheEntry   entries[SHARED_CACHE_MAX_ENTRIES];
 } SharedCacheRegion;
 
 // Process-local handle — not in shared memory
@@ -35,9 +40,7 @@ typedef struct
 {
     SharedCacheRegion *region;    // mmap'd pointer into shared memory
     int                fd;        // shm_open file descriptor
-    sem_t             *sem;       // named POSIX semaphore (sem_open)
     char               shmName[64];
-    char               semName[72]; // shmName + "_sem"
     bool               isInitialized;
 } SharedCache;
 

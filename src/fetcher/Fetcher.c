@@ -19,8 +19,7 @@
 
 int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath)
 {
-    if (!proc || !requestFifoPath || !resultFifoPath)
-        return -1;
+    if (!proc || !requestFifoPath || !resultFifoPath) return -1;
 
     memset(proc, 0, sizeof(FetcherProcess));
     strncpy(proc->requestFifoPath, requestFifoPath, sizeof(proc->requestFifoPath) - 1);
@@ -108,8 +107,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
 
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s)",
-             getpid(), requestFifoPath, resultFifoPath);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s)", getpid(), requestFifoPath, resultFifoPath);
     return 0;
 }
 
@@ -179,6 +177,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
         result.gridFee_normal = request.gridFee_normal;
         result.gridFee_high = request.gridFee_high;
 
+        time_t now; // For circuit breaker timing
+
         // Hämta väderdata med caching
         char weatherKey[256];
         snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request.lat, request.lon);
@@ -189,53 +189,99 @@ int FetcherProcess_Run(FetcherProcess *proc)
         }
         else
         {
-            char openMeteoUrl[512];
-            if (BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request.lat, request.lon) == 0)
+            // Check if we should skip due to previous failures
+            now = time(NULL);
+            if (now < proc->weatherBackoffUntil)
             {
-                HTTPFetchResponse omResp;
-                if (HTTPFetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
+                time_t remaining = proc->weatherBackoffUntil - now;
+                LOG_WARNING("FetcherProcess: Weather API circuit open (%d failures, retry in %ld seconds)", proc->weatherFailures, remaining);
+            }
+            else
+            {
+                char openMeteoUrl[512];
+                if (BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request.lat, request.lon) == 0)
                 {
-                    strncpy(result.openMeteoJson, omResp.data, sizeof(result.openMeteoJson) - 1);
-                    SharedCache_Store(weatherCache, weatherKey, omResp.data);
-                    HTTPFetcher_FreeResponse(&omResp);
-                    LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
-                }
-                else
-                {
-                    LOG_WARNING("FetcherProcess: Open-Meteo fetch failed");
+                    HTTPFetchResponse omResp;
+                    if (HTTPFetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
+                    {
+                        // Success - reset circuit breaker
+                        proc->weatherFailures = 0;
+                        proc->weatherBackoffUntil = 0;
+
+                        strncpy(result.openMeteoJson, omResp.data, sizeof(result.openMeteoJson) - 1);
+                        SharedCache_Store(weatherCache, weatherKey, omResp.data);
+                        HTTPFetcher_FreeResponse(&omResp);
+                        LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
+                    }
+                    else
+                    {
+                        // Failure - increment counter and potentially open circuit
+                        proc->weatherFailures++;
+                        if (proc->weatherFailures >= 5)
+                        {
+                            proc->weatherBackoffUntil = time(NULL) + 300; // 5 minutes backoff
+                            LOG_ERROR("FetcherProcess: Weather API circuit opened after %d failures. Backing off for 5 minutes.", proc->weatherFailures);
+                        }
+                        else
+                        {
+                            LOG_WARNING("FetcherProcess: Open-Meteo fetch failed (failure %d/5)", proc->weatherFailures);
+                        }
+                    }
                 }
             }
         }
 
         // Hämta price data
         char priceKey[256];
-        time_t now = time(NULL);
+        now = time(NULL); // Refresh timestamp
         struct tm today;
         localtime_r(&now, &today);
         snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
                  request.region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
 
-        if (SharedCache_Lookup(priceCache, priceKey,
-                              result.priceJson, sizeof(result.priceJson)) == 0)
+        if (SharedCache_Lookup(priceCache, priceKey, result.priceJson, sizeof(result.priceJson)) == 0)
         {
             LOG_INFO("FetcherProcess: Price cache HIT (%s)", priceKey);
         }
         else
         {
-            char priceUrl[256];
-            if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
+            // Circuit breaker: check if we should skip due to previous failures
+            if (now < proc->priceBackoffUntil)
             {
-                HTTPFetchResponse priceResp;
-                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                time_t remaining = proc->priceBackoffUntil - now;
+                LOG_WARNING("FetcherProcess: Price API circuit open (%d failures, retry in %ld seconds)", proc->priceFailures, remaining);
+            }
+            else
+            {
+                char priceUrl[256];
+                if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
                 {
-                    strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
-                    SharedCache_Store(priceCache, priceKey, priceResp.data);
-                    HTTPFetcher_FreeResponse(&priceResp);
-                    LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
-                }
-                else
-                {
-                    LOG_WARNING("FetcherProcess: Price fetch failed");
+                    HTTPFetchResponse priceResp;
+                    if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                    {
+                        // Success - reset circuit breaker
+                        proc->priceFailures = 0;
+                        proc->priceBackoffUntil = 0;
+
+                        strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
+                        SharedCache_Store(priceCache, priceKey, priceResp.data);
+                        HTTPFetcher_FreeResponse(&priceResp);
+                        LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
+                    }
+                    else
+                    {
+                        // Failure - increment counter and potentially open circuit
+                        proc->priceFailures++;
+                        if (proc->priceFailures >= 5)
+                        {
+                            proc->priceBackoffUntil = time(NULL) + 300; // 5 minutes backoff
+                            LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures. Backing off for 5 minutes.", proc->priceFailures);
+                        }
+                        else
+                        {
+                            LOG_WARNING("FetcherProcess: Price fetch failed (failure %d/5)", proc->priceFailures);
+                        }
+                    }
                 }
             }
         }

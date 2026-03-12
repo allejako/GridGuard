@@ -24,10 +24,6 @@ typedef struct
 // of powerKw consumption and finishes before deadline (pass 0 for no limit).
 // Slots before nowTime are skipped.  Returns 0 and fills *out on success,
 // -1 if no valid window exists.
-int LoadScheduler_FindWindow(
-    const SchedulerEntry *entries, int count,
-    int durationMinutes, double powerKw,
-    time_t deadline, time_t nowTime,
-    ScheduleWindow *out);
+int LoadScheduler_FindWindow(const SchedulerEntry *entries, int count, int durationMinutes, double powerKw, time_t deadline, time_t nowTime, ScheduleWindow *out);
 
 #endif // LOAD_SCHEDULER_H

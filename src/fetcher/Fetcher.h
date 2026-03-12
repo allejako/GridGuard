@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <time.h>
 
 // Dedicated fetch process, runs as its own executable via exec().
 // Reads WorkRequests from stdin (pipe from main process).
@@ -19,6 +20,14 @@ typedef struct
     void *weatherCache;    // SharedCache for weather data
     void *priceCache;      // SharedCache for price data
     bool isRunning;
+
+    // Circuit breaker state for weather API
+    int weatherFailures;
+    time_t weatherBackoffUntil;
+
+    // Circuit breaker state for price API
+    int priceFailures;
+    time_t priceBackoffUntil;
 } FetcherProcess;
 
 int  FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath);
