@@ -53,7 +53,7 @@ static double get_grid_fee_for_hour(int hour, double low, double normal, double 
 // Calculate actual solar panel temperature from weather conditions.
 // Hotter panels = less power output. Wind = cooling = better.
 static double calculate_panel_temperature(double air_temp, double sun_intensity, double wind_speed)
-{
+{ 
     // NOCT model (Nominal Operating Cell Temperature) from IEC 61215
     double temp_rise_per_sun = (45.0 - 20.0) / 800.0;  // Standard: 45°C at 800 W/m²
     double cooling_effect = 1.0 + WIND_COOLING_FACTOR * wind_speed;
@@ -132,7 +132,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     struct tm tm_buf;
     for (int i = 0; i < num_hours; i++)
     {
-        if (localtime_r(&forecast->entries[i].timestamp, &tm_buf) != NULL) {
+        if (localtime_r(&forecast->entries[i].timestamp, &tm_buf) != NULL) 
+        {
             hours_of_day[i] = tm_buf.tm_hour;
         } else {
             hours_of_day[i] = 12;  // Fallback to noon if conversion fails

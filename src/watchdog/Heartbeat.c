@@ -3,40 +3,28 @@
 #include "watchdog/Heartbeat.h"
 #include "sys/Logger.h"
 
-#include <stdlib.h>
 #include <unistd.h>
 #include <poll.h>
 #include <errno.h>
 #include <string.h>
 
-struct Heartbeat
+int Heartbeat_Initiate(Heartbeat *hb)
 {
-    int read_fd;
-    int write_fd;
-};
+    if (!hb)
+        return -1;
 
-Heartbeat *Heartbeat_Initiate(void)
-{
     int fds[2];
     if (pipe(fds) < 0)
     {
         LOG_ERROR("Heartbeat: pipe() failed: %s", strerror(errno));
-        return NULL;
-    }
-
-    Heartbeat *hb = malloc(sizeof(Heartbeat));
-    if (!hb)
-    {
-        close(fds[0]);
-        close(fds[1]);
-        return NULL;
+        return -1;
     }
 
     hb->read_fd  = fds[0];
     hb->write_fd = fds[1];
 
     LOG_INFO("Heartbeat pipe created (read=%d, write=%d)", hb->read_fd, hb->write_fd);
-    return hb;
+    return 0;
 }
 
 void Heartbeat_Shutdown(Heartbeat *hb)
@@ -47,7 +35,6 @@ void Heartbeat_Shutdown(Heartbeat *hb)
         close(hb->read_fd);
     if (hb->write_fd >= 0)
         close(hb->write_fd);
-    free(hb);
 }
 
 int Heartbeat_GetWriteFd(const Heartbeat *hb)

@@ -236,7 +236,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Queue full, try again later");
-        WorkCompletion_Destroy(&wc);
+        WorkCompletion_Shutdown(&wc);
         return;
     }
 
@@ -250,7 +250,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Pipeline error or timeout");
     }
 
-    WorkCompletion_Destroy(&wc);
+    WorkCompletion_Shutdown(&wc);
 }
 
 // GET /user/config
@@ -460,20 +460,20 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Queue full, try again later");
-        WorkCompletion_Destroy(&wc);
+        WorkCompletion_Shutdown(&wc);
         return;
     }
 
     if (WorkCompletion_Wait(&wc) != 0)
     {
         HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Pipeline error or timeout");
-        WorkCompletion_Destroy(&wc);
+        WorkCompletion_Shutdown(&wc);
         return;
     }
 
     // Parse forecast to extract hourly prices.
     cJSON *forecast = cJSON_Parse(wc.json);
-    WorkCompletion_Destroy(&wc);
+    WorkCompletion_Shutdown(&wc);
 
     if (!forecast)
     {

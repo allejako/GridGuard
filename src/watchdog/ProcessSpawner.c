@@ -12,12 +12,24 @@
 #include <sys/wait.h>
 #include <stdio.h>
 
-static pid_t spawnProcess(const char *path, const char *name, char *const argv[], Heartbeat **heartbeatOut)
+static pid_t spawnProcess(const char *path, const char *name, char *const argv[], ManagedProcess *proc)
 {
-    Heartbeat_Shutdown(*heartbeatOut);
-    *heartbeatOut = Heartbeat_Initiate();
-    if (!*heartbeatOut)
+    // Shutdown old heartbeat if it was initialized
+    if (proc->heartbeatInitialized)
+    {
+        Heartbeat_Shutdown(&proc->heartbeat);
+        proc->heartbeatInitialized = 0;
+    }
+
+    if (Heartbeat_Initiate(&proc->heartbeat) != 0)
+    {
         LOG_WARNING("ProcessSpawner: Continuing without %s heartbeat pipe", name);
+        proc->heartbeatInitialized = 0;
+    }
+    else
+    {
+        proc->heartbeatInitialized = 1;
+    }
 
     pid_t pid = fork();
 
@@ -26,9 +38,10 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
         LOG_ERROR("ProcessSpawner: fork() failed for %s: %s", name, strerror(errno));
 
         // Cleanup heartbeat on fork failure
-        if (*heartbeatOut) {
-            Heartbeat_Shutdown(*heartbeatOut);
-            *heartbeatOut = NULL;
+        if (proc->heartbeatInitialized)
+        {
+            Heartbeat_Shutdown(&proc->heartbeat);
+            proc->heartbeatInitialized = 0;
         }
 
         return -1;
@@ -36,10 +49,10 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
 
     if (pid == 0)
     {
-        if (*heartbeatOut)
+        if (proc->heartbeatInitialized)
         {
-            Heartbeat_CloseReadFd(*heartbeatOut);
-            int writeFd = Heartbeat_GetWriteFd(*heartbeatOut);
+            Heartbeat_CloseReadFd(&proc->heartbeat);
+            int writeFd = Heartbeat_GetWriteFd(&proc->heartbeat);
             char fdStr[16];
             snprintf(fdStr, sizeof(fdStr), "%d", writeFd);
             setenv("GRIDGUARD_HEARTBEAT_FD", fdStr, 1);
@@ -51,8 +64,8 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
         _exit(127);
     }
 
-    if (*heartbeatOut)
-        Heartbeat_CloseWriteFd(*heartbeatOut);
+    if (proc->heartbeatInitialized)
+        Heartbeat_CloseWriteFd(&proc->heartbeat);
 
     return pid;
 }
@@ -60,17 +73,17 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
 void ProcessGroup_Initiate(ProcessGroup *group, const char *fetcherPath, const char *parserPath, const char *serverPath)
 {
     group->fetcher.pid = -1;
-    group->fetcher.heartbeat = NULL;
+    group->fetcher.heartbeatInitialized = 0;
     group->fetcher.name = "Fetcher";
     group->fetcher.path = fetcherPath;
 
     group->parser.pid = -1;
-    group->parser.heartbeat = NULL;
+    group->parser.heartbeatInitialized = 0;
     group->parser.name = "Parser";
     group->parser.path = parserPath;
 
     group->server.pid = -1;
-    group->server.heartbeat = NULL;
+    group->server.heartbeatInitialized = 0;
     group->server.name = "Server";
     group->server.path = serverPath;
 }
@@ -88,7 +101,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->parser.pid = spawnProcess(group->parser.path, group->parser.name, parser_argv, &group->parser.heartbeat);
+    group->parser.pid = spawnProcess(group->parser.path, group->parser.name, parser_argv, &group->parser);
     if (group->parser.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn parser");
@@ -99,7 +112,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
     sleep(1);  // Give parser time to open FIFO read end
 
     // Start Fetcher
-    char *fetcher_argv[] = 
+    char *fetcher_argv[] =
     {
         "GridGuard-fetcher",
         REQUEST_FIFO_PATH,
@@ -107,7 +120,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->fetcher.pid = spawnProcess(group->fetcher.path, group->fetcher.name, fetcher_argv, &group->fetcher.heartbeat);
+    group->fetcher.pid = spawnProcess(group->fetcher.path, group->fetcher.name, fetcher_argv, &group->fetcher);
     if (group->fetcher.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn fetcher");
@@ -119,13 +132,13 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
     sleep(1);
 
     // Start Server
-    char *server_argv[] = 
+    char *server_argv[] =
     {
         "GridGuard-server",
         NULL
     };
 
-    group->server.pid = spawnProcess(group->server.path, group->server.name, server_argv, &group->server.heartbeat);
+    group->server.pid = spawnProcess(group->server.path, group->server.name, server_argv, &group->server);
     if (group->server.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn server");
@@ -163,13 +176,23 @@ void ProcessGroup_WaitAll(ProcessGroup *group)
 // Cleanup heartbeats and reset PIDs
 void ProcessGroup_Cleanup(ProcessGroup *group)
 {
-    Heartbeat_Shutdown(group->fetcher.heartbeat);
-    Heartbeat_Shutdown(group->parser.heartbeat);
-    Heartbeat_Shutdown(group->server.heartbeat);
+    if (group->fetcher.heartbeatInitialized)
+    {
+        Heartbeat_Shutdown(&group->fetcher.heartbeat);
+        group->fetcher.heartbeatInitialized = 0;
+    }
 
-    group->fetcher.heartbeat = NULL;
-    group->parser.heartbeat = NULL;
-    group->server.heartbeat = NULL;
+    if (group->parser.heartbeatInitialized)
+    {
+        Heartbeat_Shutdown(&group->parser.heartbeat);
+        group->parser.heartbeatInitialized = 0;
+    }
+
+    if (group->server.heartbeatInitialized)
+    {
+        Heartbeat_Shutdown(&group->server.heartbeat);
+        group->server.heartbeatInitialized = 0;
+    }
 
     group->fetcher.pid = -1;
     group->parser.pid = -1;

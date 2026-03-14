@@ -313,6 +313,7 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/db/ClientDB.c $(SRC)/db/UserConfigDB.c $(SRC)/db/ScheduleDB.c \
     $(SRC)/sys/Queue.c $(SRC)/sys/WorkCompletion.c $(SRC)/sys/CompletionRegistry.c \
     $(SRC)/sys/ThreadPool.c $(SRC)/sys/WorkerPool.c \
+    $(SRC)/watchdog/Metrics.c \
     $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 

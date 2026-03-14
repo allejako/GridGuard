@@ -24,6 +24,6 @@ int TCPServer_Initiate(TCPServer* server, const char* port);
 
 int TCPServer_Accept(TCPServer* server);
 
-void TCPServer_Dispose(TCPServer* server);
+void TCPServer_Shutdown(TCPServer* server);
 
 #endif //__TCPServer_h_

@@ -18,7 +18,7 @@ static size_t region_size(void)
     return sizeof(SharedCacheRegion);
 }
 
-int SharedCache_Create(SharedCache *cache, const char *name, int ttlSeconds)
+int SharedCache_Initiate(SharedCache *cache, const char *name, int ttlSeconds)
 {
     if (!cache || !name) return -1;
 
@@ -220,17 +220,38 @@ int SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t ma
     LOG_DEBUG("SharedCache: MISS '%s'", key); return -1;
 }
 
-void SharedCache_Destroy(SharedCache *cache)
+void SharedCache_Shutdown(SharedCache *cache)
 {
     if (!cache || !cache->isInitialized) return;
 
-    // Destroy the rwlock (only needed once, but safe to call multiple times)
-    pthread_rwlock_destroy(&cache->region->rwlock);
+    // Shutdown this process's access to the shared memory segment.
+    // Do NOT destroy the rwlock or unlink - other processes may still be using it!
 
     munmap(cache->region, region_size());
     close(cache->fd);
-    shm_unlink(cache->shmName);
+
     cache->region        = NULL;
     cache->isInitialized = false;
-    LOG_INFO("SharedCache: Destroyed '%s'", cache->shmName);
+
+    LOG_INFO("SharedCache: Shutdown '%s' (segment persists for other processes)", cache->shmName);
+}
+
+void SharedCache_Cleanup(SharedCache *cache)
+{
+    if (!cache || !cache->isInitialized) return;
+
+    // CRITICAL: Only call this from Watchdog AFTER all processes have exited!
+    //
+    // This destroys the rwlock and unlinks the shared memory object.
+    // If any process is still using the cache, it will crash with SIGSEGV.
+
+    pthread_rwlock_destroy(&cache->region->rwlock);
+    munmap(cache->region, region_size());
+    close(cache->fd);
+    shm_unlink(cache->shmName);
+
+    cache->region        = NULL;
+    cache->isInitialized = false;
+
+    LOG_INFO("SharedCache: Cleanup '%s' (rwlock destroyed, shm unlinked)", cache->shmName);
 }

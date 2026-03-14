@@ -55,7 +55,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
     }
 
     // Attach till befintliga shared memory segments
-    if (SharedCache_Create((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to weather cache");
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
@@ -65,10 +65,10 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    if (SharedCache_Create((SharedCache *)proc->priceCache, "/gridguard_price", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->priceCache, "/gridguard_price", 900) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to price cache");
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
@@ -81,8 +81,8 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
     if (proc->requestFifoFd < 0)
     {
         LOG_ERROR("FetcherProcess: Failed to open request FIFO %s for reading", requestFifoPath);
-        SharedCache_Destroy((SharedCache *)proc->priceCache);
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
@@ -96,8 +96,8 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
     {
         LOG_ERROR("FetcherProcess: Failed to open result FIFO %s for writing", resultFifoPath);
         close(proc->requestFifoFd);
-        SharedCache_Destroy((SharedCache *)proc->priceCache);
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
@@ -318,13 +318,13 @@ void FetcherProcess_Shutdown(FetcherProcess *proc)
 
     if (proc->priceCache)
     {
-        SharedCache_Destroy((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
         free(proc->priceCache);
     }
 
     if (proc->weatherCache)
     {
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         free(proc->weatherCache);
     }
 
