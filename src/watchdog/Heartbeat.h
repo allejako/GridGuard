@@ -4,9 +4,14 @@
 #define HEARTBEAT_INTERVAL  5   // Process sends heartbeat every 5s
 #define HEARTBEAT_TIMEOUT   15  // Watchdog considers process frozen after 15s
 
-typedef struct Heartbeat Heartbeat;
+typedef struct
+{
+    int read_fd;
+    int write_fd;
+} Heartbeat;
 
-Heartbeat *Heartbeat_Initiate(void);
+int Heartbeat_Initiate(Heartbeat *hb);
+void Heartbeat_Shutdown(Heartbeat *hb);
 
 // For child process after fork
 int Heartbeat_GetWriteFd(const Heartbeat *hb);
@@ -17,7 +22,5 @@ int Heartbeat_CloseReadFd(Heartbeat *hb);   // Child closes this
 
 // Returns 1 if heartbeat received, 0 on timeout, -1 on error
 int Heartbeat_Check(Heartbeat *hb, int timeout_sec);
-
-void Heartbeat_Shutdown(Heartbeat *hb);
 
 #endif

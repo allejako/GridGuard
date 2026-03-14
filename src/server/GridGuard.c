@@ -73,28 +73,28 @@ int GridGuard_Initiate(GridGuard *app)
     }
 
     // Initialize shared memory caches för väder och elprisdata, används av både Fetch och Parse-processerna
-    if (SharedCache_Create(&app->weatherCache, "/gridguard_weather", SHARED_CACHE_DEFAULT_TTL) != 0)
+    if (SharedCache_Initiate(&app->weatherCache, "/gridguard_weather", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to create weather shared cache");
+        LOG_ERROR("GridGuard: Failed to initiate weather shared cache");
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
     }
 
-    if (SharedCache_Create(&app->priceCache, "/gridguard_price", SHARED_CACHE_DEFAULT_TTL) != 0)
+    if (SharedCache_Initiate(&app->priceCache, "/gridguard_price", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to create price shared cache");
-        SharedCache_Destroy(&app->weatherCache);
+        LOG_ERROR("GridGuard: Failed to initiate price shared cache");
+        SharedCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
     }
 
-    if (SharedCache_Create(&app->forecastCache, "/gridguard_forecast", SHARED_CACHE_DEFAULT_TTL) != 0)
+    if (SharedCache_Initiate(&app->forecastCache, "/gridguard_forecast", SHARED_CACHE_DEFAULT_TTL) != 0)
     {
-        LOG_ERROR("GridGuard: Failed to create forecast shared cache");
-        SharedCache_Destroy(&app->priceCache);
-        SharedCache_Destroy(&app->weatherCache);
+        LOG_ERROR("GridGuard: Failed to initiate forecast shared cache");
+        SharedCache_Shutdown(&app->priceCache);
+        SharedCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
@@ -112,8 +112,9 @@ int GridGuard_Initiate(GridGuard *app)
     if (app->requestPipeFd < 0)
     {
         LOG_ERROR("GridGuard: Failed to open request FIFO for writing");
-        SharedCache_Destroy(&app->priceCache);
-        SharedCache_Destroy(&app->weatherCache);
+        SharedCache_Shutdown(&app->forecastCache);
+        SharedCache_Shutdown(&app->priceCache);
+        SharedCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
@@ -126,8 +127,9 @@ int GridGuard_Initiate(GridGuard *app)
     {
         LOG_ERROR("Failed to allocate ComputeWorker");
         close(app->requestPipeFd);
-        SharedCache_Destroy(&app->priceCache);
-        SharedCache_Destroy(&app->weatherCache);
+        SharedCache_Shutdown(&app->forecastCache);
+        SharedCache_Shutdown(&app->priceCache);
+        SharedCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
@@ -143,8 +145,9 @@ int GridGuard_Initiate(GridGuard *app)
         LOG_ERROR("Failed to create Compute worker thread");
         free(computeWorker);
         close(app->requestPipeFd);
-        SharedCache_Destroy(&app->priceCache);
-        SharedCache_Destroy(&app->weatherCache);
+        SharedCache_Shutdown(&app->forecastCache);
+        SharedCache_Shutdown(&app->priceCache);
+        SharedCache_Shutdown(&app->weatherCache);
         Compute_Shutdown(&app->compute);
         ClientDB_Shutdown(&app->db);
         return -1;
@@ -201,10 +204,10 @@ void GridGuard_Shutdown(GridGuard *app)
 
     // Note: Watchdog owns and cleans up FIFOs and sockets
 
-    // Cleanup komponenter
-    SharedCache_Destroy(&app->forecastCache);
-    SharedCache_Destroy(&app->priceCache);
-    SharedCache_Destroy(&app->weatherCache);
+    // Shutdown komponenter
+    SharedCache_Shutdown(&app->forecastCache);
+    SharedCache_Shutdown(&app->priceCache);
+    SharedCache_Shutdown(&app->weatherCache);
     Compute_Shutdown(&app->compute);
     ClientDB_Shutdown(&app->db);
 

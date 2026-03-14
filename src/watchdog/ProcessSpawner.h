@@ -6,7 +6,8 @@
 
 typedef struct {
     pid_t pid;
-    Heartbeat *heartbeat;
+    Heartbeat heartbeat;
+    int heartbeatInitialized;
     const char *name;
     const char *path;
 } ManagedProcess;

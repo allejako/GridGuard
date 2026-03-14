@@ -210,10 +210,10 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         metrics->restart_window_sec = RESTART_WINDOW_SEC;
     }
 
-    RestartPolicy *policy = RestartPolicy_Create(MAX_RESTARTS, RESTART_WINDOW_SEC, BASE_BACKOFF_SEC);
-    if (!policy)
+    RestartPolicy policy;
+    if (RestartPolicy_Initiate(&policy, MAX_RESTARTS, RESTART_WINDOW_SEC, BASE_BACKOFF_SEC) != 0)
     {
-        LOG_FATAL("Watchdog: Failed to create restart policy");
+        LOG_FATAL("Watchdog: Failed to initiate restart policy");
         ipcCleanup();
         statusDestroy(status);
         return 1;
@@ -228,7 +228,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     {
         LOG_FATAL("Watchdog: Failed to spawn all processes");
         ProcessGroup_Cleanup(&group);
-        RestartPolicy_Destroy(policy);
+        RestartPolicy_Shutdown(&policy);
         ipcCleanup();
         statusDestroy(status);
         return 1;
@@ -266,9 +266,9 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             LOG_INFO("Fetcher: PID %d, Last heartbeat %.0fs ago", (int)fetcherPid, difftime(now, lastFetcherHb));
             LOG_INFO("Parser:  PID %d, Last heartbeat %.0fs ago", (int)parserPid, difftime(now, lastParserHb));
             LOG_INFO("Server:  PID %d, Last heartbeat %.0fs ago", (int)serverPid, difftime(now, lastServerHb));
-            LOG_INFO("Restarts: %d/%d (window: %ds)", RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy), RESTART_WINDOW_SEC);
+            LOG_INFO("Restarts: %d/%d (window: %ds)", RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy), RESTART_WINDOW_SEC);
             LOG_INFO("///---///---//---///");
-            statusWrite(status, "STATUS fetcher=%d parser=%d server=%d restarts=%d/%d\n", (int)fetcherPid, (int)parserPid, (int)serverPid, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
+            statusWrite(status, "STATUS fetcher=%d parser=%d server=%d restarts=%d/%d\n", (int)fetcherPid, (int)parserPid, (int)serverPid, RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy));
         }
 
         if (manualRestart)
@@ -285,21 +285,21 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             goto manualRestartAll;
         }
 
-        int fetcherHbResult = Heartbeat_Check(group.fetcher.heartbeat, MONITOR_POLL_SEC);
+        int fetcherHbResult = Heartbeat_Check(&group.fetcher.heartbeat, MONITOR_POLL_SEC);
         if (fetcherHbResult == 1)
             lastFetcherHb = time(NULL);
 
-        int parserHbResult = Heartbeat_Check(group.parser.heartbeat, MONITOR_POLL_SEC);
+        int parserHbResult = Heartbeat_Check(&group.parser.heartbeat, MONITOR_POLL_SEC);
         if (parserHbResult == 1)
             lastParserHb = time(NULL);
 
-        int serverHbResult = Heartbeat_Check(group.server.heartbeat, MONITOR_POLL_SEC);
+        int serverHbResult = Heartbeat_Check(&group.server.heartbeat, MONITOR_POLL_SEC);
         if (serverHbResult == 1)
             lastServerHb = time(NULL);
 
         if (metrics)
         {
-            Metrics_Update(metrics, fetcherPid, lastFetcherHb, parserPid, lastParserHb, serverPid, lastServerHb, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
+            Metrics_Update(metrics, fetcherPid, lastFetcherHb, parserPid, lastParserHb, serverPid, lastServerHb, RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy));
         }
 
         pid_t frozenPid = -1;
@@ -392,22 +392,22 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             break;
         }
 
-        if (!RestartPolicy_CanRestart(policy))
+        if (!RestartPolicy_CanRestart(&policy))
         {
-            LOG_FATAL("Watchdog: Max restarts (%d) exceeded in %d seconds, giving up", RestartPolicy_GetMax(policy), RESTART_WINDOW_SEC);
-            statusWrite(status, "FATAL max_restarts=%d\n", RestartPolicy_GetMax(policy));
+            LOG_FATAL("Watchdog: Max restarts (%d) exceeded in %d seconds, giving up", RestartPolicy_GetMax(&policy), RESTART_WINDOW_SEC);
+            statusWrite(status, "FATAL max_restarts=%d\n", RestartPolicy_GetMax(&policy));
             ProcessGroup_Cleanup(&group);
-            RestartPolicy_Destroy(policy);
+            RestartPolicy_Shutdown(&policy);
             ipcCleanup();
             statusDestroy(status);
             return 1;
         }
 
-        RestartPolicy_RecordRestart(policy);
-        int backoff = RestartPolicy_GetBackoffDelay(policy);
+        RestartPolicy_RecordRestart(&policy);
+        int backoff = RestartPolicy_GetBackoffDelay(&policy);
 
         LOG_INFO("Restarting all processes in %d seconds (attempt %d/%d)",
-                 backoff, RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy));
+                 backoff, RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy));
 
         for (int i = 0; i < backoff && watchdogRunning; i++)
             sleep(1);
@@ -422,7 +422,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         {
             LOG_FATAL("Watchdog: Failed to respawn processes");
             ProcessGroup_Cleanup(&group);
-            RestartPolicy_Destroy(policy);
+            RestartPolicy_Shutdown(&policy);
             ipcCleanup();
             statusDestroy(status);
             return 1;
@@ -433,7 +433,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         parserPid = group.parser.pid;
         serverPid = group.server.pid;
 
-        statusWrite(status, "RESTART attempt=%d/%d fetcher=%d parser=%d server=%d delay=%ds\n", RestartPolicy_GetCount(policy), RestartPolicy_GetMax(policy), (int)fetcherPid, (int)parserPid, (int)serverPid, backoff);
+        statusWrite(status, "RESTART attempt=%d/%d fetcher=%d parser=%d server=%d delay=%ds\n", RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy), (int)fetcherPid, (int)parserPid, (int)serverPid, backoff);
 
         lastFetcherHb = time(NULL);
         lastParserHb = time(NULL);
@@ -472,7 +472,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     ProcessGroup_WaitAll(&group);
 
     ProcessGroup_Cleanup(&group);
-    RestartPolicy_Destroy(policy);
+    RestartPolicy_Shutdown(&policy);
 
     Metrics_Shutdown();
 

@@ -24,7 +24,7 @@ int WorkCompletion_Initiate(WorkCompletion *wc)
     return 0;
 }
 
-void WorkCompletion_Destroy(WorkCompletion *wc)
+void WorkCompletion_Shutdown(WorkCompletion *wc)
 {
     if (!wc)
         return;
