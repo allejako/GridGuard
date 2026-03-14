@@ -7,37 +7,37 @@
 // ========== SOLAR PANEL CONSTANTS ==========
 // These are based on IEC 61724 standards for crystalline silicon panels.
 // Real-world solar panels lose ~25% efficiency from ideal lab conditions.
-#define SOLAR_REAL_WORLD_EFFICIENCY  0.75  // Wiring, inverter, dust losses
+#define SOLAR_REAL_WORLD_EFFICIENCY 0.75 // Wiring, inverter, dust losses
 
 // Temperature affects solar panels significantly:
 // - Hot panels (summer) produce LESS power than cold panels (winter)
 // - Wind cools panels down, improving performance
-#define PANEL_TEMP_AT_STANDARD_TEST  25.0   // °C - lab test condition
-#define PANEL_TEMP_COEFFICIENT       -0.0045  // -0.45% per °C above 25°C
-#define WIND_COOLING_FACTOR          0.04   // More wind = cooler panels
+#define PANEL_TEMP_AT_STANDARD_TEST 25.0 // °C - lab test condition
+#define PANEL_TEMP_COEFFICIENT -0.0045   // -0.45% per °C above 25°C
+#define WIND_COOLING_FACTOR 0.04         // More wind = cooler panels
 
 // ========== SWEDISH ELECTRICITY COSTS ==========
 // These are fixed costs that EVERY Swedish household pays, regardless of spot price.
-#define SWEDISH_ENERGY_TAX_SEK_PER_KWH  0.40  // Energiskatt (2024)
-#define SWEDISH_VAT                     0.25  // 25% moms on everything
+#define SWEDISH_ENERGY_TAX_SEK_PER_KWH 0.40 // Energiskatt (2024)
+#define SWEDISH_VAT 0.25                    // 25% moms on everything
 
 // ========== DECISION THRESHOLDS ==========
 // We tell customers to BUY (run appliances) during the cheapest 30% of hours.
 // This is a balance: too strict (10%) and you rarely get signals,
 // too loose (50%) and "cheap" isn't actually cheap.
-#define CHEAP_HOURS_PERCENTILE  0.30  // Bottom 30% = "cheap"
-#define EXPENSIVE_HOURS_PERCENTILE  0.70  // Top 30% = "expensive"
+#define CHEAP_HOURS_PERCENTILE 0.30     // Bottom 30% = "cheap"
+#define EXPENSIVE_HOURS_PERCENTILE 0.70 // Top 30% = "expensive"
 
 // Quality check: don't signal "cheap" unless it's AT LEAST 10% below median.
 // This prevents false signals on flat-price days when shifting load is pointless.
-#define MINIMUM_SAVINGS_THRESHOLD  0.10  // 10% discount required
+#define MINIMUM_SAVINGS_THRESHOLD 0.10 // 10% discount required
 
 // ========== SOLAR SELLING THRESHOLDS ==========
 // Only recommend selling solar surplus if:
 // 1. You have at least 50 Wh excess (inverter losses below this)
 // 2. Spot price is positive (negative = you PAY to export!)
-#define MIN_SURPLUS_TO_SELL_KWH  0.05
-#define MIN_PRICE_TO_SELL_SEK    0.05
+#define MIN_SURPLUS_TO_SELL_KWH 0.05
+#define MIN_PRICE_TO_SELL_SEK 0.05
 
 // ========== HELPER FUNCTIONS ==========
 
@@ -45,17 +45,19 @@
 // This is set by your electricity company (elhandlare).
 static double get_grid_fee_for_hour(int hour, double low, double normal, double high)
 {
-    if (hour < 7)  return low;      // Night: 00-06
-    if (hour < 17) return normal;   // Day: 07-16
-    return high;                    // Peak: 17-23
+    if (hour < 7)
+        return low; // Night: 00-06
+    if (hour < 17)
+        return normal; // Day: 07-16
+    return high;       // Peak: 17-23
 }
 
 // Calculate actual solar panel temperature from weather conditions.
 // Hotter panels = less power output. Wind = cooling = better.
 static double calculate_panel_temperature(double air_temp, double sun_intensity, double wind_speed)
-{ 
+{
     // NOCT model (Nominal Operating Cell Temperature) from IEC 61215
-    double temp_rise_per_sun = (45.0 - 20.0) / 800.0;  // Standard: 45°C at 800 W/m²
+    double temp_rise_per_sun = (45.0 - 20.0) / 800.0; // Standard: 45°C at 800 W/m²
     double cooling_effect = 1.0 + WIND_COOLING_FACTOR * wind_speed;
     return air_temp + (temp_rise_per_sun * sun_intensity) / cooling_effect;
 }
@@ -66,13 +68,16 @@ static double calculate_panel_temperature(double air_temp, double sun_intensity,
 static double get_consumption_pattern(int hour)
 {
     // Night (00-06): Sleeping. Only fridge, freezer running. = 40% of average
-    if (hour < 7)  return 0.40;
+    if (hour < 7)
+        return 0.40;
 
     // Day (07-16): At work. Background loads only. = 100% of average
-    if (hour < 17) return 1.00;
+    if (hour < 17)
+        return 1.00;
 
     // Evening (17-22): Peak usage. Cooking, heating, TV, laundry. = 160% of average
-    if (hour < 23) return 1.60;
+    if (hour < 23)
+        return 1.60;
 
     // Late night (23): Winding down. = 70% of average
     return 0.70;
@@ -90,7 +95,8 @@ static int compare_doubles(const void *a, const void *b)
 
 int Compute_Initiate(Compute *compute)
 {
-    if (!compute) return -1;
+    if (!compute)
+        return -1;
     memset(compute, 0, sizeof(Compute));
     pthread_mutex_init(&compute->mutex, NULL);
     compute->isInitialized = true;
@@ -98,8 +104,8 @@ int Compute_Initiate(Compute *compute)
     return 0;
 }
 
-int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh, 
-    double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan)
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh,
+                               double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan)
 {
     if (!compute || !forecast || !plan)
         return -1;
@@ -132,20 +138,23 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     struct tm tm_buf;
     for (int i = 0; i < num_hours; i++)
     {
-        if (localtime_r(&forecast->entries[i].timestamp, &tm_buf) != NULL) 
+        if (localtime_r(&forecast->entries[i].timestamp, &tm_buf) != NULL)
         {
             hours_of_day[i] = tm_buf.tm_hour;
-        } else {
-            hours_of_day[i] = 12;  // Fallback to noon if conversion fails
+        }
+        else
+        {
+            hours_of_day[i] = 12; // Fallback to noon if conversion fails
         }
     }
 
     for (int i = 0; i < num_hours; i++)
     {
         const ForecastEntry *hour = &forecast->entries[i];
-        if (!hour->valid) continue;
+        if (!hour->valid)
+            continue;
 
-        int hour_of_day = hours_of_day[i];  // Array access instead of syscall, 100× faster
+        int hour_of_day = hours_of_day[i]; // Array access instead of syscall, 100× faster
 
         double grid_fee = get_grid_fee_for_hour(hour_of_day, gridFee_low, gridFee_normal, gridFee_high);
         double total_cost = (hour->spotPriceSek + grid_fee + SWEDISH_ENERGY_TAX_SEK_PER_KWH) * (1.0 + SWEDISH_VAT);
@@ -160,7 +169,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         return -1;
     }
 
-    // Find cheap and expensive hours 
+    // Find cheap and expensive hours
     // Sort all costs to find percentiles (cheap 30%, expensive 30%)
     qsort(sorted_costs, valid_hours, sizeof(double), compare_doubles);
 
@@ -169,8 +178,10 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     int expensive_index = (int)(valid_hours * EXPENSIVE_HOURS_PERCENTILE);
 
     // Clamp to array bounds
-    if (cheap_index >= valid_hours) cheap_index = valid_hours - 1;
-    if (expensive_index >= valid_hours) expensive_index = valid_hours - 1;
+    if (cheap_index >= valid_hours)
+        cheap_index = valid_hours - 1;
+    if (expensive_index >= valid_hours)
+        expensive_index = valid_hours - 1;
 
     double cheap_threshold = sorted_costs[cheap_index];
     double median_price = sorted_costs[median_index];
@@ -198,7 +209,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         const ForecastEntry *forecast_hour = &forecast->entries[i];
         EnergyDataEntry *plan_hour = &plan->entries[i];
 
-        if (!forecast_hour->valid) continue;
+        if (!forecast_hour->valid)
+            continue;
 
         struct tm *time_info = localtime(&forecast_hour->timestamp);
         int hour_of_day = time_info ? time_info->tm_hour : 12;
@@ -209,10 +221,12 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
         double temp_efficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panel_temp - PANEL_TEMP_AT_STANDARD_TEST);
         // Clamp to reasonable range (panels don't suddenly become 30% worse/better)
-        if (temp_efficiency < 0.70) temp_efficiency = 0.70;
-        if (temp_efficiency > 1.10) temp_efficiency = 1.10;
+        if (temp_efficiency < 0.70)
+            temp_efficiency = 0.70;
+        if (temp_efficiency > 1.10)
+            temp_efficiency = 1.10;
 
-        double solar_production = (forecast_hour->solarIrradiance / 1000.0)  * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency;
+        double solar_production = (forecast_hour->solarIrradiance / 1000.0) * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency;
 
         // --- Calculate consumption ---
         double hourly_consumption = consumptionKwh * get_consumption_pattern(hour_of_day);
@@ -284,14 +298,15 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
             if (is_cheap_hour)
             {
-                if (window_start < 0) window_start = i;
+                if (window_start < 0)
+                    window_start = i;
                 window_end = i;
                 window_cost += plan->entries[i].totalCostSek;
                 // Savings = what you WOULD pay at median price vs what you actually pay
                 window_savings += (median_price - plan->entries[i].totalCostSek) * plan->entries[i].consumptionKwh;
                 window_hours++;
             }
-            else if (window_start >= 0)  // End of window
+            else if (window_start >= 0) // End of window
             {
                 if (window_savings > best_savings)
                 {
@@ -329,7 +344,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
 void Compute_Shutdown(Compute *compute)
 {
-    if (!compute || !compute->isInitialized) return;
+    if (!compute || !compute->isInitialized)
+        return;
     pthread_mutex_destroy(&compute->mutex);
     compute->isInitialized = false;
     LOG_INFO("Compute: shutdown");

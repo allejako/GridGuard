@@ -40,17 +40,18 @@ static void local_date(time_t t, char *buf, size_t len)
 static char *build_response_json(const EnergyData *plan, const ParseResult *req)
 {
     cJSON *root = cJSON_CreateObject();
-    if (!root) return NULL;
+    if (!root)
+        return NULL;
 
-    cJSON_AddStringToObject(root, "user_id",      req->userId);
-    cJSON_AddStringToObject(root, "location",     req->location);
-    cJSON_AddStringToObject(root, "region",       req->region);
+    cJSON_AddStringToObject(root, "user_id", req->userId);
+    cJSON_AddStringToObject(root, "location", req->location);
+    cJSON_AddStringToObject(root, "region", req->region);
     cJSON_AddNumberToObject(root, "generated_at", (double)plan->generatedAt);
 
     // --- Summary ---
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
-    cJSON_AddNumberToObject(summary, "forecast_hours",  plan->count);
-    cJSON_AddNumberToObject(summary, "total_cost_sek",  plan->totalCostSek);
+    cJSON_AddNumberToObject(summary, "forecast_hours", plan->count);
+    cJSON_AddNumberToObject(summary, "total_cost_sek", plan->totalCostSek);
     cJSON_AddNumberToObject(summary, "grid_import_kwh", plan->totalGridImportKwh);
     cJSON_AddNumberToObject(summary, "grid_export_kwh", plan->totalGridExportKwh);
 
@@ -60,28 +61,29 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
     {
         char startIso[32], endIso[32];
         iso8601_utc(plan->bestBuyWindow.start, startIso, sizeof(startIso));
-        iso8601_utc(plan->bestBuyWindow.end,   endIso,   sizeof(endIso));
+        iso8601_utc(plan->bestBuyWindow.end, endIso, sizeof(endIso));
 
         cJSON *win = cJSON_AddObjectToObject(summary, "best_buy_window");
-        cJSON_AddStringToObject(win, "start",            startIso);
-        cJSON_AddStringToObject(win, "end",              endIso);
-        cJSON_AddNumberToObject(win, "hours",            plan->bestBuyWindow.hours);
+        cJSON_AddStringToObject(win, "start", startIso);
+        cJSON_AddStringToObject(win, "end", endIso);
+        cJSON_AddNumberToObject(win, "hours", plan->bestBuyWindow.hours);
         cJSON_AddNumberToObject(win, "avg_cost_sek_kwh", plan->bestBuyWindow.avgCostSek);
-        cJSON_AddNumberToObject(win, "savings_sek",      plan->bestBuyWindow.savingsSek);
+        cJSON_AddNumberToObject(win, "savings_sek", plan->bestBuyWindow.savingsSek);
     }
 
     // --- Forecast grouped by calendar day ---
     // Days use local time (device is on-site); individual timestamps are UTC.
     cJSON *days = cJSON_AddArrayToObject(root, "days");
 
-    cJSON *currentDay   = NULL;
-    cJSON *dayHours     = NULL;
-    char   currentDate[16] = {0};
+    cJSON *currentDay = NULL;
+    cJSON *dayHours = NULL;
+    char currentDate[16] = {0};
 
     for (int i = 0; i < plan->count; i++)
     {
         const EnergyDataEntry *e = &plan->entries[i];
-        if (!e->valid) continue;
+        if (!e->valid)
+            continue;
 
         char date[16];
         local_date(e->timestamp, date, sizeof(date));
@@ -89,7 +91,7 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         if (strcmp(date, currentDate) != 0)
         {
             strncpy(currentDate, date, sizeof(currentDate) - 1);
-            currentDay  = cJSON_CreateObject();
+            currentDay = cJSON_CreateObject();
             cJSON_AddStringToObject(currentDay, "date", date);
             dayHours = cJSON_AddArrayToObject(currentDay, "hours");
             cJSON_AddItemToArray(days, currentDay);
@@ -99,13 +101,13 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         iso8601_utc(e->timestamp, iso, sizeof(iso));
 
         cJSON *entry = cJSON_CreateObject();
-        cJSON_AddStringToObject(entry, "time",                      iso);
-        cJSON_AddStringToObject(entry, "signal",                    EnergyAction_ToString(e->action));
-        cJSON_AddNumberToObject(entry, "price_sek_kwh",             e->spotPrice);
-        cJSON_AddNumberToObject(entry, "total_cost_sek_kwh",        e->totalCostSek);
-        cJSON_AddNumberToObject(entry, "price_vs_avg_pct",          e->priceVsAvgPct);
-        cJSON_AddNumberToObject(entry, "solar_kwh",                 e->productionKwh);
-        cJSON_AddNumberToObject(entry, "consumption_kwh",           e->consumptionKwh);
+        cJSON_AddStringToObject(entry, "time", iso);
+        cJSON_AddStringToObject(entry, "signal", EnergyAction_ToString(e->action));
+        cJSON_AddNumberToObject(entry, "price_sek_kwh", e->spotPrice);
+        cJSON_AddNumberToObject(entry, "total_cost_sek_kwh", e->totalCostSek);
+        cJSON_AddNumberToObject(entry, "price_vs_avg_pct", e->priceVsAvgPct);
+        cJSON_AddNumberToObject(entry, "solar_kwh", e->productionKwh);
+        cJSON_AddNumberToObject(entry, "consumption_kwh", e->consumptionKwh);
         cJSON_AddItemToArray(dayHours, entry);
     }
 
@@ -117,7 +119,8 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
 static int connect_to_parser(const char *socketPath)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return -1;
 
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
@@ -135,7 +138,8 @@ static int connect_to_parser(const char *socketPath)
 void *ComputeWorker_Run(void *arg)
 {
     ComputeWorker *worker = (ComputeWorker *)arg;
-    if (!worker) return NULL;
+    if (!worker)
+        return NULL;
 
     Compute *compute = (Compute *)worker->compute;
     LOG_INFO("ComputeWorker: started");
@@ -211,8 +215,7 @@ void *ComputeWorker_Run(void *arg)
             ssize_t n = read(fd, buf + totalRead, totalSize - totalRead);
             if (n < 0)
             {
-                LOG_ERROR("ComputeWorker: read failed: %s (read %zu/%zu bytes)",
-                         strerror(errno), totalRead, totalSize);
+                LOG_ERROR("ComputeWorker: read failed: %s (read %zu/%zu bytes)", strerror(errno), totalRead, totalSize);
                 break;
             }
             if (n == 0)
@@ -237,9 +240,7 @@ void *ComputeWorker_Run(void *arg)
             continue;
         }
 
-        LOG_INFO("ComputeWorker: %s — solar %.1fm² %.0f%%, avg load %.2f kWh/h, region %s",
-                 result.userId, result.solarAreaM2,
-                 result.solarEfficiency * 100.0, result.consumptionKwh, result.region);
+        LOG_INFO("ComputeWorker: %s — solar %.1fm² %.0f%%, avg load %.2f kWh/h, region %s", result.userId, result.solarAreaM2, result.solarEfficiency * 100.0, result.consumptionKwh, result.region);
 
         WorkCompletion *completion = FindCompletionByUserId(result.userId);
         if (!completion)
@@ -249,15 +250,8 @@ void *ComputeWorker_Run(void *arg)
         }
 
         EnergyData plan;
-        int rc = Compute_GenerateEnergyPlan(compute,
-                     &result.forecastData,
-                     result.solarAreaM2,
-                     result.solarEfficiency,
-                     result.consumptionKwh,
-                     result.gridFee_low,
-                     result.gridFee_normal,
-                     result.gridFee_high,
-                     &plan);
+        int rc = Compute_GenerateEnergyPlan(compute, &result.forecastData, result.solarAreaM2, result.solarEfficiency,
+                                            result.consumptionKwh, result.gridFee_low, result.gridFee_normal, result.gridFee_high, &plan);
 
         if (rc != 0)
         {
@@ -278,8 +272,7 @@ void *ComputeWorker_Run(void *arg)
 
         if (strlen(json) >= WORK_COMPLETION_BUFFER_SIZE)
         {
-            LOG_ERROR("ComputeWorker: JSON response too large for %s (%zu bytes)",
-                      result.userId, strlen(json));
+            LOG_ERROR("ComputeWorker: JSON response too large for %s (%zu bytes)", result.userId, strlen(json));
             free(json);
             UnregisterCompletion(result.userId);
             WorkCompletion_SignalError(completion);

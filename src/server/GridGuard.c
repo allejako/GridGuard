@@ -135,10 +135,10 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    computeWorker->socketPath = app->socketPath;
-    computeWorker->notifyPath = NOTIFY_PATH;
-    computeWorker->compute = &app->compute;
-    computeWorker->isRunning = true;
+    computeWorker->socketPath = app->socketPath; // Unix socket path för Parse → Compute
+    computeWorker->notifyPath = NOTIFY_PATH; // Notify FIFO path för Parse → Compute (för att signalera när data är klar)
+    computeWorker->compute = &app->compute; // Opaque pointer till Compute service
+    computeWorker->isRunning = true; // Kontrollflagga för ComputeWorker
 
     if (pthread_create(&app->computeThread, NULL, ComputeWorker_Run, computeWorker) != 0)
     {
