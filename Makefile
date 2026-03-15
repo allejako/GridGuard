@@ -512,34 +512,30 @@ dev: server watchdog platform-objects
 
 stop:
 	@echo "stopping gridguard..."
-	@if [ -f /tmp/gridguard.pid ]; then \
+	@-if [ -f /tmp/gridguard.pid ]; then \
 	    PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	    if [ -n "$$PID" ]; then \
-	        kill -TERM $$PID 2>/dev/null; \
+	    if [ -n "$$PID" ] && kill -0 $$PID 2>/dev/null; then \
+	        kill -TERM $$PID 2>/dev/null || true; \
 	        for i in 1 2 3 4 5; do \
 	            if ! kill -0 $$PID 2>/dev/null; then \
 	                echo "stopped"; \
-	                rm -f /tmp/gridguard.pid; \
-	                exit 0; \
+	                break; \
 	            fi; \
 	            sleep 1; \
 	        done; \
-	        echo "watchdog not responding, force killing..."; \
-	        kill -9 $$PID 2>/dev/null; \
-	        rm -f /tmp/gridguard.pid; \
+	        kill -0 $$PID 2>/dev/null && kill -9 $$PID 2>/dev/null || true; \
 	    fi; \
+	    rm -f /tmp/gridguard.pid; \
 	else \
 	    echo "no pid file found"; \
 	fi
-	@sleep 1
-	@FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
-	[ -n "$$FETCHER_PID" ] && echo "cleaning up fetcher ($$FETCHER_PID)" && kill -9 $$FETCHER_PID 2>/dev/null || true
-	@PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	[ -n "$$PARSER_PID" ] && echo "cleaning up parser ($$PARSER_PID)" && kill -9 $$PARSER_PID 2>/dev/null || true
-	@SERVER_PID=$$(pgrep -f GridGuard-server 2>/dev/null | head -1); \
-	[ -n "$$SERVER_PID" ] && echo "cleaning up server ($$SERVER_PID)" && kill -9 $$SERVER_PID 2>/dev/null || true
-	@fuser -k -9 8080/tcp 2>/dev/null || true
-	@rm -f /tmp/gridguard_*.fifo /tmp/gridguard_*.sock /tmp/gridguard.status 2>/dev/null || true
+	@-sleep 1
+	@-pkill -9 -f GridGuard-fetcher 2>/dev/null || true
+	@-pkill -9 -f GridGuard-parser 2>/dev/null || true
+	@-pkill -9 -f GridGuard-server 2>/dev/null || true
+	@-fuser -k -9 8080/tcp 2>/dev/null || true
+	@-rm -f /tmp/gridguard_*.fifo /tmp/gridguard_*.sock /tmp/gridguard.status 2>/dev/null || true
+	@echo "all processes stopped"
 
 # ── Analys ─────────────────────────────────────────────────────────────
 .PHONY: valgrind-server helgrind gprof-analyze
