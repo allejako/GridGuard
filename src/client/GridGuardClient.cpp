@@ -81,16 +81,19 @@ std::vector<std::string> GridGuardClient::splitJsonArray(const std::string& json
 
 std::vector<ForecastEntry> GridGuardClient::parseForecastArray(const std::string& json) {
     std::vector<ForecastEntry> entries;
-    for (const auto& obj : splitJsonArray(json, "forecast")) {
-        ForecastEntry e;
-        e.time            = extractStr   (obj, "time");
-        e.signal          = extractStr   (obj, "signal");
-        e.priceSekKwh     = extractDouble(obj, "price_sek_kwh");
-        e.totalCostSekKwh = extractDouble(obj, "total_cost_sek_kwh");
-        e.savingsVsMedian = extractDouble(obj, "savings_vs_median_sek_kwh");
-        e.solarKwh        = extractDouble(obj, "solar_kwh");
-        e.consumptionKwh  = extractDouble(obj, "consumption_kwh");
-        entries.push_back(std::move(e));
+    // Server returns: {"days":[{"date":"...","hours":[{entry},{entry},...]},...]
+    for (const auto& day : splitJsonArray(json, "days")) {
+        for (const auto& obj : splitJsonArray(day, "hours")) {
+            ForecastEntry e;
+            e.time            = extractStr   (obj, "time");
+            e.signal          = extractStr   (obj, "signal");
+            e.priceSekKwh     = extractDouble(obj, "price_sek_kwh");
+            e.totalCostSekKwh = extractDouble(obj, "total_cost_sek_kwh");
+            e.savingsVsMedian = extractDouble(obj, "price_vs_avg_pct");
+            e.solarKwh        = extractDouble(obj, "solar_kwh");
+            e.consumptionKwh  = extractDouble(obj, "consumption_kwh");
+            entries.push_back(std::move(e));
+        }
     }
     return entries;
 }
@@ -126,7 +129,7 @@ std::vector<ForecastEntry> GridGuardClient::getForecast(ForecastSummary& summary
     summary.userId       = extractStr   (resp.body, "user_id");
     summary.location     = extractStr   (resp.body, "location");
     summary.region       = extractStr   (resp.body, "region");
-    summary.entries      = extractInt   (resp.body, "entries");
+    summary.entries      = extractInt   (resp.body, "forecast_hours");
     summary.totalCostSek = extractDouble(resp.body, "total_cost_sek");
     summary.gridImportKwh= extractDouble(resp.body, "grid_import_kwh");
     summary.gridExportKwh= extractDouble(resp.body, "grid_export_kwh");
