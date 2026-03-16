@@ -165,26 +165,26 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
         return -1;
     }
 
-    // Open-Meteo format: hourly.time[], hourly.temperature_2m[], etc.
-    cJSON *hourly = cJSON_GetObjectItem(root, "hourly");
-    if (!cJSON_IsObject(hourly))
+    // Open-Meteo format: minutely_15.time[], minutely_15.temperature_2m[], etc.
+    cJSON *minutely = cJSON_GetObjectItem(root, "minutely_15");
+    if (!cJSON_IsObject(minutely))
     {
-        LOG_ERROR("Weather JSON missing 'hourly' object");
+        LOG_ERROR("Weather JSON missing 'minutely_15' object");
         cJSON_Delete(root);
         pthread_mutex_unlock(&parser->mutex);
         return -1;
     }
 
-    cJSON *times = cJSON_GetObjectItem(hourly, "time");
-    cJSON *temps = cJSON_GetObjectItem(hourly, "temperature_2m");
-    cJSON *humidity = cJSON_GetObjectItem(hourly, "relative_humidity_2m");
-    cJSON *clouds = cJSON_GetObjectItem(hourly, "cloud_cover");
-    cJSON *winds = cJSON_GetObjectItem(hourly, "wind_speed_10m");
-    cJSON *solar = cJSON_GetObjectItem(hourly, "shortwave_radiation");
+    cJSON *times = cJSON_GetObjectItem(minutely, "time");
+    cJSON *temps = cJSON_GetObjectItem(minutely, "temperature_2m");
+    cJSON *humidity = cJSON_GetObjectItem(minutely, "relative_humidity_2m");
+    cJSON *clouds = cJSON_GetObjectItem(minutely, "cloud_cover");
+    cJSON *winds = cJSON_GetObjectItem(minutely, "wind_speed_10m");
+    cJSON *solar = cJSON_GetObjectItem(minutely, "shortwave_radiation");
 
     if (!cJSON_IsArray(times))
     {
-        LOG_ERROR("Weather JSON missing 'hourly.time' array");
+        LOG_ERROR("Weather JSON missing 'minutely_15.time' array");
         cJSON_Delete(root);
         pthread_mutex_unlock(&parser->mutex);
         return -1;
@@ -193,7 +193,7 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
     int arraySize = cJSON_GetArraySize(times);
     int parsedCount = 0;
 
-    for (int i = 0; i < arraySize && parsedCount < 96; i++)
+    for (int i = 0; i < arraySize && parsedCount < 96; i++)  // Weather limited to 96 (24h forecast)
     {
         OpenMeteoEntry *data = &forecast->entries[parsedCount];
 
@@ -270,7 +270,7 @@ int APIParser_ParseElpriset(APIParser *parser, const char *jsonData, ElprisetRes
     int arraySize = cJSON_GetArraySize(root);
     int parsedCount = 0;
 
-    for (int i = 0; i < arraySize && parsedCount < 96; i++)
+    for (int i = 0; i < arraySize && parsedCount < 192; i++)  // Prices can hold 2 days (today + tomorrow)
     {
         cJSON *item = cJSON_GetArrayItem(root, i);
         if (!item)
