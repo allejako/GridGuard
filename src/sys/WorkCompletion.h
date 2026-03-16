@@ -20,7 +20,7 @@ typedef struct
 } WorkCompletion;
 
 int  WorkCompletion_Initiate(WorkCompletion *wc);
-void WorkCompletion_Destroy(WorkCompletion *wc);
+void WorkCompletion_Shutdown(WorkCompletion *wc);
 
 // Called by ComputeWorker: copies result JSON and wakes the HTTP worker.
 void WorkCompletion_Signal(WorkCompletion *wc, const char *json);

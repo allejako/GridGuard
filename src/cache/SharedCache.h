@@ -1,9 +1,18 @@
 #ifndef SHARED_CACHE_H
 #define SHARED_CACHE_H
 
+// Process-shared cache using POSIX shared memory and pthread_rwlock.
+// Thread-safe and process-safe. 16 entries max, 32KB per entry, LRU eviction.
+// Uses mmap() - each process maps at different virtual address.
+// Do not store pointers in shared region (invalid across processes).
+
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdbool.h>
 #include <time.h>
-#include <semaphore.h>
+#include <pthread.h>
 #include <stddef.h>
 
 #define SHARED_CACHE_MAX_ENTRIES  16
@@ -25,9 +34,10 @@ typedef struct
 // Must be mmap'd before use; never copy this struct.
 typedef struct
 {
-    unsigned int     magic;       // SHARED_CACHE_MAGIC when initialized
-    int              ttlSeconds;
-    SharedCacheEntry entries[SHARED_CACHE_MAX_ENTRIES];
+    unsigned int       magic;       // SHARED_CACHE_MAGIC when initialized
+    int                ttlSeconds;
+    pthread_rwlock_t   rwlock;      // Read-write lock (process-shared)
+    SharedCacheEntry   entries[SHARED_CACHE_MAX_ENTRIES];
 } SharedCacheRegion;
 
 // Process-local handle — not in shared memory
@@ -35,16 +45,14 @@ typedef struct
 {
     SharedCacheRegion *region;    // mmap'd pointer into shared memory
     int                fd;        // shm_open file descriptor
-    sem_t             *sem;       // named POSIX semaphore (sem_open)
     char               shmName[64];
-    char               semName[72]; // shmName + "_sem"
     bool               isInitialized;
 } SharedCache;
 
-// Create or attach to shared memory segment.
+// Initialize or attach to shared memory segment.
 // If the segment already exists and is initialized, existing data is kept.
 // Returns 0 on success, -1 on error.
-int  SharedCache_Create(SharedCache *cache, const char *name, int ttlSeconds);
+int  SharedCache_Initiate(SharedCache *cache, const char *name, int ttlSeconds);
 
 // Store data under key. Evicts oldest entry if full.
 // Returns 0 on success, -1 on error.
@@ -54,8 +62,16 @@ int  SharedCache_Store(SharedCache *cache, const char *key, const char *data);
 // Returns 0 on hit, -1 on miss or expired entry.
 int  SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t maxLen);
 
-// Unmap and unlink the shared memory segment.
-// Call once on server shutdown.
-void SharedCache_Destroy(SharedCache *cache);
+// Shutdown this process's access to the shared memory segment.
+// Unmaps the region and closes the file descriptor.
+// Does NOT destroy the rwlock or unlink - other processes may still be using it.
+// Safe to call from any process at any time.
+void SharedCache_Shutdown(SharedCache *cache);
+
+// Cleanup the shared memory segment completely (Watchdog only).
+// Destroys the rwlock and unlinks the shared memory object.
+// MUST be called ONLY after all processes using the cache have exited.
+// Typically called from Watchdog during final cleanup.
+void SharedCache_Cleanup(SharedCache *cache);
 
 #endif // SHARED_CACHE_H

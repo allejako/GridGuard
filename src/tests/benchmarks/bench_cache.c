@@ -72,7 +72,7 @@ static void make_payload(char *buf, size_t len)
 static void bench_store(void)
 {
     SharedCache cache;
-    SharedCache_Create(&cache, "bench_store", 300);
+    SharedCache_Initiate(&cache, "bench_store", 300);
 
     double *cold_samples   = malloc(STORE_ITERS * sizeof(double));
     double *update_samples = malloc(STORE_ITERS * sizeof(double));
@@ -133,7 +133,7 @@ static void bench_store(void)
 
     free(cold_samples); free(update_samples);
     free(evict_samples); free(large_samples);
-    SharedCache_Destroy(&cache);
+    SharedCache_Cleanup(&cache);
 }
 
 /* ── lookup benchmark ─────────────────────────────────────────────────── */
@@ -141,7 +141,7 @@ static void bench_store(void)
 static void bench_lookup(void)
 {
     SharedCache cache;
-    SharedCache_Create(&cache, "bench_lookup", 300);
+    SharedCache_Initiate(&cache, "bench_lookup", 300);
 
     char small_data[256];
     make_payload(small_data, sizeof(small_data));
@@ -181,8 +181,8 @@ static void bench_lookup(void)
     print_stats("cache miss (full scan, no match)", miss_samples, LOOKUP_ITERS);
 
     /* Worst-case hit: last slot (scan all 16 entries) */
-    SharedCache_Destroy(&cache);
-    SharedCache_Create(&cache, "bench_lookup_worst", 300);
+    SharedCache_Cleanup(&cache);
+    SharedCache_Initiate(&cache, "bench_lookup_worst", 300);
     for (int i = 0; i < SHARED_CACHE_MAX_ENTRIES; i++)
     {
         char key[32];
@@ -201,7 +201,7 @@ static void bench_lookup(void)
     print_stats("worst-case hit (last of 16 slots)", worst_samples, LOOKUP_ITERS);
 
     free(hit_samples); free(miss_samples); free(worst_samples);
-    SharedCache_Destroy(&cache);
+    SharedCache_Cleanup(&cache);
 }
 
 /* ── concurrent throughput ────────────────────────────────────────────── */
@@ -231,7 +231,7 @@ static void *concurrent_lookup_fn(void *arg)
 static void bench_concurrent(void)
 {
     SharedCache cache;
-    SharedCache_Create(&cache, "bench_concurrent", 300);
+    SharedCache_Initiate(&cache, "bench_concurrent", 300);
 
     char small_data[256];
     make_payload(small_data, sizeof(small_data));
@@ -276,7 +276,7 @@ static void bench_concurrent(void)
     }
 
     free(threads); free(args);
-    SharedCache_Destroy(&cache);
+    SharedCache_Cleanup(&cache);
 }
 
 /* ── main ─────────────────────────────────────────────────────────────── */

@@ -16,6 +16,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 {
     const char *fifoPath = argv[1];
     const char *socketPath = argv[2];
+    const char *notifyPath = argv[3];
 
     Logger_Initiate("logs/parser.log", LOG_LEVEL_DEBUG);
 
@@ -24,7 +25,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
     LOG_INFO("parser_main: Starting Parser process (PID %d)", getpid());
 
-    if (ParserProcess_Initiate(&g_process, fifoPath, socketPath) != 0)
+    if (ParserProcess_Initiate(&g_process, fifoPath, socketPath, notifyPath) != 0)
     {
         LOG_FATAL("parser_main: Failed to initiate ParserProcess");
         Logger_Shutdown();

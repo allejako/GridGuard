@@ -14,20 +14,12 @@
 
 typedef struct GridGuard
 {
-    // Child process PIDs
-    pid_t fetchPid; 
-    pid_t parsePid;
-
     // IPC file descriptors
-    int requestPipeFd;   // Write end: HTTP → Fetch, anonym pipe. 
+    int requestPipeFd;   // Write end to request FIFO: HTTP → Fetch
 
     // IPC paths
     char fifoPath[256];       // Named pipe: Fetch → Parse
     char socketPath[256];     // Unix socket: Parse → Compute
-
-    // Child binary paths (resolved at runtime from /proc/self/exe)
-    char fetcherBin[4096];
-    char parserBin[4096];
 
     // Compute worker thread (körs i main process, läser från Unix socket)
     pthread_t computeThread;
@@ -36,6 +28,7 @@ typedef struct GridGuard
     Compute compute;              // Compute service (används av compute thread)
     SharedCache weatherCache;     // shm_open/mmap - delad mellan processer
     SharedCache priceCache;       // shm_open/mmap - delad mellan processer
+    SharedCache forecastCache;    // shm_open/mmap - cache for complete forecast JSON
     ClientDB db;                  // Persistent user config
 
     // Control

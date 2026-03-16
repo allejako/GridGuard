@@ -8,23 +8,16 @@
 
 typedef struct
 {
-    bool            isInitialized;
+    bool isInitialized;
     pthread_mutex_t mutex;
 } Compute;
 
-int  Compute_Initiate(Compute *compute);
+int Compute_Initiate(Compute *compute);
 
 // Generate a BUY/SELL/IDLE plan from forecast data and user parameters.
 // Grid fees are split into three time bands: low (night), normal (day), high (peak).
-int  Compute_GenerateEnergyPlan(Compute *compute,
-                                const ForecastData *forecastData,
-                                double solarAreaM2,
-                                double solarEfficiency,
-                                double consumptionKwh,
-                                double gridFee_low,
-                                double gridFee_normal,
-                                double gridFee_high,
-                                EnergyData *plan);
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecastData, double solarAreaM2, double solarEfficiency, double consumptionKwh,
+                               double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan);
 
 void Compute_Shutdown(Compute *compute);
 

@@ -63,7 +63,7 @@ int TCPServer_Accept(TCPServer* server)
     return clientSocket;
 }
 
-void TCPServer_Dispose(TCPServer* server)
+void TCPServer_Shutdown(TCPServer* server)
 {
 	// Close the listening socket
 	if (server->listen_fd >= 0) {

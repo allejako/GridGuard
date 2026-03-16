@@ -3,35 +3,26 @@
 #include "watchdog/RestartPolicy.h"
 #include "sys/Logger.h"
 
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-struct RestartPolicy
+int RestartPolicy_Initiate(RestartPolicy *rp, int max_restarts, int window_sec, int base_backoff_sec)
 {
-    int    max_restarts;
-    int    window_sec;
-    int    base_backoff_sec;
-    int    count;
-    time_t first_restart;
-    time_t timestamps[MAX_RESTARTS];
-};
-
-RestartPolicy *RestartPolicy_Create(int max_restarts, int window_sec, int base_backoff_sec)
-{
-    RestartPolicy *rp = malloc(sizeof(RestartPolicy));
     if (!rp)
-        return NULL;
+        return -1;
+
     memset(rp, 0, sizeof(RestartPolicy));
     rp->max_restarts     = max_restarts;
     rp->window_sec       = window_sec;
     rp->base_backoff_sec = base_backoff_sec;
-    return rp;
+
+    return 0;
 }
 
-void RestartPolicy_Destroy(RestartPolicy *rp)
+void RestartPolicy_Shutdown(RestartPolicy *rp)
 {
-    free(rp);
+    // No resources to clean up for stack-allocated struct
+    (void)rp;
 }
 
 int RestartPolicy_CanRestart(RestartPolicy *rp)
