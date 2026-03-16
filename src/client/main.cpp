@@ -66,9 +66,10 @@ static void boxBot() {
     std::cout << "╝\n";
 }
 
-// Count UTF-8 characters (not bytes) for proper visual width calculation
-// Skips ANSI escape sequences (\033[...m) which take bytes but no visual space
-static int utf8_length(const std::string& s) {
+// ── ANSI-safe terminal table rendering system ────────────────────────────────
+
+// Calculate visual width by skipping ANSI escape sequences and counting UTF-8 chars
+static int visible_length(const std::string& s) {
     int count = 0;
     for (size_t i = 0; i < s.size(); ++i) {
         // Skip ANSI escape sequences: \033[...m
@@ -82,13 +83,57 @@ static int utf8_length(const std::string& s) {
     return count;
 }
 
-// Pad a string to exactly `width` visible chars (truncating if needed)
-static std::string pad(const std::string& s, int width) {
-    int visual_len = utf8_length(s);
-    if (visual_len >= width)
-        return s; // Already too long, don't truncate (would break UTF-8)
-    return s + std::string(static_cast<size_t>(width - visual_len), ' ');
+// Pad string to exact visual width (right-aligned padding with spaces)
+static std::string pad_right(const std::string& s, int width) {
+    int len = visible_length(s);
+    if (len >= width)
+        return s; // Already at or exceeds width
+    return s + std::string(static_cast<size_t>(width - len), ' ');
 }
+
+// Helper: wrap text with ANSI color code
+static std::string colorize(const std::string& text, const char* color) {
+    return std::string(color) + text + RESET;
+}
+
+// Render a table row with specified column widths
+// Builds entire row content first, then pads to exactly W chars
+static std::string render_row(const std::vector<std::string>& cols,
+                               const std::vector<int>& widths) {
+    std::ostringstream out;
+
+    for (size_t i = 0; i < cols.size(); ++i) {
+        if (i > 0) out << "  ";  // 2 spaces between columns
+        out << pad_right(cols[i], widths[i]);
+    }
+
+    // Pad the entire row content to W chars, then wrap with ║
+    std::string content = out.str();
+    return "║ " + pad_right(content, W - 2) + " ║";
+}
+
+// Legacy compatibility: pad() maps to pad_right()
+static std::string pad(const std::string& s, int width) {
+    return pad_right(s, width);
+}
+
+// ── Table column widths ───────────────────────────────────────────────────────
+
+// Forecast table columns:  TIME | SIGNAL | PRICE | LEVEL | SOLAR | DELTA
+// Total: 2 (leading space) + 11 + 1 + 7 + 1 + 8 + 1 + 8 + 1 + 9 + 1 + 9 + 2 (trailing) = 68
+// Content area: 11 + 7 + 8 + 8 + 9 + 9 + 5 spaces = 62 chars
+// Adding ║ on each side = 64, but W=66 so content must be 66
+// Adjusting: 2 + 11 + 2 + 7 + 2 + 8 + 2 + 8 + 2 + 9 + 2 + 9 = 64 (need 66)
+// New calculation: TIME(11) + SIGNAL(7) + PRICE(8) + LEVEL(8) + SOLAR(9) + DELTA(9) = 52
+// Plus 5 spacers (2 chars each except last) = 52 + 10 = 62
+// Plus 4 leading/trailing = 66 ✓
+static const std::vector<int> FORECAST_COL_WIDTHS = {11, 7, 8, 8, 9, 9};
+
+// Schedule table columns:  LOAD | START | DUR | COST | SAVING | STATUS
+// Total: LOAD(15) + START(11) + DUR(4) + COST(8) + SAVING(8) + STATUS(9) = 55
+// Plus spacers: 55 + 10 = 65
+// Plus 1 extra = 66 ✓
+static const std::vector<int> SCHEDULE_COL_WIDTHS = {15, 11, 4, 8, 8, 9};
 
 // ── Price bar ─────────────────────────────────────────────────────────────────
 // Returns an 8-char bar built from Unicode block characters.
@@ -152,15 +197,22 @@ static void printForecastRow(const gridguard::ForecastEntry& e,
     auto [col, tag] = sigStyle(e.signal);
     std::string bar = priceBar(e.totalCostSekKwh, minP, maxP);
 
-    std::cout << "║  "
-              << pad(shortTime(e.time), 11) << "  "
-              << col << tag << RESET << "  "
-              << std::right << std::fixed << std::setprecision(3)
-              << std::setw(6) << e.priceSekKwh << " kr  "
-              << col << bar << RESET << "  "
-              << std::setw(6) << e.solarKwh << " kWh  "
-              << std::setprecision(1)
-              << std::right << std::setw(6) << e.savingsVsMedian << "% ║\n";
+    // Format numeric values without setw
+    std::ostringstream price, solar, delta;
+    price << std::fixed << std::setprecision(3) << e.priceSekKwh << " kr";
+    solar << std::fixed << std::setprecision(3) << e.solarKwh << " kWh";
+    delta << std::fixed << std::setprecision(1) << e.savingsVsMedian << "%";
+
+    std::vector<std::string> cols = {
+        shortTime(e.time),
+        colorize(tag, col),
+        price.str(),
+        colorize(bar, col),
+        solar.str(),
+        delta.str()
+    };
+
+    std::cout << render_row(cols, FORECAST_COL_WIDTHS) << "\n";
 }
 
 // ── Display: forecast ─────────────────────────────────────────────────────────
@@ -216,16 +268,13 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     }
     boxMid("ACTION SIGNALS");
 
-    // Column header - must total exactly W=66 chars
-    std::cout << "║"
-              << BOLD
-              << pad("  TIME",   13) << "  "
-              << pad("SIGNAL",   7) << "  "
-              << pad("kr/kWh",   8) << "   "
-              << pad("LEVEL",    8) << "  "
-              << pad("SOLAR",    9) << "   "
-              << pad("Δ AVG  ",  9)  // Added 3 spaces to reach W=66
-              << RESET << "║\n";
+    // Column header using render_row for consistent alignment
+    {
+        std::vector<std::string> headers = {
+            "TIME", "SIGNAL", "kr/kWh", "LEVEL", "SOLAR", "Δ AVG"
+        };
+        std::cout << BOLD << render_row(headers, FORECAST_COL_WIDTHS) << RESET << "\n";
+    }
     std::cout << "║" << DIM;
     for (int i = 0; i < W; ++i) std::cout << "─";
     std::cout << RESET << "║\n";
@@ -336,16 +385,13 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
 
     boxTop("SCHEDULES");
 
-    // Column header - must total exactly W=66 chars
-    std::cout << "║"
-              << BOLD
-              << pad("  LOAD",  17) << " "
-              << pad("START",  11) << "  "
-              << pad("DUR",     4) << "  "
-              << pad("COST",    8) << " "
-              << pad("SAVING",  8) << "  "
-              << pad("STATUS",  9)
-              << RESET << "║\n";
+    // Column header using render_row for consistent alignment
+    {
+        std::vector<std::string> headers = {
+            "LOAD", "START", "DUR", "COST", "SAVING", "STATUS"
+        };
+        std::cout << BOLD << render_row(headers, SCHEDULE_COL_WIDTHS) << RESET << "\n";
+    }
     std::cout << "║" << DIM;
     for (int i = 0; i < W; ++i) std::cout << "─";
     std::cout << RESET << "║\n";
@@ -360,14 +406,16 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
         saving << std::fixed << std::setprecision(2) << s.savingsSek       << " kr";
         dur    << s.durationMinutes << "m";
 
-        std::cout << "║  "
-                  << pad(s.loadId,                   15) << " "
-                  << pad(shortTime(s.scheduledStart), 11) << "  "
-                  << pad(dur.str(),                    4) << "  "
-                  << std::right << std::setw(8) << cost.str()   << " "
-                  << BRIGHT_GREEN << std::setw(8) << saving.str() << RESET << "  "
-                  << stCol << pad(s.status, 9) << RESET
-                  << " ║\n";
+        std::vector<std::string> cols = {
+            s.loadId,
+            shortTime(s.scheduledStart),
+            dur.str(),
+            cost.str(),
+            colorize(saving.str(), BRIGHT_GREEN),
+            colorize(s.status, stCol)
+        };
+
+        std::cout << render_row(cols, SCHEDULE_COL_WIDTHS) << "\n";
     }
 
     std::cout << "║" << DIM;
