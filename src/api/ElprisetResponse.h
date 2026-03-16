@@ -10,7 +10,7 @@ typedef struct {
 } ElprisetEntry;
 
 typedef struct {
-    ElprisetEntry entries[96];
+    ElprisetEntry entries[192];  // 2 days × 96 quarters/day (today + tomorrow to cover rolling 24h window)
     int count;
 } ElprisetResponse;
 

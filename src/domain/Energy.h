@@ -16,11 +16,11 @@ typedef struct
 {
     time_t       timestamp;
     EnergyAction action;
-    double       productionKwh;        // Estimated solar production this hour
-    double       consumptionKwh;       // Estimated household load this hour (time-of-day profile)
-    double       spotPrice;            // SEK/kWh — spot price only
-    double       totalCostSek;         // SEK/kWh — spot + grid fee + energy tax + VAT
-    double       priceVsAvgPct;        // % deviation from forecast average (negative = cheaper than avg)
+    double       productionKwh;        // Solar production (kWh per quarter-hour)
+    double       consumptionKwh;       // Household load (kWh per quarter-hour)
+    double       spotPrice;            // SEK/kWh spot (constant within the hour)
+    double       totalCostSek;         // SEK/kWh total (spot + grid + tax + VAT)
+    double       priceVsAvgPct;        // % vs median
     bool         valid;
 } EnergyDataEntry;
 
@@ -38,7 +38,7 @@ typedef struct
 
 typedef struct
 {
-    EnergyDataEntry entries[96]; // Up to 96h hourly forecast
+    EnergyDataEntry entries[96]; // 24h hourly forecast (limited by daily price data availability)
     int       count;
     time_t    generatedAt;
     double    totalCostSek;
