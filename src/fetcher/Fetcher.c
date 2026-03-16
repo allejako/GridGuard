@@ -4,6 +4,7 @@
 #include "net/HTTPFetcher.h"
 #include "cache/SharedCache.h"
 #include "api/APIEndpoints.h"
+#include "domain/Config.h"
 #include "sys/Logger.h"
 #include "sys/ProcessHeartbeat.h"
 #include <sys/select.h>
@@ -105,9 +106,14 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
+    // Initialize periodic fetch timer 
+    proc->periodicIntervalSeconds = 900;  // 15 minutes
+    proc->lastPeriodicFetch = time(NULL);
+
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s)", getpid(), requestFifoPath, resultFifoPath);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s, Periodic interval: %ds)",
+             getpid(), requestFifoPath, resultFifoPath, proc->periodicIntervalSeconds);
     return 0;
 }
 
@@ -146,7 +152,74 @@ int FetcherProcess_Run(FetcherProcess *proc)
         }
 
         if (ready == 0)
-            continue; // Timeout, no data - loop again to send heartbeat.
+        {
+            // Timeout, no user request - check if it's time for periodic background fetch
+            time_t now = time(NULL);
+            time_t elapsed = now - proc->lastPeriodicFetch;
+
+            if (elapsed >= proc->periodicIntervalSeconds)
+            {
+                LOG_INFO("FetcherProcess: Periodic refresh triggered (%ld seconds since last fetch)", elapsed);
+
+                // Proactive cache warming for all Swedish regions (SE1-SE4)
+                // This ensures spotprice data is fresh every 15 minutes for any user/demo
+                const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
+                int regions_count = 4;
+
+                struct tm today;
+                localtime_r(&now, &today);
+
+                int fetched = 0, cached = 0;
+
+                for (int r = 0; r < regions_count; r++)
+                {
+                    const char *region = regions[r];
+                    char priceKey[256];
+                    snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
+                             region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
+
+                    // Check if cache is stale - if so, fetch fresh data
+                    char tempBuf[SHARED_CACHE_DATA_MAX];
+                    if (SharedCache_Lookup(priceCache, priceKey, tempBuf, sizeof(tempBuf)) != 0)
+                    {
+                        // Cache miss or expired - fetch fresh spot price data
+                        if (now >= proc->priceBackoffUntil)  // Check circuit breaker
+                        {
+                            char priceUrl[256];
+                            if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), region, NULL) == 0)
+                            {
+                                HTTPFetchResponse priceResp;
+                                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                                {
+                                    proc->priceFailures = 0;
+                                    proc->priceBackoffUntil = 0;
+                                    SharedCache_Store(priceCache, priceKey, priceResp.data);
+                                    HTTPFetcher_FreeResponse(&priceResp);
+                                    fetched++;
+                                }
+                                else
+                                {
+                                    proc->priceFailures++;
+                                    if (proc->priceFailures >= 5)
+                                        proc->priceBackoffUntil = time(NULL) + 300;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        cached++;
+                    }
+                }
+
+                LOG_INFO("FetcherProcess: Periodic refresh complete - fetched %d regions, %d already cached",
+                         fetched, cached);
+
+                proc->lastPeriodicFetch = now;
+            }
+
+            continue; // No FIFO data - loop again to send heartbeat
+        }
 
         WorkRequest request;
         ssize_t bytesRead = read(proc->requestFifoFd, &request, sizeof(request));
