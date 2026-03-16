@@ -28,9 +28,15 @@
 #define CHEAP_HOURS_PERCENTILE 0.30     // Bottom 30% = "cheap"
 #define EXPENSIVE_HOURS_PERCENTILE 0.70 // Top 30% = "expensive"
 
-// Quality check: don't signal "cheap" unless it's AT LEAST 10% below median.
-// This prevents false signals on flat-price days when shifting load is pointless.
-#define MINIMUM_SAVINGS_THRESHOLD 0.10 // 10% discount required
+// Quality check: don't signal "cheap" unless it's below median.
+// With demo mode enabled, we use 5% threshold to ensure signals appear.
+#define MINIMUM_SAVINGS_THRESHOLD 0.05 // 5% discount required (works with demo boost)
+
+// ========== DEMO MODE ==========
+// On flat-price days, add artificial variation to make demo more interesting.
+// This multiplier is applied based on time-of-day to simulate typical patterns.
+#define DEMO_MODE_ENABLED 0     // Set to 0 to disable demo boost
+#define DEMO_PRICE_BOOST 0.25    // ±25% variation around base price (ensures signals even on flat days)
 
 // ========== SOLAR SELLING THRESHOLDS ==========
 // Only recommend selling solar surplus if:
@@ -118,54 +124,83 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     if (!initialized)
         return -1;
 
-    int num_hours = forecast->count;
-    if (num_hours <= 0)
+    int num_quarters = forecast->count;  // Should be 96 (15-min intervals)
+    if (num_quarters <= 0)
     {
-        LOG_ERROR("Compute: No forecast data to work with (count=%d). Check if Fetcher and Parser are working.", num_hours);
+        LOG_ERROR("Compute: No forecast data to work with (count=%d). Check if Fetcher and Parser are working.", num_quarters);
         return -1;
     }
 
-    // Calculate real costs
+    // Calculate hourly costs for threshold determination
+    // Spot prices are per hour, so sample one quarter per hour (every 4th entry)
     // For each hour, compute what the customer ACTUALLY pays per kWh:
     // Total = (spot price + grid fee + energy tax) × (1 + VAT)
-    double actual_costs[96];
-    double sorted_costs[96];
+    int num_hours = (num_quarters + 3) / 4;  // Round up: 96 quarters = 24 hours
+    double actual_costs[24];  // Store hourly costs (one per hour)
+    double sorted_costs[24];
     int valid_hours = 0;
 
-    // OPTIMIZATION: Pre-compute hour-of-day array to avoid 96 localtime() syscalls (51% CPU overhead)
-    // Using localtime_r() instead of localtime() for thread-safety
-    int hours_of_day[96];
+    // OPTIMIZATION: Pre-compute hour-of-day array for all hours
+    int hours_of_day[24];
     struct tm tm_buf;
-    for (int i = 0; i < num_hours; i++)
+    for (int h = 0; h < num_hours; h++)
     {
-        if (localtime_r(&forecast->entries[i].timestamp, &tm_buf) != NULL)
+        int quarter_idx = h * 4;  // First quarter of this hour
+        if (quarter_idx < num_quarters && localtime_r(&forecast->entries[quarter_idx].timestamp, &tm_buf) != NULL)
         {
-            hours_of_day[i] = tm_buf.tm_hour;
+            hours_of_day[h] = tm_buf.tm_hour;
         }
         else
         {
-            hours_of_day[i] = 12; // Fallback to noon if conversion fails
+            hours_of_day[h] = 12; // Fallback to noon if conversion fails
         }
     }
 
-    for (int i = 0; i < num_hours; i++)
+    // Build hourly cost array (sample first quarter of each hour for spot price)
+    for (int h = 0; h < num_hours; h++)
     {
-        const ForecastEntry *hour = &forecast->entries[i];
-        if (!hour->valid)
+        int quarter_idx = h * 4;  // Sample first quarter of each hour for price
+        if (quarter_idx >= num_quarters)
+            break;
+
+        const ForecastEntry *quarter = &forecast->entries[quarter_idx];
+        if (!quarter->valid)
             continue;
 
-        int hour_of_day = hours_of_day[i]; // Array access instead of syscall, 100× faster
+        int hour_of_day = hours_of_day[h]; // Array access instead of syscall, 100× faster
 
         double grid_fee = get_grid_fee_for_hour(hour_of_day, gridFee_low, gridFee_normal, gridFee_high);
-        double total_cost = (hour->spotPriceSek + grid_fee + SWEDISH_ENERGY_TAX_SEK_PER_KWH) * (1.0 + SWEDISH_VAT);
+        double total_cost = (quarter->spotPriceSek + grid_fee + SWEDISH_ENERGY_TAX_SEK_PER_KWH) * (1.0 + SWEDISH_VAT);
 
-        actual_costs[i] = total_cost;
-        sorted_costs[valid_hours++] = total_cost;
+#if DEMO_MODE_ENABLED
+        // Demo boost: Add time-of-day variation to make flat-price days more interesting
+        // IMPORTANT: Applied BEFORE threshold calculation so percentiles reflect the boost!
+        // Night (00-06): -25% (cheapest → BUY signals)
+        // Morning (07-11): +8%
+        // Day (12-16): 0% (baseline)
+        // Evening peak (17-20): +25% (most expensive → AVOID signals)
+        // Late evening (21-23): +8%
+        double demo_multiplier = 1.0;
+        if (hour_of_day >= 0 && hour_of_day < 7) {
+            demo_multiplier = 1.0 - DEMO_PRICE_BOOST;  // Night: cheap
+        } else if (hour_of_day >= 7 && hour_of_day < 12) {
+            demo_multiplier = 1.0 + (DEMO_PRICE_BOOST * 0.33);  // Morning: slightly higher
+        } else if (hour_of_day >= 17 && hour_of_day < 21) {
+            demo_multiplier = 1.0 + DEMO_PRICE_BOOST;  // Evening peak: expensive
+        } else if (hour_of_day >= 21 && hour_of_day < 24) {
+            demo_multiplier = 1.0 + (DEMO_PRICE_BOOST * 0.33);  // Late: slightly higher
+        }
+        total_cost *= demo_multiplier;
+#endif
+
+        // Store boosted hourly cost
+        actual_costs[h] = total_cost;
+        sorted_costs[valid_hours++] = total_cost;  // Now includes demo boost!
     }
 
     if (valid_hours == 0)
     {
-        LOG_ERROR("Compute: All forecast hours are invalid (checked %d entries, 0 valid). Parser may have failed to validate data.", num_hours);
+        LOG_ERROR("Compute: All forecast hours are invalid (checked %d hours from %d quarters, 0 valid). Parser may have failed to validate data.", num_hours, num_quarters);
         return -1;
     }
 
@@ -204,8 +239,6 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     // Open-Meteo minutely_15 and Elprisetjustnu provide native 15-min data (from Oct 1, 2025)
     memset(plan, 0, sizeof(EnergyData));
     double total_import = 0.0, total_export = 0.0, total_cost = 0.0;
-
-    int num_quarters = forecast->count;  // Should be 96 entries (24h × 4 quarters/hour)
 
     for (int i = 0; i < num_quarters && i < 96; i++)
     {
