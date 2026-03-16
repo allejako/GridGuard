@@ -66,11 +66,22 @@ static void boxBot() {
     std::cout << "╝\n";
 }
 
+// Count UTF-8 characters (not bytes) for proper visual width calculation
+static int utf8_length(const std::string& s) {
+    int count = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        // Count only the start of UTF-8 sequences (not continuation bytes 10xxxxxx)
+        if ((s[i] & 0xC0) != 0x80) ++count;
+    }
+    return count;
+}
+
 // Pad a string to exactly `width` visible chars (truncating if needed)
 static std::string pad(const std::string& s, int width) {
-    if (static_cast<int>(s.size()) >= width)
-        return s.substr(0, static_cast<size_t>(width));
-    return s + std::string(static_cast<size_t>(width - static_cast<int>(s.size())), ' ');
+    int visual_len = utf8_length(s);
+    if (visual_len >= width)
+        return s; // Already too long, don't truncate (would break UTF-8)
+    return s + std::string(static_cast<size_t>(width - visual_len), ' ');
 }
 
 // ── Price bar ─────────────────────────────────────────────────────────────────
