@@ -200,63 +200,74 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     LOG_INFO("Compute: Price analysis → cheap: %.2f SEK/kWh, median: %.2f, expensive: %.2f", cheap_threshold, median_price, expensive_threshold);
 
-    // Generate hourly recommendations
+    // Generate 15-minute quarter-hour recommendations (24h = 96 quarters)
+    // Open-Meteo minutely_15 and Elprisetjustnu provide native 15-min data (from Oct 1, 2025)
     memset(plan, 0, sizeof(EnergyData));
     double total_import = 0.0, total_export = 0.0, total_cost = 0.0;
 
-    for (int i = 0; i < num_hours; i++)
-    {
-        const ForecastEntry *forecast_hour = &forecast->entries[i];
-        EnergyDataEntry *plan_hour = &plan->entries[i];
+    int num_quarters = forecast->count;  // Should be 96 entries (24h × 4 quarters/hour)
 
-        if (!forecast_hour->valid)
+    for (int i = 0; i < num_quarters && i < 96; i++)
+    {
+        const ForecastEntry *quarter_data = &forecast->entries[i];
+        EnergyDataEntry *plan_entry = &plan->entries[i];
+
+        if (!quarter_data->valid)
             continue;
 
-        struct tm *time_info = localtime(&forecast_hour->timestamp);
+        struct tm *time_info = localtime(&quarter_data->timestamp);
         int hour_of_day = time_info ? time_info->tm_hour : 12;
 
-        // --- Calculate solar production ---
-        // Panels lose efficiency when hot. Cold sunny days are best.
-        double panel_temp = calculate_panel_temperature(forecast_hour->temperature, forecast_hour->solarIrradiance, forecast_hour->windSpeed);
+        // Find corresponding hourly cost (prices matched during parsing)
+        int hour_idx = i / 4;  // 4 quarters per hour
+        if (hour_idx >= num_hours)
+            hour_idx = num_hours - 1;
+        double hourly_cost = actual_costs[hour_idx];
 
+        // --- Use native 15-minute data (no interpolation needed) ---
+        double irradiance = quarter_data->solarIrradiance;
+        double temperature = quarter_data->temperature;
+        double wind_speed = quarter_data->windSpeed;
+
+        // --- Calculate solar production for this 15-minute slot ---
+        double panel_temp = calculate_panel_temperature(temperature, irradiance, wind_speed);
         double temp_efficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panel_temp - PANEL_TEMP_AT_STANDARD_TEST);
-        // Clamp to reasonable range (panels don't suddenly become 30% worse/better)
+
+        // Clamp to realistic efficiency range
         if (temp_efficiency < 0.70)
             temp_efficiency = 0.70;
         if (temp_efficiency > 1.10)
             temp_efficiency = 1.10;
 
-        double solar_production = (forecast_hour->solarIrradiance / 1000.0) * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency;
+        // Solar production for 15 minutes (kWh per quarter-hour)
+        double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency *
+                                   SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
 
-        // --- Calculate consumption ---
-        double hourly_consumption = consumptionKwh * get_consumption_pattern(hour_of_day);
+        // --- Calculate consumption for this 15-minute slot ---
+        // Scale hourly consumption to quarter-hour (÷4)
+        double quarter_consumption = (consumptionKwh * get_consumption_pattern(hour_of_day)) * 0.25;
 
         // --- Net energy: negative = need to buy, positive = can sell ---
-        double net_energy = solar_production - hourly_consumption;
-        double hourly_cost = actual_costs[i];
+        double net_energy = quarter_production - quarter_consumption;
 
         // --- Decide recommendation ---
         EnergyAction recommendation;
 
-        if (net_energy > MIN_SURPLUS_TO_SELL_KWH && forecast_hour->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
+        if (net_energy > MIN_SURPLUS_TO_SELL_KWH && quarter_data->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
         {
-            // You're producing more than you use AND prices are good, sell excess
             recommendation = ACTION_SELL_TO_GRID;
             total_export += net_energy;
         }
         else if (hourly_cost <= cheap_threshold)
         {
-            // Prices are cheap right now, run dishwasher, charge EV, etc.
             recommendation = ACTION_BUY_FROM_GRID;
         }
         else if (hourly_cost >= expensive_threshold)
         {
-            // Prices are expensive, avoid running heavy loads if possible
             recommendation = ACTION_AVOID_HIGH_PRICE;
         }
         else
         {
-            // Normal prices, do whatever
             recommendation = ACTION_IDLE;
         }
 
@@ -267,18 +278,18 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             total_cost += -net_energy * hourly_cost;
         }
 
-        // --- Store results ---
-        plan_hour->timestamp = forecast_hour->timestamp;
-        plan_hour->action = recommendation;
-        plan_hour->productionKwh = solar_production;
-        plan_hour->consumptionKwh = hourly_consumption;
-        plan_hour->spotPrice = forecast_hour->spotPriceSek;
-        plan_hour->totalCostSek = hourly_cost;
-        plan_hour->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
-        plan_hour->valid = true;
+        // --- Store results for this quarter ---
+        plan_entry->timestamp = quarter_data->timestamp;
+        plan_entry->action = recommendation;
+        plan_entry->productionKwh = quarter_production;
+        plan_entry->consumptionKwh = quarter_consumption;
+        plan_entry->spotPrice = quarter_data->spotPriceSek;
+        plan_entry->totalCostSek = hourly_cost;
+        plan_entry->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
+        plan_entry->valid = true;
     }
 
-    plan->count = num_hours;
+    plan->count = num_quarters;
     plan->generatedAt = time(NULL);
     plan->totalCostSek = total_cost;
     plan->totalGridImportKwh = total_import;
@@ -286,17 +297,18 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     // Find best window for flexible loads
     // Find the longest block of BUY signals with maximum savings.
+    // Operates on 15-minute quarters (native resolution from APIs)
     {
         int window_start = -1, window_end = -1;
         double window_cost = 0.0, window_savings = 0.0;
-        int window_hours = 0;
+        int window_quarters = 0;
         double best_savings = -1.0;
 
-        for (int i = 0; i <= num_hours; i++)
+        for (int i = 0; i <= num_quarters; i++)
         {
-            bool is_cheap_hour = (i < num_hours && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
+            bool is_cheap_quarter = (i < num_quarters && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
 
-            if (is_cheap_hour)
+            if (is_cheap_quarter)
             {
                 if (window_start < 0)
                     window_start = i;
@@ -304,7 +316,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                 window_cost += plan->entries[i].totalCostSek;
                 // Savings = what you WOULD pay at median price vs what you actually pay
                 window_savings += (median_price - plan->entries[i].totalCostSek) * plan->entries[i].consumptionKwh;
-                window_hours++;
+                window_quarters++;
             }
             else if (window_start >= 0) // End of window
             {
@@ -313,8 +325,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                     best_savings = window_savings;
                     plan->bestBuyWindow.start = plan->entries[window_start].timestamp;
                     plan->bestBuyWindow.end = plan->entries[window_end].timestamp;
-                    plan->bestBuyWindow.hours = window_hours;
-                    plan->bestBuyWindow.avgCostSek = window_cost / window_hours;
+                    plan->bestBuyWindow.hours = window_quarters / 4; // Convert quarters to hours for display
+                    plan->bestBuyWindow.avgCostSek = window_cost / window_quarters;
                     plan->bestBuyWindow.savingsSek = window_savings;
                     plan->hasBuyWindow = 1;
                 }
@@ -323,7 +335,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                 window_end = -1;
                 window_cost = 0.0;
                 window_savings = 0.0;
-                window_hours = 0;
+                window_quarters = 0;
             }
         }
     }
@@ -337,7 +349,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         LOG_INFO("Compute: No clear cheap window (flat prices or solar covers everything)");
     }
 
-    LOG_INFO("Compute: Forecast complete → %d hours, import %.2f kWh, export %.2f kWh, cost %.2f SEK", num_hours, total_import, total_export, total_cost);
+    LOG_INFO("Compute: Forecast complete → %d quarters (%.1f hours), import %.2f kWh, export %.2f kWh, cost %.2f SEK",
+             num_quarters, num_quarters / 4.0, total_import, total_export, total_cost);
 
     return 0;
 }

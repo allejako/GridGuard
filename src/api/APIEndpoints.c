@@ -10,14 +10,14 @@ int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const
     if (!buffer || bufferSize < 512 || !lat || !lon)
         return -1;
 
-    // Open-Meteo forecast API
-    // Focus on parameters needed for GridGuard energy forecasting
+    // Open-Meteo forecast API with 24-hour, 15-minute granularity (96 quarters)
+    // Using minutely_15 to match Elprisetjustnu's quarter-hour price data (from Oct 1, 2025)
     // CRITICAL: shortwave_radiation for solar panel calculations
     int written = snprintf(buffer, bufferSize,
         "%s?latitude=%s&longitude=%s"
-        "&hourly=temperature_2m,relative_humidity_2m,cloud_cover,"
-        "wind_speed_10m,shortwave_radiation,direct_radiation,diffuse_radiation"
-        "&timezone=%s&forecast_days=4",
+        "&minutely_15=temperature_2m,relative_humidity_2m,cloud_cover,"
+        "wind_speed_10m,shortwave_radiation"
+        "&timezone=%s&forecast_minutely_15=96",
         OPENMETEO_API_BASE_URL,
         lat,
         lon,

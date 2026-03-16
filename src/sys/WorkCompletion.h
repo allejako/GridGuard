@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define WORK_COMPLETION_BUFFER_SIZE 32768
+#define WORK_COMPLETION_BUFFER_SIZE 131072 // 128 KB - increased for 15-min granularity
 #define WORK_COMPLETION_TIMEOUT_SEC 30
 
 // One-shot completion primitive: pipeline signals, HTTP worker waits.
