@@ -23,6 +23,7 @@ typedef struct GridGuard
 
     // Compute worker thread (körs i main process, läser från Unix socket)
     pthread_t computeThread;
+    void *computeWorker;  // Pointer to ComputeWorker struct (opaque to avoid circular include)
 
     // Shared resources
     Compute compute;              // Compute service (används av compute thread)
