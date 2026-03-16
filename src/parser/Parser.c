@@ -22,14 +22,44 @@
 #include <math.h>
 #include <errno.h>
 
-// Helper: parse ISO 8601 timestamp till time_t
+// Helper: parse ISO 8601 timestamp till time_t (hanterar tidszoner)
 static time_t parse_iso8601(const char *timeStr)
 {
     struct tm tm = {0};
-    sscanf(timeStr, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
+    int tzHour = 0, tzMin = 0;
+    char tzSign = '+';
+
+    // Försök parsa med tidszon först (t.ex. "2026-03-16T00:00:00+01:00")
+    int parsed = sscanf(timeStr, "%d-%d-%dT%d:%d:%d%c%d:%d",
+                       &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+                       &tm.tm_hour, &tm.tm_min, &tm.tm_sec,
+                       &tzSign, &tzHour, &tzMin);
+
+    if (parsed < 6) {
+        // Fallback: parsa utan tidszon (t.ex. "2026-03-16T13:20:00")
+        sscanf(timeStr, "%d-%d-%dT%d:%d:%d",
+               &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+               &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
+    }
+
     tm.tm_year -= 1900;
     tm.tm_mon -= 1;
-    return mktime(&tm);
+    tm.tm_isdst = -1;
+
+    // Använd mktime för lokal tid och justera för tidszon om angiven
+    time_t result = mktime(&tm);
+
+    // Justera för tidszon om den parsades
+    if (parsed >= 7) {
+        int tzOffset = (tzHour * 3600 + tzMin * 60);
+        if (tzSign == '-') {
+            tzOffset = -tzOffset;
+        }
+        // Subtrahera tidszonoffset för att få UTC, sedan mktime konverterar till lokal tid
+        result -= tzOffset;
+    }
+
+    return result;
 }
 
 // Bygg forecast data genom att matcha OpenMeteoResponse med ElprisetResponse baserat på timestamp
@@ -37,6 +67,8 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
 {
     memset(forecast, 0, sizeof(ForecastData));
     forecast->lastUpdated = time(NULL);
+
+    LOG_INFO("ParserProcess: build_forecast_data() called with om->count=%d, elpriset->count=%d", om->count, elpriset->count);
 
     int count = 0;
     for (int i = 0; i < om->count && count < 96; i++)
@@ -51,18 +83,35 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         entry->windSpeed = src->wind_speed_10m;
         entry->solarIrradiance = src->shortwave_radiation;
 
-        // Matcha spot price baserat på timestamp
+        // Matcha elpris baserat på tid-på-dagen (time-of-day matching)
+        // Dagens priser är 00:00-23:45, vädret börjar från "nu"
+        // Matchning: extrahera timme+minut från både väder och pris
         entry->spotPriceSek = 0.0;
+
+        struct tm weatherTime;
+        localtime_r(&entry->timestamp, &weatherTime);
+        int weatherMinuteOfDay = weatherTime.tm_hour * 60 + weatherTime.tm_min;
+
         for (int j = 0; j < elpriset->count; j++)
         {
             const ElprisetEntry *price = &elpriset->entries[j];
             time_t priceTime = parse_iso8601(price->time_start);
+            struct tm priceTimeStruct;
+            localtime_r(&priceTime, &priceTimeStruct);
+            int priceMinuteOfDay = priceTimeStruct.tm_hour * 60 + priceTimeStruct.tm_min;
 
-            if (abs((int)difftime(entry->timestamp, priceTime)) < 60)
+            // Matcha om tid-på-dagen är inom 15 minuter
+            if (abs(weatherMinuteOfDay - priceMinuteOfDay) < 15)
             {
                 entry->spotPriceSek = price->SEK_per_kWh;
                 break;
             }
+        }
+
+        if (entry->spotPriceSek == 0.0 && i < 3)
+        {
+            LOG_WARNING("ParserProcess: No price match for %02d:%02d (minute %d)",
+                       weatherTime.tm_hour, weatherTime.tm_min, weatherMinuteOfDay);
         }
 
         entry->valid = true;
@@ -70,7 +119,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
     }
 
     forecast->count = count;
-    LOG_INFO("ParserProcess: Built forecast with %d entries", count);
+    LOG_INFO("ParserProcess: Built forecast with %d quarter-hour entries (%.1f hours)", count, count / 4.0);
 }
 
 int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath, const char *notifyPath)
@@ -257,6 +306,7 @@ int ParserProcess_Run(ParserProcess *proc)
             }
 
             LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
+            LOG_INFO("ParserProcess: priceJson length=%zu, preview: %.200s", strlen(fetchResult.priceJson), fetchResult.priceJson);
 
             // Parsa JSON data från FetchResult
             OpenMeteoResponse omData = {0};
