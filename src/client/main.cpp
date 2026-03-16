@@ -190,10 +190,14 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
         std::string info = "  " + summary.userId
                          + "  ·  " + summary.location
                          + "  ·  " + summary.region
-                         + "  ·  " + std::to_string(summary.entries) + "h forecast";
+                         + "  ·  " + std::to_string(summary.quarters) + "× 15min quarters";
         std::cout << "║" << pad(info, W) << "║\n";
     }
-    boxMid("24h OVERVIEW");
+    {
+        std::string note = "  Intelligent signal windows (BUY/SELL/AVOID/IDLE)";
+        std::cout << "║" << DIM << pad(note, W) << RESET << "║\n";
+    }
+    boxMid("ACTION SIGNALS");
 
     // Column header
     std::cout << "║  "

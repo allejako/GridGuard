@@ -81,11 +81,12 @@ std::vector<std::string> GridGuardClient::splitJsonArray(const std::string& json
 
 std::vector<ForecastEntry> GridGuardClient::parseForecastArray(const std::string& json) {
     std::vector<ForecastEntry> entries;
-    // Server returns: {"days":[{"date":"...","hours":[{entry},{entry},...]},...]
+    // Server returns: {"days":[{"date":"...","signals":[{signal},{signal},...]},...]
+    // Each signal represents a time window (BUY, SELL, AVOID, IDLE) with 15-min granularity
     for (const auto& day : splitJsonArray(json, "days")) {
-        for (const auto& obj : splitJsonArray(day, "hours")) {
+        for (const auto& obj : splitJsonArray(day, "signals")) {
             ForecastEntry e;
-            e.time            = extractStr   (obj, "time");
+            e.time            = extractStr   (obj, "start");  // Use "start" timestamp
             e.signal          = extractStr   (obj, "signal");
             e.priceSekKwh     = extractDouble(obj, "price_sek_kwh");
             e.totalCostSekKwh = extractDouble(obj, "total_cost_sek_kwh");
@@ -130,6 +131,7 @@ std::vector<ForecastEntry> GridGuardClient::getForecast(ForecastSummary& summary
     summary.location     = extractStr   (resp.body, "location");
     summary.region       = extractStr   (resp.body, "region");
     summary.entries      = extractInt   (resp.body, "forecast_hours");
+    summary.quarters     = extractInt   (resp.body, "forecast_quarters");
     summary.totalCostSek = extractDouble(resp.body, "total_cost_sek");
     summary.gridImportKwh= extractDouble(resp.body, "grid_import_kwh");
     summary.gridExportKwh= extractDouble(resp.body, "grid_export_kwh");

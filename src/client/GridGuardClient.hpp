@@ -24,7 +24,8 @@ struct ForecastSummary {
     std::string userId;
     std::string location;
     std::string region;
-    int         entries{0};
+    int         entries{0};         // forecast_hours (24h)
+    int         quarters{0};        // forecast_quarters (96× 15min)
     double      totalCostSek{0.0};
     double      gridImportKwh{0.0};
     double      gridExportKwh{0.0};
