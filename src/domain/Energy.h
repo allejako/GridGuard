@@ -38,7 +38,7 @@ typedef struct
 
 typedef struct
 {
-    EnergyDataEntry entries[384]; // 96h × 4 quarters/hour (15min resolution)
+    EnergyDataEntry entries[96]; // 24h hourly forecast (limited by daily price data availability)
     int       count;
     time_t    generatedAt;
     double    totalCostSek;

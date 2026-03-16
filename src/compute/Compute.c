@@ -83,14 +83,6 @@ static double get_consumption_pattern(int hour)
     return 0.70;
 }
 
-// Interpolate between two hourly values to get quarter-hour resolution.
-// Used to expand hourly API data (Open-Meteo, spot prices) into 15-minute slots.
-// q=0 returns h0, q=1 returns 25% towards h1, q=2 returns 50%, q=3 returns 75%
-static double lerp(double h0, double h1, int q)
-{
-    return h0 + (h1 - h0) * (q * 0.25);
-}
-
 // Standard comparison function for qsort()
 static int compare_doubles(const void *a, const void *b)
 {
@@ -208,105 +200,96 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     LOG_INFO("Compute: Price analysis → cheap: %.2f SEK/kWh, median: %.2f, expensive: %.2f", cheap_threshold, median_price, expensive_threshold);
 
-    // Generate 15-minute quarter-hour recommendations
-    // Swedish APIs (Open-Meteo, Elprisetjustnu) only provide hourly data.
-    // We expand this to 4 quarters per hour (15-min resolution) using linear interpolation.
-    // This gives smoother solar production curves and more precise scheduling signals.
+    // Generate 15-minute quarter-hour recommendations (24h = 96 quarters)
+    // Open-Meteo minutely_15 and Elprisetjustnu provide native 15-min data (from Oct 1, 2025)
     memset(plan, 0, sizeof(EnergyData));
     double total_import = 0.0, total_export = 0.0, total_cost = 0.0;
 
-    int quarter_index = 0;
-    for (int hour_idx = 0; hour_idx < num_hours; hour_idx++)
-    {
-        const ForecastEntry *current_hour = &forecast->entries[hour_idx];
-        const ForecastEntry *next_hour = (hour_idx + 1 < num_hours) ? &forecast->entries[hour_idx + 1] : current_hour;
+    int num_quarters = forecast->count;  // Should be 96 entries (24h × 4 quarters/hour)
 
-        if (!current_hour->valid)
+    for (int i = 0; i < num_quarters && i < 96; i++)
+    {
+        const ForecastEntry *quarter_data = &forecast->entries[i];
+        EnergyDataEntry *plan_entry = &plan->entries[i];
+
+        if (!quarter_data->valid)
             continue;
 
-        struct tm *time_info = localtime(&current_hour->timestamp);
+        struct tm *time_info = localtime(&quarter_data->timestamp);
         int hour_of_day = time_info ? time_info->tm_hour : 12;
 
+        // Find corresponding hourly cost (prices matched during parsing)
+        int hour_idx = i / 4;  // 4 quarters per hour
+        if (hour_idx >= num_hours)
+            hour_idx = num_hours - 1;
         double hourly_cost = actual_costs[hour_idx];
 
-        // Generate 4 quarters for this hour (00, 15, 30, 45 minutes)
-        for (int q = 0; q < 4; q++)
+        // --- Use native 15-minute data (no interpolation needed) ---
+        double irradiance = quarter_data->solarIrradiance;
+        double temperature = quarter_data->temperature;
+        double wind_speed = quarter_data->windSpeed;
+
+        // --- Calculate solar production for this 15-minute slot ---
+        double panel_temp = calculate_panel_temperature(temperature, irradiance, wind_speed);
+        double temp_efficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panel_temp - PANEL_TEMP_AT_STANDARD_TEST);
+
+        // Clamp to realistic efficiency range
+        if (temp_efficiency < 0.70)
+            temp_efficiency = 0.70;
+        if (temp_efficiency > 1.10)
+            temp_efficiency = 1.10;
+
+        // Solar production for 15 minutes (kWh per quarter-hour)
+        double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency *
+                                   SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
+
+        // --- Calculate consumption for this 15-minute slot ---
+        // Scale hourly consumption to quarter-hour (÷4)
+        double quarter_consumption = (consumptionKwh * get_consumption_pattern(hour_of_day)) * 0.25;
+
+        // --- Net energy: negative = need to buy, positive = can sell ---
+        double net_energy = quarter_production - quarter_consumption;
+
+        // --- Decide recommendation ---
+        EnergyAction recommendation;
+
+        if (net_energy > MIN_SURPLUS_TO_SELL_KWH && quarter_data->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
         {
-            if (quarter_index >= 384)
-                break; // Safety: don't overflow plan->entries
-
-            EnergyDataEntry *quarter = &plan->entries[quarter_index];
-
-            // Interpolate weather variables between hours for smooth solar curves
-            double irradiance = lerp(current_hour->solarIrradiance, next_hour->solarIrradiance, q);
-            double temperature = lerp(current_hour->temperature, next_hour->temperature, q);
-            double wind_speed = lerp(current_hour->windSpeed, next_hour->windSpeed, q);
-
-            // --- Calculate solar production for this 15-minute slot ---
-            double panel_temp = calculate_panel_temperature(temperature, irradiance, wind_speed);
-            double temp_efficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panel_temp - PANEL_TEMP_AT_STANDARD_TEST);
-
-            // Clamp to realistic efficiency range
-            if (temp_efficiency < 0.70)
-                temp_efficiency = 0.70;
-            if (temp_efficiency > 1.10)
-                temp_efficiency = 1.10;
-
-            // Solar production for 15 minutes (kWh per quarter-hour)
-            double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency *
-                                       SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
-
-            // --- Calculate consumption for this 15-minute slot ---
-            // Scale hourly consumption to quarter-hour (÷4)
-            double quarter_consumption = (consumptionKwh * get_consumption_pattern(hour_of_day)) * 0.25;
-
-            // --- Net energy: negative = need to buy, positive = can sell ---
-            double net_energy = quarter_production - quarter_consumption;
-
-            // --- Decide recommendation ---
-            // Spot prices only change hourly, so all 4 quarters share the same price signal
-            EnergyAction recommendation;
-
-            if (net_energy > MIN_SURPLUS_TO_SELL_KWH && current_hour->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
-            {
-                recommendation = ACTION_SELL_TO_GRID;
-                total_export += net_energy;
-            }
-            else if (hourly_cost <= cheap_threshold)
-            {
-                recommendation = ACTION_BUY_FROM_GRID;
-            }
-            else if (hourly_cost >= expensive_threshold)
-            {
-                recommendation = ACTION_AVOID_HIGH_PRICE;
-            }
-            else
-            {
-                recommendation = ACTION_IDLE;
-            }
-
-            // --- Track grid imports and costs ---
-            if (net_energy < 0.0)
-            {
-                total_import += -net_energy;
-                total_cost += -net_energy * hourly_cost;
-            }
-
-            // --- Store results for this quarter ---
-            quarter->timestamp = current_hour->timestamp + (q * 15 * 60); // Add 0/15/30/45 minutes
-            quarter->action = recommendation;
-            quarter->productionKwh = quarter_production;
-            quarter->consumptionKwh = quarter_consumption;
-            quarter->spotPrice = current_hour->spotPriceSek; // Spot price is constant within hour
-            quarter->totalCostSek = hourly_cost;
-            quarter->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
-            quarter->valid = true;
-
-            quarter_index++;
+            recommendation = ACTION_SELL_TO_GRID;
+            total_export += net_energy;
         }
+        else if (hourly_cost <= cheap_threshold)
+        {
+            recommendation = ACTION_BUY_FROM_GRID;
+        }
+        else if (hourly_cost >= expensive_threshold)
+        {
+            recommendation = ACTION_AVOID_HIGH_PRICE;
+        }
+        else
+        {
+            recommendation = ACTION_IDLE;
+        }
+
+        // --- Track grid imports and costs ---
+        if (net_energy < 0.0)
+        {
+            total_import += -net_energy;
+            total_cost += -net_energy * hourly_cost;
+        }
+
+        // --- Store results for this quarter ---
+        plan_entry->timestamp = quarter_data->timestamp;
+        plan_entry->action = recommendation;
+        plan_entry->productionKwh = quarter_production;
+        plan_entry->consumptionKwh = quarter_consumption;
+        plan_entry->spotPrice = quarter_data->spotPriceSek;
+        plan_entry->totalCostSek = hourly_cost;
+        plan_entry->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
+        plan_entry->valid = true;
     }
 
-    plan->count = quarter_index;
+    plan->count = num_quarters;
     plan->generatedAt = time(NULL);
     plan->totalCostSek = total_cost;
     plan->totalGridImportKwh = total_import;
@@ -314,16 +297,16 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     // Find best window for flexible loads
     // Find the longest block of BUY signals with maximum savings.
-    // Now operates on 15-minute quarters instead of hours.
+    // Operates on 15-minute quarters (native resolution from APIs)
     {
         int window_start = -1, window_end = -1;
         double window_cost = 0.0, window_savings = 0.0;
         int window_quarters = 0;
         double best_savings = -1.0;
 
-        for (int i = 0; i <= quarter_index; i++)
+        for (int i = 0; i <= num_quarters; i++)
         {
-            bool is_cheap_quarter = (i < quarter_index && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
+            bool is_cheap_quarter = (i < num_quarters && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
 
             if (is_cheap_quarter)
             {
@@ -367,7 +350,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     }
 
     LOG_INFO("Compute: Forecast complete → %d quarters (%.1f hours), import %.2f kWh, export %.2f kWh, cost %.2f SEK",
-             quarter_index, quarter_index / 4.0, total_import, total_export, total_cost);
+             num_quarters, num_quarters / 4.0, total_import, total_export, total_cost);
 
     return 0;
 }
