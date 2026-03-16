@@ -28,6 +28,7 @@ int GridGuard_Initiate(GridGuard *app)
 
     memset(app, 0, sizeof(GridGuard));
     app->requestPipeFd = -1;
+    app->computeWorker = NULL;
 
     strncpy(app->fifoPath, FIFO_PATH, sizeof(app->fifoPath) - 1);
     strncpy(app->socketPath, SOCKET_PATH, sizeof(app->socketPath) - 1);
@@ -140,9 +141,13 @@ int GridGuard_Initiate(GridGuard *app)
     computeWorker->compute = &app->compute; // Opaque pointer till Compute service
     computeWorker->isRunning = true; // Kontrollflagga för ComputeWorker
 
+    // Save reference to worker so we can signal shutdown later
+    app->computeWorker = computeWorker;
+
     if (pthread_create(&app->computeThread, NULL, ComputeWorker_Run, computeWorker) != 0)
     {
         LOG_ERROR("Failed to create Compute worker thread");
+        app->computeWorker = NULL;
         free(computeWorker);
         close(app->requestPipeFd);
         SharedCache_Shutdown(&app->forecastCache);
@@ -191,6 +196,19 @@ void GridGuard_Shutdown(GridGuard *app)
     LOG_INFO("Shutting down");
 
     app->isRunning = false;
+
+    // Signal ComputeWorker thread to exit
+    if (app->computeWorker)
+    {
+        ComputeWorker *worker = (ComputeWorker *)app->computeWorker;
+        worker->isRunning = false;
+        LOG_INFO("Signaled ComputeWorker to exit, waiting for thread...");
+
+        // Wait for thread to finish (it will free itself)
+        pthread_join(app->computeThread, NULL);
+        LOG_INFO("ComputeWorker thread joined");
+        app->computeWorker = NULL;
+    }
 
     // Terminera child-processer
     // Watchdog owns Fetcher and Parser processes, so we don't kill them here

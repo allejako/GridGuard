@@ -227,6 +227,7 @@ void *ComputeWorker_Run(void *arg)
             }
 
             LOG_ERROR("ComputeWorker: Failed to open notify FIFO %s: %s", worker->notifyPath, strerror(errno));
+            free(worker);
             return NULL;
         }
 
@@ -237,6 +238,7 @@ void *ComputeWorker_Run(void *arg)
     if (notifyFd < 0)
     {
         LOG_ERROR("ComputeWorker: Notify FIFO %s not available after 60s", worker->notifyPath);
+        free(worker);
         return NULL;
     }
 
@@ -354,5 +356,8 @@ void *ComputeWorker_Run(void *arg)
 exit_loop:
     close(notifyFd);
     LOG_INFO("ComputeWorker: exiting");
+
+    // Free the worker struct that was allocated in GridGuard_Initiate
+    free(worker);
     return NULL;
 }
