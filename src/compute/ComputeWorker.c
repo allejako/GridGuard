@@ -72,6 +72,31 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON_AddNumberToObject(win, "savings_sek", plan->bestBuyWindow.savingsSek);
     }
 
+    // --- Raw 15-minute quarters for scheduler (all 96 entries) ---
+    // LoadScheduler needs individual 15-min prices to find optimal windows.
+    cJSON *quarters = cJSON_AddArrayToObject(root, "quarters");
+    for (int i = 0; i < plan->count; i++)
+    {
+        const EnergyDataEntry *e = &plan->entries[i];
+        if (!e->valid)
+            continue;
+
+        cJSON *q = cJSON_CreateObject();
+
+        char iso[32];
+        iso8601_utc(e->timestamp, iso, sizeof(iso));
+
+        cJSON_AddStringToObject(q, "time", iso);
+        cJSON_AddNumberToObject(q, "spot_price_sek_kwh", e->spotPrice);
+        cJSON_AddNumberToObject(q, "total_cost_sek_kwh", e->totalCostSek);
+        cJSON_AddNumberToObject(q, "production_kwh", e->productionKwh);
+        cJSON_AddNumberToObject(q, "consumption_kwh", e->consumptionKwh);
+        cJSON_AddStringToObject(q, "action", EnergyAction_ToString(e->action));
+        cJSON_AddNumberToObject(q, "price_vs_avg_pct", e->priceVsAvgPct);
+
+        cJSON_AddItemToArray(quarters, q);
+    }
+
     // --- Forecast with intelligent filtering ---
     // Only show actionable signals (BUY/SELL/AVOID) to reduce payload size.
     // IDLE signals are noise — we skip them unless they're adjacent to an action.

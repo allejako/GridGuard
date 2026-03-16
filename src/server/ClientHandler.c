@@ -471,7 +471,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
         return;
     }
 
-    // Parse forecast to extract hourly prices.
+    // Parse forecast to extract 15-minute quarter prices for scheduling.
     cJSON *forecast = cJSON_Parse(wc.json);
     WorkCompletion_Shutdown(&wc);
 
@@ -481,11 +481,11 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
         return;
     }
 
-    cJSON *fcArray = cJSON_GetObjectItemCaseSensitive(forecast, "forecast");
+    cJSON *fcArray = cJSON_GetObjectItemCaseSensitive(forecast, "quarters");
     if (!cJSON_IsArray(fcArray))
     {
         cJSON_Delete(forecast);
-        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Invalid forecast data");
+        HTTPResponse_SendError(fd, HTTP_STATUS_500_INTERNAL_SERVER_ERROR, "Invalid forecast data (missing 'quarters' array)");
         return;
     }
 
@@ -511,13 +511,17 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     {
         cJSON *jTime = cJSON_GetObjectItemCaseSensitive(item, "time");
         cJSON *jCost = cJSON_GetObjectItemCaseSensitive(item, "total_cost_sek_kwh");
+        cJSON *jProd = cJSON_GetObjectItemCaseSensitive(item, "production_kwh");  // Solar production
+
         if (!cJSON_IsString(jTime) || !cJSON_IsNumber(jCost))
             continue;
         time_t ts = ParseISO8601(jTime->valuestring);
         if (ts == 0)
             continue;
+
         entries[validCount].timestamp       = ts;
         entries[validCount].totalCostPerKwh = jCost->valuedouble;
+        entries[validCount].productionKwh   = cJSON_IsNumber(jProd) ? jProd->valuedouble : 0.0;  // 0.0 if no solar
         validCount++;
     }
     cJSON_Delete(forecast);

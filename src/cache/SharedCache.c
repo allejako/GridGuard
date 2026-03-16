@@ -203,7 +203,15 @@ int SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t ma
             ts.tv_sec += 5;
             if (pthread_rwlock_timedwrlock(&r->rwlock, &ts) == 0)
             {
-                r->entries[i].occupied = 0;
+                // Re-validate: entry could have been modified after we released read lock
+                if (r->entries[i].occupied && strcmp(r->entries[i].key, key) == 0)
+                {
+                    double new_age = difftime(time(NULL), r->entries[i].createdAt);
+                    if (new_age > r->ttlSeconds)
+                    {
+                        r->entries[i].occupied = 0;
+                    }
+                }
                 pthread_rwlock_unlock(&r->rwlock);
             }
 

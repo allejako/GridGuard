@@ -264,7 +264,7 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
         std::cout << "║" << pad(info, W) << "║\n";
     }
     {
-        std::string note = "  Intelligent signal windows (BUY/SELL/AVOID/IDLE)";
+        std::string note = "  Intelligent signal windows (BUY/SELL/AVOID)";
         std::cout << "║" << DIM << pad(note, W) << RESET << "║\n";
     }
     boxMid("ACTION SIGNALS");
@@ -280,8 +280,8 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     for (int i = 0; i < W; ++i) std::cout << "─";
     std::cout << RESET << "║\n";
 
-    // First 24 hours
-    int shown = std::min(static_cast<int>(entries.size()), 24);
+    // Show ALL signal windows (BUY/AVOID/SELL) - these are already filtered by server
+    int shown = static_cast<int>(entries.size());
     for (int i = 0; i < shown; ++i)
         printForecastRow(entries[static_cast<size_t>(i)], minP, maxP);
 
@@ -307,20 +307,15 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
                   return a->time < b->time;
               });
 
-    int remaining = static_cast<int>(entries.size()) - shown;
-    if (remaining > 0) {
-        std::string note = "  … " + std::to_string(remaining) + " more hours";
-        if (allBuy.empty()) note += "  (no BUY signals)";
-        std::cout << "║" << DIM << pad(note, W) << RESET << "║\n";
-    }
+    // No "more hours" message needed - we show all windows already
 
     // ── BUY windows panel ────────────────────────────────────────────────────
     if (!allBuy.empty()) {
         int totalBuy = countSignal("BUY");
-        std::string label = "TOP " + std::to_string(static_cast<int>(allBuy.size()))
-                          + " BUY HOURS";
+        std::string label = "CHEAPEST " + std::to_string(static_cast<int>(allBuy.size()))
+                          + " BUY WINDOWS";
         if (totalBuy > MAX_BUY_SHOWN)
-            label += "  (of " + std::to_string(totalBuy) + ")";
+            label += "  (of " + std::to_string(totalBuy) + " total)";
         boxMid(label);
         for (const auto* e : allBuy)
             printForecastRow(*e, minP, maxP);
@@ -519,12 +514,15 @@ int main(int argc, char* argv[]) {
         }
 
         bool watch_mode = flags.find("--watch") != flags.end();
-        int interval_sec = std::stoi(getArg(flags, "--interval", "900"));  // Default 15 min
+        int interval_sec = std::stoi(getArg(flags, "--interval", "60"));  // Default 60s (1 min)
 
         if (watch_mode) {
+            // Use system clear for better compatibility
+            system("clear");
+
             while (true) {
-                // Clear screen and move cursor to top-left
-                std::cout << "\033[2J\033[H" << std::flush;
+                // Clear screen using system clear command (more reliable than ANSI codes)
+                system("clear");
 
                 // Show refresh info at the top
                 std::time_t now = std::time(nullptr);
