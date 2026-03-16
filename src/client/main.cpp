@@ -9,6 +9,8 @@
 #include <numeric>
 #include <cstdlib>
 #include <ctime>
+#include <thread>
+#include <chrono>
 
 // ── Terminal colours ─────────────────────────────────────────────────────────
 static const char* RED           = "\033[31m";
@@ -130,10 +132,9 @@ static std::string pad(const std::string& s, int width) {
 static const std::vector<int> FORECAST_COL_WIDTHS = {11, 7, 8, 8, 9, 9};
 
 // Schedule table columns:  LOAD | START | DUR | COST | SAVING | STATUS
-// Total: LOAD(15) + START(11) + DUR(4) + COST(8) + SAVING(8) + STATUS(9) = 55
-// Plus spacers: 55 + 10 = 65
-// Plus 1 extra = 66 ✓
-static const std::vector<int> SCHEDULE_COL_WIDTHS = {15, 11, 4, 8, 8, 9};
+// Must match forecast total: 52 + (5 × 2 spacers) = 62, padded to 64 by render_row
+// LOAD(15) + START(11) + DUR(4) + COST(7) + SAVING(7) + STATUS(8) = 52 ✓
+static const std::vector<int> SCHEDULE_COL_WIDTHS = {15, 11, 4, 7, 7, 8};
 
 // ── Price bar ─────────────────────────────────────────────────────────────────
 // Returns an 8-char bar built from Unicode block characters.
@@ -162,7 +163,7 @@ static void printUsage(const char* prog) {
     std::cout << "║  " << pad("", W - 2) << " ║\n";
     boxMid("COMMANDS");
     std::cout << "║    " << pad("health", W - 4) << " ║\n";
-    std::cout << "║    " << pad("forecast", W - 4) << " ║\n";
+    std::cout << "║    " << pad("forecast [--watch] [--interval SECONDS]", W - 4) << " ║\n";
     std::cout << "║    " << pad("config get", W - 4) << " ║\n";
     std::cout << "║    " << pad("config set --lat LAT --lon LON --region SE3", W - 4) << " ║\n";
     std::cout << "║    " << pad("           [--location NAME] [--solar-area M2]", W - 4) << " ║\n";
@@ -424,9 +425,10 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
 
     std::ostringstream tot;
     tot << std::fixed << std::setprecision(2) << totalSavings;
-    std::cout << "║  " << BOLD << BRIGHT_GREEN
-              << pad("Total savings: " + tot.str() + " kr", W - 2)
-              << RESET << " ║\n";
+    std::string savings_text = "  Total savings: " + tot.str() + " kr";
+    std::cout << "║" << BOLD << BRIGHT_GREEN
+              << pad(savings_text, W)
+              << RESET << "║\n";
     boxBot();
     std::cout << "\n";
 }
@@ -515,14 +517,51 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: --token required for forecast.\n";
             return 1;
         }
-        gridguard::ForecastSummary summary;
-        auto entries = client.getForecast(summary);
-        if (entries.empty()) {
-            std::cerr << RED << "Failed to get forecast. Is your config set? "
-                      << "Run: config set --lat ... --lon ... --region SE3\n" << RESET;
-            return 1;
+
+        bool watch_mode = flags.find("--watch") != flags.end();
+        int interval_sec = std::stoi(getArg(flags, "--interval", "900"));  // Default 15 min
+
+        if (watch_mode) {
+            while (true) {
+                // Clear screen and move cursor to top-left
+                std::cout << "\033[2J\033[H" << std::flush;
+
+                // Show refresh info at the top
+                std::time_t now = std::time(nullptr);
+                char time_buf[64];
+                std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S",
+                              std::localtime(&now));
+                std::cout << DIM << "Last updated: " << time_buf
+                          << "  ·  Refreshing every " << interval_sec << "s"
+                          << "  ·  Press Ctrl+C to exit" << RESET << "\n\n";
+
+                gridguard::ForecastSummary summary;
+                auto entries = client.getForecast(summary);
+
+                if (entries.empty()) {
+                    std::cerr << RED << "Failed to get forecast.\n" << RESET;
+                } else {
+                    showForecast(entries, summary);
+
+                    // Show schedules below forecast
+                    std::cout << "\n";
+                    auto schedules = client.getSchedules();
+                    showSchedules(schedules);
+                }
+
+                std::cout << std::flush;
+                std::this_thread::sleep_for(std::chrono::seconds(interval_sec));
+            }
+        } else {
+            gridguard::ForecastSummary summary;
+            auto entries = client.getForecast(summary);
+            if (entries.empty()) {
+                std::cerr << RED << "Failed to get forecast. Is your config set? "
+                          << "Run: config set --lat ... --lon ... --region SE3\n" << RESET;
+                return 1;
+            }
+            showForecast(entries, summary);
         }
-        showForecast(entries, summary);
     }
 
     // ── config ───────────────────────────────────────────────────────────────

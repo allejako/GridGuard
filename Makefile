@@ -225,11 +225,15 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	    [ "$$STATUS" = "200" ] && break; \
 	    printf "."; sleep 1; done; echo " ready"; \
 	echo ""; \
-	echo "testing forecast:"; \
-	GRIDGUARD_TOKEN="$$DEV_TOKEN" $(CLIENT_BIN) forecast; \
+	echo "re-seeding client DB with real forecast signals..."; \
+	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db" "$$DEV_TOKEN"; \
 	echo ""; \
-	echo "testing schedule:"; \
-	GRIDGUARD_TOKEN="$$DEV_TOKEN" $(CLIENT_BIN) schedule list;
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "Starting live dashboard (--watch mode, 60s refresh)..."; \
+	echo "Press Ctrl+C to exit"; \
+	echo ""; \
+	GRIDGUARD_TOKEN="$$DEV_TOKEN" $(CLIENT_BIN) forecast --watch;
 watchdog: directories $(WATCHDOG_BIN)
 
 # ── Bygg-varianter ─────────────────────────────────────────────────────
@@ -619,6 +623,7 @@ clean:
 	rm -rf $(CMAKE_BUILD_DIR) CMakeCache.txt CMakeFiles cmake_install.cmake CTestTestfile.cmake Makefile.cmake
 	rm -rf _deps lib tests/CMakeFiles tests/cmake_install.cmake tests/CTestTestfile.cmake
 	rm -f tests/test_*_gtest
+	rm -f /dev/shm/gridguard_* /tmp/gridguard_*.fifo /tmp/gridguard_*.sock
 
 distclean: clean
 	rm -f logs/*.log *.sock *.pid
