@@ -10,6 +10,7 @@
 #include <sys/select.h>
 #include "ipc/WorkRequest.h"
 #include "ipc/FetchResult.h"
+#include "libs/cJSON.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath)
 {
@@ -304,9 +306,9 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
         }
 
-        // Hämta price data
+        // Hämta price data (dagens priser, 96 entries med 15-min granularitet)
         char priceKey[256];
-        now = time(NULL); // Refresh timestamp
+        now = time(NULL);
         struct tm today;
         localtime_r(&now, &today);
         snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
@@ -332,23 +334,23 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     HTTPFetchResponse priceResp;
                     if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
                     {
-                        // Success - reset circuit breaker
+                        strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
+                        result.priceJson[sizeof(result.priceJson) - 1] = '\0';
+                        SharedCache_Store(priceCache, priceKey, priceResp.data);
+                        HTTPFetcher_FreeResponse(&priceResp);
+
                         proc->priceFailures = 0;
                         proc->priceBackoffUntil = 0;
 
-                        strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
-                        SharedCache_Store(priceCache, priceKey, priceResp.data);
-                        HTTPFetcher_FreeResponse(&priceResp);
                         LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
                     }
                     else
                     {
-                        // Failure - increment counter and potentially open circuit
                         proc->priceFailures++;
                         if (proc->priceFailures >= 5)
                         {
-                            proc->priceBackoffUntil = time(NULL) + 300; // 5 minutes backoff
-                            LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures. Backing off for 5 minutes.", proc->priceFailures);
+                            proc->priceBackoffUntil = time(NULL) + 300;
+                            LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures", proc->priceFailures);
                         }
                         else
                         {
