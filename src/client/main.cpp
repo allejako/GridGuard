@@ -67,9 +67,15 @@ static void boxBot() {
 }
 
 // Count UTF-8 characters (not bytes) for proper visual width calculation
+// Skips ANSI escape sequences (\033[...m) which take bytes but no visual space
 static int utf8_length(const std::string& s) {
     int count = 0;
     for (size_t i = 0; i < s.size(); ++i) {
+        // Skip ANSI escape sequences: \033[...m
+        if (s[i] == '\033') {
+            while (i < s.size() && s[i] != 'm') ++i;
+            continue;
+        }
         // Count only the start of UTF-8 sequences (not continuation bytes 10xxxxxx)
         if ((s[i] & 0xC0) != 0x80) ++count;
     }
@@ -210,16 +216,16 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     }
     boxMid("ACTION SIGNALS");
 
-    // Column header
-    std::cout << "║  "
+    // Column header - must total exactly W=66 chars
+    std::cout << "║"
               << BOLD
-              << pad("TIME",    11) << "  "
+              << pad("  TIME",   13) << "  "
               << pad("SIGNAL",   7) << "  "
               << pad("kr/kWh",   8) << "   "
               << pad("LEVEL",    8) << "  "
               << pad("SOLAR",    9) << "   "
-              << pad("Δ AVG",    6)
-              << RESET << " ║\n";
+              << pad("Δ AVG  ",  9)  // Added 3 spaces to reach W=66
+              << RESET << "║\n";
     std::cout << "║" << DIM;
     for (int i = 0; i < W; ++i) std::cout << "─";
     std::cout << RESET << "║\n";
@@ -273,42 +279,32 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     // ── Summary panel ────────────────────────────────────────────────────────
     boxMid("SUMMARY");
 
-    // Signal counts — compute visible length to add correct padding before closing ║
+    // Signal counts - build string and pad to W
     {
-        int nBuy   = countSignal("BUY"),  nSell = countSignal("SELL");
-        int nIdle  = countSignal("IDLE"), nAvoid = countSignal("AVOID");
-        std::string vis = "  BUY " + std::to_string(nBuy)
-                        + "  ·  SELL " + std::to_string(nSell)
-                        + "  ·  IDLE " + std::to_string(nIdle)
-                        + "  ·  AVOID " + std::to_string(nAvoid);
-        int fill = W - static_cast<int>(vis.size());
-        std::cout << "║  "
-                  << BRIGHT_GREEN  << "BUY "   << nBuy   << RESET << "  ·  "
-                  << BRIGHT_CYAN   << "SELL "  << nSell  << RESET << "  ·  "
-                  << BRIGHT_YELLOW << "IDLE "  << nIdle  << RESET << "  ·  "
-                  << BRIGHT_RED    << "AVOID " << nAvoid << RESET
-                  << std::string(static_cast<size_t>(std::max(0, fill)), ' ') << "║\n";
+        std::ostringstream s;
+        s << "  " << BRIGHT_GREEN << "BUY " << countSignal("BUY") << RESET << "  ·  "
+          << BRIGHT_CYAN << "SELL " << countSignal("SELL") << RESET << "  ·  "
+          << BRIGHT_YELLOW << "IDLE " << countSignal("IDLE") << RESET << "  ·  "
+          << BRIGHT_RED << "AVOID " << countSignal("AVOID") << RESET;
+        std::cout << "║" << pad(s.str(), W) << "║\n";
     }
 
     {
         std::ostringstream s;
         s << std::fixed << std::setprecision(2);
-        s << "Import: " << summary.gridImportKwh << " kWh"
+        s << "  Import: " << summary.gridImportKwh << " kWh"
           << "  ·  Export: " << summary.gridExportKwh << " kWh"
           << "  ·  Cost: " << summary.totalCostSek << " kr";
-        std::cout << "║  " << pad(s.str(), W - 2) << " ║\n";
+        std::cout << "║" << pad(s.str(), W) << "║\n";
     }
 
     if (cheapest != entries.end()) {
         std::ostringstream s;
         s << std::fixed << std::setprecision(3);
-        s << "Best: " << shortTime(cheapest->time)
+        s << "  " << BRIGHT_GREEN << "Best: " << shortTime(cheapest->time)
           << " @ " << cheapest->totalCostSekKwh << " kr/kWh"
-          << std::setprecision(1) << "  ·  Avg BUY dev: " << avgDev << "%";
-        // Visible length known — print with color then pad
-        int fill = W - 2 - static_cast<int>(s.str().size());
-        std::cout << "║  " << BRIGHT_GREEN << s.str() << RESET
-                  << std::string(static_cast<size_t>(std::max(0, fill)), ' ') << " ║\n";
+          << std::setprecision(1) << "  ·  Avg BUY dev: " << avgDev << "%" << RESET;
+        std::cout << "║" << pad(s.str(), W) << "║\n";
     }
 
     boxBot();
@@ -340,17 +336,16 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
 
     boxTop("SCHEDULES");
 
-    // Column widths: load=15, start=11, dur=4, cost=8, saving=8, status=9
-    // Separators: load→start=" ", cost→saving=" ", rest="  "  → total row = 68
-    std::cout << "║  "
+    // Column header - must total exactly W=66 chars
+    std::cout << "║"
               << BOLD
-              << pad("LOAD",   15) << " "
+              << pad("  LOAD",  17) << " "
               << pad("START",  11) << "  "
               << pad("DUR",     4) << "  "
               << pad("COST",    8) << " "
               << pad("SAVING",  8) << "  "
               << pad("STATUS",  9)
-              << RESET << " ║\n";
+              << RESET << "║\n";
     std::cout << "║" << DIM;
     for (int i = 0; i < W; ++i) std::cout << "─";
     std::cout << RESET << "║\n";
