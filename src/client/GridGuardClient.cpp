@@ -82,11 +82,11 @@ std::vector<std::string> GridGuardClient::splitJsonArray(const std::string& json
 std::vector<ForecastEntry> GridGuardClient::parseForecastArray(const std::string& json) {
     std::vector<ForecastEntry> entries;
     // Server returns: {"days":[{"date":"...","signals":[{signal},{signal},...]},...]
-    // Each signal represents a time window (BUY, SELL, AVOID, IDLE) with 15-min granularity
+    // Each signal is a time window (BUY, SELL, AVOID) - filtered smart windows
     for (const auto& day : splitJsonArray(json, "days")) {
         for (const auto& obj : splitJsonArray(day, "signals")) {
             ForecastEntry e;
-            e.time            = extractStr   (obj, "start");  // Use "start" timestamp
+            e.time            = extractStr   (obj, "start");
             e.signal          = extractStr   (obj, "signal");
             e.priceSekKwh     = extractDouble(obj, "price_sek_kwh");
             e.totalCostSekKwh = extractDouble(obj, "total_cost_sek_kwh");
