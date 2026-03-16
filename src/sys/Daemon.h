@@ -12,7 +12,7 @@
 //
 // Returns 0 on success (in the final daemon child), -1 on failure.
 // After this call, the process is fully detached from any terminal.
-int Daemon_Init(void);
+int Daemon_Initiate(void);
 
 // Start the heartbeat thread. Reads GRIDGUARD_HEARTBEAT_FD from environment
 // and writes "heartbeat\n" every 5 seconds to that fd.
@@ -24,6 +24,6 @@ int Daemon_StartHeartbeat(void);
 void Daemon_StopHeartbeat(void);
 
 // Clean up daemon resources (remove PID file). Call during shutdown.
-void Daemon_Cleanup(void);
+void Daemon_Shutdown(void);
 
 #endif // DAEMON_H

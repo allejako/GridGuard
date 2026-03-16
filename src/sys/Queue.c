@@ -2,6 +2,7 @@
 #include "sys/Logger.h"
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 int Queue_Initiate(Queue *queue)
 {
@@ -114,6 +115,11 @@ void Queue_Shutdown(Queue *queue)
     pthread_cond_broadcast(&queue->notEmpty);
     pthread_cond_broadcast(&queue->notFull);
     pthread_mutex_unlock(&queue->mutex);
+
+    // Grace period: allow woken threads to exit before destroying synchronization primitives
+    // This prevents use-after-free if a thread wakes up and tries to lock the mutex
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000 };  // 100 ms
+    nanosleep(&ts, NULL);
 
     pthread_mutex_destroy(&queue->mutex);
     pthread_cond_destroy(&queue->notEmpty);

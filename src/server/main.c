@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,10 +11,11 @@
 
 int main(void)
 {
-    // Check if started by watchdog, watchdog sets GRIDGUARD_HEARTBEAT_FD env variable
+    // CHECK IF STARTED BY WATCHDOG
+    // WATCHDOG SETS GRIDGUARD_HEARTBEAT_FD env variable
     int daemonize = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
 
-    // Resolve log path
+    // RESOLVE LOG PATH FIX FOR DAEMON MODE
     char log_path[PATH_MAX + 64];
     if (daemonize)
     {
@@ -29,17 +32,17 @@ int main(void)
         snprintf(log_path, sizeof(log_path), "logs/server.log");
     }
 
-    // Initialize logger
+    // INITIALIZE GRIDGUARD LOGGER
     if (Logger_Initiate(log_path, LOG_LEVEL_DEBUG) != 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
         return EXIT_FAILURE;
     }
 
-    // Daemonize if started by watchdog
+    // DAEMONIZE IF STARTED BY WATCHDOG
     if (daemonize)
     {
-        if (Daemon_Init() != 0)
+        if (Daemon_Initiate() != 0)
         {
             LOG_FATAL("Failed to daemonize");
             Logger_Shutdown();
@@ -49,22 +52,22 @@ int main(void)
         Daemon_StartHeartbeat();
     }
 
-    // Create and initialize server
+    // CREATE AND INITIATE THE SERVER
     Server server;
-    if (Server_Initiate(&server) != 0) 
+    if (Server_Initiate(&server) != 0)
     {
         LOG_FATAL("Failed to initialize server");
         Logger_Shutdown();
-        if (daemonize) Daemon_Cleanup();
+        if (daemonize) Daemon_Shutdown();
         return EXIT_FAILURE;
     }
 
-    // Run server main loop
+    // RUN THE SERVER MAIN LOOP 
     Server_Run(&server);
 
-    // Cleanup
+    // CLEANUP AND EXIT
     Server_Shutdown(&server);
-    if (daemonize) Daemon_Cleanup();
+    if (daemonize) Daemon_Shutdown();
     Logger_Shutdown();
 
     return EXIT_SUCCESS;

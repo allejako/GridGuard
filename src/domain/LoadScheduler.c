@@ -1,4 +1,4 @@
-#include "domain/Scheduler.h"
+#include "domain/LoadScheduler.h"
 #include "sys/Logger.h"
 
 #include <float.h>
@@ -55,8 +55,7 @@ int LoadScheduler_FindWindow(
 
     if (bestIdx < 0)
     {
-        LOG_WARNING("LoadScheduler: No valid window found (duration=%dmin, power=%.1fkW)",
-                    durationMinutes, powerKw);
+        LOG_WARNING("LoadScheduler: No valid window found (duration=%dmin, power=%.1fkW)", durationMinutes, powerKw);
         return -1;
     }
 
@@ -66,8 +65,7 @@ int LoadScheduler_FindWindow(
     out->estimatedCostSek = bestCost;
     out->savingsSek       = (nowCost > bestCost) ? (nowCost - bestCost) : 0.0;
 
-    LOG_INFO("LoadScheduler: Best window start=%ld cost=%.2f SEK savings=%.2f SEK",
-             (long)out->scheduledStart, out->estimatedCostSek, out->savingsSek);
+    LOG_INFO("LoadScheduler: Best window start=%ld cost=%.2f SEK savings=%.2f SEK", (long)out->scheduledStart, out->estimatedCostSek, out->savingsSek);
 
     return 0;
 }

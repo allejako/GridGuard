@@ -5,6 +5,8 @@
 #include "cache/SharedCache.h"
 #include "api/APIEndpoints.h"
 #include "sys/Logger.h"
+#include "sys/ProcessHeartbeat.h"
+#include <sys/select.h>
 #include "ipc/WorkRequest.h"
 #include "ipc/FetchResult.h"
 
@@ -15,13 +17,13 @@
 #include <time.h>
 #include <stdio.h>
 
-int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
+int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath)
 {
-    if (!proc || !fifoPath) 
-        return -1;
+    if (!proc || !requestFifoPath || !resultFifoPath) return -1;
 
     memset(proc, 0, sizeof(FetcherProcess));
-    strncpy(proc->fifoPath, fifoPath, sizeof(proc->fifoPath) - 1);
+    strncpy(proc->requestFifoPath, requestFifoPath, sizeof(proc->requestFifoPath) - 1);
+    strncpy(proc->resultFifoPath, resultFifoPath, sizeof(proc->resultFifoPath) - 1);
 
     // Allokera HTTPFetcher service
     proc->fetcher = calloc(1, sizeof(HTTPFetcher));
@@ -53,7 +55,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
     }
 
     // Attach till befintliga shared memory segments
-    if (SharedCache_Create((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to weather cache");
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
@@ -63,10 +65,10 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         return -1;
     }
 
-    if (SharedCache_Create((SharedCache *)proc->priceCache, "/gridguard_price", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->priceCache, "/gridguard_price", 900) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to price cache");
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
@@ -74,13 +76,13 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         return -1;
     }
 
-    // Öppna FIFO för skrivning (blockerar tills parse-processen öppnar read end)
-    proc->fifoFd = open(fifoPath, O_WRONLY);
-    if (proc->fifoFd < 0)
+    // Öppna request FIFO för läsning (blockerar tills server öppnar write end)
+    proc->requestFifoFd = open(requestFifoPath, O_RDONLY);
+    if (proc->requestFifoFd < 0)
     {
-        LOG_ERROR("FetcherProcess: Failed to open FIFO %s for writing", fifoPath);
-        SharedCache_Destroy((SharedCache *)proc->priceCache);
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        LOG_ERROR("FetcherProcess: Failed to open request FIFO %s for reading", requestFifoPath);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
         free(proc->fetcher);
         free(proc->weatherCache);
@@ -88,10 +90,24 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *fifoPath)
         return -1;
     }
 
-    proc->stdinFd = STDIN_FILENO;
+    // Öppna result FIFO för skrivning (blockerar tills parse-processen öppnar read end)
+    proc->resultFifoFd = open(resultFifoPath, O_WRONLY);
+    if (proc->resultFifoFd < 0)
+    {
+        LOG_ERROR("FetcherProcess: Failed to open result FIFO %s for writing", resultFifoPath);
+        close(proc->requestFifoFd);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
+        HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
+        free(proc->fetcher);
+        free(proc->weatherCache);
+        free(proc->priceCache);
+        return -1;
+    }
+
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, FIFO %s)", getpid(), fifoPath);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s)", getpid(), requestFifoPath, resultFifoPath);
     return 0;
 }
 
@@ -104,24 +120,46 @@ int FetcherProcess_Run(FetcherProcess *proc)
     SharedCache *weatherCache = (SharedCache *)proc->weatherCache;
     SharedCache *priceCache = (SharedCache *)proc->priceCache;
 
+    ProcessHeartbeat heartbeat;
+    ProcessHeartbeat_Initiate(&heartbeat, 5);
+
     LOG_INFO("FetcherProcess: Starting main loop");
 
     while (proc->isRunning)
     {
-        WorkRequest request;
+        ProcessHeartbeat_Send(&heartbeat);
 
-        // Läs WorkRequest från stdin, pipe kommer från main process i GridGuard.c 
-        ssize_t bytesRead = read(proc->stdinFd, &request, sizeof(request));
+        // Use select() with timeout to check if request FIFO has data, allowing periodic heartbeats.
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(proc->requestFifoFd, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(proc->requestFifoFd + 1, &readfds, NULL, NULL, &timeout);
+        if (ready < 0)
+        {
+            LOG_ERROR("FetcherProcess: select() failed");
+            break;
+        }
+
+        if (ready == 0)
+            continue; // Timeout, no data - loop again to send heartbeat.
+
+        WorkRequest request;
+        ssize_t bytesRead = read(proc->requestFifoFd, &request, sizeof(request));
 
         if (bytesRead == 0)
         {
-            LOG_INFO("FetcherProcess: stdin closed, exiting");
+            LOG_INFO("FetcherProcess: request FIFO closed, exiting");
             break;
         }
 
         if (bytesRead != sizeof(request))
         {
-            LOG_ERROR("FetcherProcess: Partial read from stdin (%zd bytes)", bytesRead);
+            LOG_ERROR("FetcherProcess: Partial read from request FIFO (%zd bytes)", bytesRead);
             continue;
         }
 
@@ -139,6 +177,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
         result.gridFee_normal = request.gridFee_normal;
         result.gridFee_high = request.gridFee_high;
 
+        time_t now; // For circuit breaker timing
+
         // Hämta väderdata med caching
         char weatherKey[256];
         snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request.lat, request.lon);
@@ -149,67 +189,112 @@ int FetcherProcess_Run(FetcherProcess *proc)
         }
         else
         {
-            char openMeteoUrl[512];
-            if (BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request.lat, request.lon) == 0)
+            // Check if we should skip due to previous failures
+            now = time(NULL);
+            if (now < proc->weatherBackoffUntil)
             {
-                HTTPFetchResponse omResp;
-                if (HTTPFetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
+                time_t remaining = proc->weatherBackoffUntil - now;
+                LOG_WARNING("FetcherProcess: Weather API circuit open (%d failures, retry in %ld seconds)", proc->weatherFailures, remaining);
+            }
+            else
+            {
+                char openMeteoUrl[512];
+                if (BuildOpenMeteoApiUrl(openMeteoUrl, sizeof(openMeteoUrl), request.lat, request.lon) == 0)
                 {
-                    strncpy(result.openMeteoJson, omResp.data, sizeof(result.openMeteoJson) - 1);
-                    SharedCache_Store(weatherCache, weatherKey, omResp.data);
-                    HTTPFetcher_FreeResponse(&omResp);
-                    LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
-                }
-                else
-                {
-                    LOG_WARNING("FetcherProcess: Open-Meteo fetch failed");
+                    HTTPFetchResponse omResp;
+                    if (HTTPFetcher_Fetch(fetcher, openMeteoUrl, &omResp) == 0)
+                    {
+                        // Success - reset circuit breaker
+                        proc->weatherFailures = 0;
+                        proc->weatherBackoffUntil = 0;
+
+                        strncpy(result.openMeteoJson, omResp.data, sizeof(result.openMeteoJson) - 1);
+                        SharedCache_Store(weatherCache, weatherKey, omResp.data);
+                        HTTPFetcher_FreeResponse(&omResp);
+                        LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
+                    }
+                    else
+                    {
+                        // Failure - increment counter and potentially open circuit
+                        proc->weatherFailures++;
+                        if (proc->weatherFailures >= 5)
+                        {
+                            proc->weatherBackoffUntil = time(NULL) + 300; // 5 minutes backoff
+                            LOG_ERROR("FetcherProcess: Weather API circuit opened after %d failures. Backing off for 5 minutes.", proc->weatherFailures);
+                        }
+                        else
+                        {
+                            LOG_WARNING("FetcherProcess: Open-Meteo fetch failed (failure %d/5)", proc->weatherFailures);
+                        }
+                    }
                 }
             }
         }
 
         // Hämta price data
         char priceKey[256];
-        time_t now = time(NULL);
+        now = time(NULL); // Refresh timestamp
         struct tm today;
         localtime_r(&now, &today);
         snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
                  request.region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
 
-        if (SharedCache_Lookup(priceCache, priceKey,
-                              result.priceJson, sizeof(result.priceJson)) == 0)
+        if (SharedCache_Lookup(priceCache, priceKey, result.priceJson, sizeof(result.priceJson)) == 0)
         {
             LOG_INFO("FetcherProcess: Price cache HIT (%s)", priceKey);
         }
         else
         {
-            char priceUrl[256];
-            if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
+            // Circuit breaker: check if we should skip due to previous failures
+            if (now < proc->priceBackoffUntil)
             {
-                HTTPFetchResponse priceResp;
-                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                time_t remaining = proc->priceBackoffUntil - now;
+                LOG_WARNING("FetcherProcess: Price API circuit open (%d failures, retry in %ld seconds)", proc->priceFailures, remaining);
+            }
+            else
+            {
+                char priceUrl[256];
+                if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
                 {
-                    strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
-                    SharedCache_Store(priceCache, priceKey, priceResp.data);
-                    HTTPFetcher_FreeResponse(&priceResp);
-                    LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
-                }
-                else
-                {
-                    LOG_WARNING("FetcherProcess: Price fetch failed");
+                    HTTPFetchResponse priceResp;
+                    if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                    {
+                        // Success - reset circuit breaker
+                        proc->priceFailures = 0;
+                        proc->priceBackoffUntil = 0;
+
+                        strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
+                        SharedCache_Store(priceCache, priceKey, priceResp.data);
+                        HTTPFetcher_FreeResponse(&priceResp);
+                        LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
+                    }
+                    else
+                    {
+                        // Failure - increment counter and potentially open circuit
+                        proc->priceFailures++;
+                        if (proc->priceFailures >= 5)
+                        {
+                            proc->priceBackoffUntil = time(NULL) + 300; // 5 minutes backoff
+                            LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures. Backing off for 5 minutes.", proc->priceFailures);
+                        }
+                        else
+                        {
+                            LOG_WARNING("FetcherProcess: Price fetch failed (failure %d/5)", proc->priceFailures);
+                        }
+                    }
                 }
             }
         }
 
-        // Skriv FetchResult till FIFO (Fetch -> Parse)
-        // Vecka 4: Named pipe write
-        ssize_t written = write(proc->fifoFd, &result, sizeof(result));
+        // Skriv FetchResult till result FIFO (Fetch -> Parse)
+        ssize_t written = write(proc->resultFifoFd, &result, sizeof(result));
         if (written != sizeof(result))
         {
-            LOG_ERROR("FetcherProcess: Failed to write to FIFO (%zd bytes)", written);
+            LOG_ERROR("FetcherProcess: Failed to write to result FIFO (%zd bytes)", written);
             break;
         }
 
-        LOG_INFO("FetcherProcess: Wrote FetchResult to FIFO (%zd bytes)", written);
+        LOG_INFO("FetcherProcess: Wrote FetchResult to result FIFO (%zd bytes)", written);
     }
 
     LOG_INFO("FetcherProcess: Main loop exited");
@@ -225,18 +310,21 @@ void FetcherProcess_Shutdown(FetcherProcess *proc)
 
     proc->isRunning = false;
 
-    if (proc->fifoFd >= 0)
-        close(proc->fifoFd);
+    if (proc->requestFifoFd >= 0)
+        close(proc->requestFifoFd);
+
+    if (proc->resultFifoFd >= 0)
+        close(proc->resultFifoFd);
 
     if (proc->priceCache)
     {
-        SharedCache_Destroy((SharedCache *)proc->priceCache);
+        SharedCache_Shutdown((SharedCache *)proc->priceCache);
         free(proc->priceCache);
     }
 
     if (proc->weatherCache)
     {
-        SharedCache_Destroy((SharedCache *)proc->weatherCache);
+        SharedCache_Shutdown((SharedCache *)proc->weatherCache);
         free(proc->weatherCache);
     }
 

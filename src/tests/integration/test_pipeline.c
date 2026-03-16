@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,12 +28,12 @@ static int submit_and_wait(GridGuard *app, WorkRequest *req, const char *label)
     if (GridGuard_SubmitRequest(app, req, &wc) != 0)
     {
         printf("FAILED [%s]: GridGuard_SubmitRequest\n", label);
-        WorkCompletion_Destroy(&wc);
+        WorkCompletion_Shutdown(&wc);
         return -1;
     }
 
     int rc = WorkCompletion_Wait(&wc);
-    WorkCompletion_Destroy(&wc);
+    WorkCompletion_Shutdown(&wc);
 
     if (rc != 0)
     {
@@ -123,7 +125,7 @@ int main(void)
         printf("FAILED: NULL request was accepted\n");
     else
         printf("SUCCESS: NULL request rejected correctly\n");
-    WorkCompletion_Destroy(&wc);
+    WorkCompletion_Shutdown(&wc);
 
     // Test 5: Shutdown
     print_separator("TEST 5: Pipeline Shutdown");

@@ -1,5 +1,4 @@
-# GridGuard Makefile
-# Systemprogrammering och introduktion till C++
+# GR1DGU4RD MAKEFILE 
 
 CC      = gcc
 CXX     = g++
@@ -20,6 +19,7 @@ BIN = bin
 BUILD = build
 
 # ── Binärer ────────────────────────────────────────────────────────────
+MAIN_BIN     = $(BIN)/GridGuard
 SERVER_BIN   = $(BIN)/GridGuard-server
 FETCHER_BIN  = $(BIN)/GridGuard-fetcher
 PARSER_BIN   = $(BIN)/GridGuard-parser
@@ -46,7 +46,8 @@ SERVER_SRCS = \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c \
     $(SRC)/compute/ComputeWorker.c \
-    $(SRC)/domain/Scheduler.c \
+    $(SRC)/domain/LoadScheduler.c \
+    $(SRC)/watchdog/Metrics.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/api/APIParser.c \
@@ -71,6 +72,7 @@ FETCHER_SRCS = \
     $(SRC)/cache/SharedCache.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/sys/Logger.c \
+    $(SRC)/sys/ProcessHeartbeat.c \
     $(SRC)/libs/cJSON.c
 
 # ── Parser ─────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ PARSER_SRCS = \
     $(SRC)/parser/Parser.c \
     $(SRC)/api/APIParser.c \
     $(SRC)/sys/Logger.c \
+    $(SRC)/sys/ProcessHeartbeat.c \
     $(SRC)/libs/cJSON.c
 
 # ── Watchdog ───────────────────────────────────────────────────────────
@@ -87,7 +90,8 @@ WATCHDOG_SRCS = \
     $(SRC)/watchdog/Watchdog.c \
     $(SRC)/watchdog/Heartbeat.c \
     $(SRC)/watchdog/RestartPolicy.c \
-    $(SRC)/watchdog/WatchdogSignals.c \
+    $(SRC)/watchdog/Metrics.c \
+    $(SRC)/watchdog/ProcessSpawner.c \
     $(SRC)/sys/Daemon.c \
     $(SRC)/sys/PidFile.c \
     $(SRC)/sys/Logger.c
@@ -114,10 +118,10 @@ CLIENT_OBJS   = $(CLIENT_SRCS:$(SRC)/%.cpp=$(BUILD)/%.o)
 
 # ── Default target ─────────────────────────────────────────────────────
 .PHONY: all
-all: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN) $(CLIENT_BIN) platform-objects
+all: directories $(MAIN_BIN) $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN) $(WATCHDOG_BIN) $(CLIENT_BIN) platform-objects
 
 .PHONY: server
-server: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN)
+server: directories $(SERVER_BIN) $(FETCHER_BIN) $(PARSER_BIN) $(WATCHDOG_BIN)
 
 # ── Kompilera platform-objekt (används av generate_jwt.py) ────────────
 .PHONY: platform-objects
@@ -145,6 +149,11 @@ $(FETCHER_BIN): $(FETCHER_OBJS)
 $(PARSER_BIN): $(PARSER_OBJS)
 	@echo "Linking parser..."
 	$(CC) -o $@ $^ $(LDFLAGS)
+
+# ── Main launcher ──────────────────────────────────────────────────────
+$(MAIN_BIN): $(SRC)/main.c
+	@echo "Building main launcher..."
+	$(CC) $(CFLAGS) -o $@ $<
 
 $(WATCHDOG_BIN): $(WATCHDOG_OBJS)
 	@echo "Linking watchdog..."
@@ -294,7 +303,7 @@ $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
 $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/server/ClientHandler.c $(SRC)/server/Server.c \
     $(SRC)/net/TCPServer.c $(SRC)/net/HTTPRequest.c $(SRC)/net/HTTPResponse.c \
-    $(SRC)/auth/JWTValidator.c $(SRC)/db/ScheduleDB.c $(SRC)/domain/Scheduler.c \
+    $(SRC)/auth/JWTValidator.c $(SRC)/db/ScheduleDB.c $(SRC)/domain/LoadScheduler.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c $(SRC)/compute/ComputeWorker.c \
@@ -304,6 +313,7 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/db/ClientDB.c $(SRC)/db/UserConfigDB.c $(SRC)/db/ScheduleDB.c \
     $(SRC)/sys/Queue.c $(SRC)/sys/WorkCompletion.c $(SRC)/sys/CompletionRegistry.c \
     $(SRC)/sys/ThreadPool.c $(SRC)/sys/WorkerPool.c \
+    $(SRC)/watchdog/Metrics.c \
     $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -334,84 +344,198 @@ test-weather: directories $(TEST_WEATHER_BIN)
 test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@$(TEST_PIPELINE_BIN)
 
+# ── Google Test (CMake-based) ──────────────────────────────────────────
+CMAKE_BUILD_DIR = build
+
+.PHONY: build-gtest test-gtest clean-gtest test-all
+
+build-gtest:
+	@echo "Configuring CMake build system..."
+	@cmake -S . -B $(CMAKE_BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
+	@echo "Building Google Tests..."
+	@cmake --build $(CMAKE_BUILD_DIR) -j$$(nproc)
+
+test-gtest: build-gtest
+	@echo "======================================"
+	@echo "Running Google Tests with ASAN/UBSAN"
+	@echo "======================================"
+	@cd $(CMAKE_BUILD_DIR) && ctest --output-on-failure
+
+test-all: test test-gtest
+	@echo "======================================"
+	@echo "All legacy and Google tests passed!"
+	@echo "======================================"
+
+clean-gtest:
+	@rm -rf $(CMAKE_BUILD_DIR)
+	@echo "CMake build directory cleaned"
+
 # ── Körning ────────────────────────────────────────────────────────────
-.PHONY: run-server run-watchdog run-client dev stop
+.PHONY: run-server server-run run-watchdog run-client start dev stop
+
+# Start server with watchdog supervision (recommended)
 run-server: server
-	env GRIDGUARD_JWT_SECRET=gridguard-test-secret GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(SERVER_BIN)
+	@echo "Starting GridGuard with watchdog supervision..."
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard.pid; \
+	echo "Watchdog started (PID $$!)"; \
+	echo "Logs: logs/watchdog.log, logs/server.log, logs/fetcher.log, logs/parser.log"; \
+	echo "Stop with: make stop"
+
+# Alias for run-server
+server-run: run-server
+
+# Start watchdog (requires GRIDGUARD_JWT_SECRET)
+run-watchdog: server
+	@if [ -z "$$GRIDGUARD_JWT_SECRET" ]; then \
+	    echo "Error: GRIDGUARD_JWT_SECRET not set."; exit 1; fi
+	@setsid env GRIDGUARD_JWT_SECRET="$$GRIDGUARD_JWT_SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
+	echo $$! > /tmp/gridguard.pid
+	@echo "Watchdog started. Logs: logs/watchdog.log · logs/server.log"
 
 run-client: client
 	$(CLIENT_BIN) $(ARGS)
 
-run-watchdog: server watchdog
-	@if [ -z "$$GRIDGUARD_JWT_SECRET" ]; then \
-	    echo "Fel: GRIDGUARD_JWT_SECRET inte satt."; exit 1; fi
-	@setsid env GRIDGUARD_JWT_SECRET="$$GRIDGUARD_JWT_SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
-	echo $$! > /tmp/gridguard-watchdog.pid
-	@echo "Watchdog igång. Loggar: logs/watchdog.log · logs/server.log"
-
-dev: server watchdog platform-objects
-	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
-	    kill -9 $$(cat /tmp/gridguard-watchdog.pid) 2>/dev/null; rm -f /tmp/gridguard-watchdog.pid; fi
+# Quick start: build and run (no DB seeding)
+start: server
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    echo "stopping existing instance..."; \
+	    $(MAKE) stop 2>/dev/null || true; fi
 	@pkill -9 GridGuard 2>/dev/null || true
 	@fuser -k -9 8080/tcp 2>/dev/null || true
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
-	@echo "GridGuard Development Environment"
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	sleep 0.2; \
+	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	echo "gridguard started (pid $$WATCHDOG_PID)"; \
+	printf "waiting for server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; done; echo " ready"; \
+	echo "http://localhost:8080"; \
+	echo ""; \
+	echo "DEMO FLOW:"; \
+	echo ""; \
+	echo "  For automated demo with everything set up: make dev"; \
+	echo ""; \
+	echo "  Manual setup (for demonstrations):"; \
+	echo ""; \
+	echo "  1. Seed databases:"; \
+	echo "     python3 scripts/seed_platform.py platform.db"; \
+	echo "     python3 scripts/seed_client.py gridguard.db"; \
+	echo ""; \
+	echo "  2. Generate JWT token:"; \
+	echo "     export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\""; \
+	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db test_user)"; \
+	echo ""; \
+	echo "  3. Test endpoint:"; \
+	echo "     curl -H \"Authorization: Bearer \$$TOKEN\" http://localhost:8080/forecast"; \
+	echo ""; \
+	echo "  Open http://localhost:8080 for API documentation"
+
+daemon: server watchdog
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    echo "stopping existing instance..."; \
+	    $(MAKE) stop 2>/dev/null || true; fi
+	@pkill -9 GridGuard 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
+	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@sleep 0.5
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
+	env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) --daemon; \
+	sleep 0.5; \
+	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	if [ -z "$$WATCHDOG_PID" ]; then \
+	    echo "failed to start daemon"; \
+	    exit 1; \
+	fi; \
+	printf "waiting for server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; done; echo " ready"; \
+	echo "daemon running (pid $$WATCHDOG_PID)"; \
+	echo "http://localhost:8080"
+
+dev: server watchdog platform-objects
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
+	@pkill -9 GridGuard 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
+	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
-	echo "[1/5] Platform registration"; \
+	echo "seeding platform.db..."; \
 	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
-	echo "[2/5] JWT token issuance"; \
+	echo "generating jwt token..."; \
 	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
-	if [ -z "$$DEV_TOKEN" ]; then echo "ERROR: Token generation failed"; exit 1; fi; \
-	echo "      Token: $$(echo $$DEV_TOKEN | cut -c1-50)..."; \
-	echo "[3/5] Client device setup"; \
+	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
+	echo "seeding gridguard.db..."; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
-	echo "[4/5] Starting server"; \
-	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(WATCHDOG_BIN) >/dev/null 2>&1 & \
-	WDOG_PID=$$!; echo $$WDOG_PID > /tmp/gridguard-watchdog.pid; \
-	echo "      Watchdog PID: $$WDOG_PID"; \
-	printf "Waiting for server"; \
+	echo "starting gridguard..."; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
+	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
 	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	[ -n "$$SERVER_PID" ] && echo "      Server  PID: $$SERVER_PID"; \
 	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
-	[ -n "$$FETCHER_PID" ] && echo "      Fetcher PID: $$FETCHER_PID"; \
 	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	[ -n "$$PARSER_PID" ] && echo "      Parser  PID: $$PARSER_PID"; \
-	echo "[5/5] Testing authenticated requests"; \
-	echo "GET /forecast"; \
+	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "DEMO READY"; \
+	echo ""; \
+	echo "  1. Open browser → http://localhost:8080"; \
+	echo ""; \
+	echo "  2. JWT Token (already generated):"; \
+	echo "     $$DEV_TOKEN"; \
+	echo ""; \
+	echo "  3. Test authenticated endpoint:"; \
+	echo "     curl -H \"Authorization: Bearer $$DEV_TOKEN\" \\"; \
+	echo "          http://localhost:8080/forecast"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "testing /forecast:"; \
 	curl -s -X GET "http://localhost:8080/forecast" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed"; \
-	echo "GET /schedule"; \
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed"; \
+	echo ""; \
+	echo "testing /schedule:"; \
 	curl -s -X GET "http://localhost:8080/schedule" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "Request failed";
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed";
 
 stop:
-	@if [ -f /tmp/gridguard-watchdog.pid ]; then \
-	    PID=$$(cat /tmp/gridguard-watchdog.pid 2>/dev/null); \
-	    if [ -n "$$PID" ] && kill -9 $$PID 2>/dev/null; then \
-	        echo "  [OK] Watchdog  PID $$PID killed"; \
+	@echo "stopping gridguard..."
+	@-if [ -f /tmp/gridguard.pid ]; then \
+	    PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	    if [ -n "$$PID" ] && kill -0 $$PID 2>/dev/null; then \
+	        kill -TERM $$PID 2>/dev/null || true; \
+	        for i in 1 2 3 4 5; do \
+	            if ! kill -0 $$PID 2>/dev/null; then \
+	                echo "stopped"; \
+	                break; \
+	            fi; \
+	            sleep 1; \
+	        done; \
+	        kill -0 $$PID 2>/dev/null && kill -9 $$PID 2>/dev/null || true; \
 	    fi; \
-	    rm -f /tmp/gridguard-watchdog.pid; fi
-	@SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
-	if [ -n "$$SERVER_PID" ] && kill -9 $$SERVER_PID 2>/dev/null; then \
-	    echo "  [OK] Server    PID $$SERVER_PID killed"; \
+	    rm -f /tmp/gridguard.pid; \
+	else \
+	    echo "no pid file found"; \
 	fi
-	@FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
-	if [ -n "$$FETCHER_PID" ] && kill -9 $$FETCHER_PID 2>/dev/null; then \
-	    echo "  [OK] Fetcher   PID $$FETCHER_PID killed"; \
-	fi
-	@PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	if [ -n "$$PARSER_PID" ] && kill -9 $$PARSER_PID 2>/dev/null; then \
-	    echo "  [OK] Parser    PID $$PARSER_PID killed"; \
-	fi
-	@fuser -k -9 8080/tcp 2>/dev/null && echo "  [OK] Port 8080 freed" || true
-	@rm -f /tmp/gridguard_fetch_to_parse.fifo /tmp/gridguard_parse_to_compute.sock \
-	       /tmp/gridguard.status /tmp/gridguard*.pid 2>/dev/null || true
-	@echo "Stopped"
+	@-sleep 1
+	@-pkill -9 -f GridGuard-fetcher 2>/dev/null || true
+	@-pkill -9 -f GridGuard-parser 2>/dev/null || true
+	@-pkill -9 -f GridGuard-server 2>/dev/null || true
+	@-fuser -k -9 8080/tcp 2>/dev/null || true
+	@-rm -f /tmp/gridguard_*.fifo /tmp/gridguard_*.sock /tmp/gridguard.status 2>/dev/null || true
+	@echo "all processes stopped"
 
 # ── Analys ─────────────────────────────────────────────────────────────
 .PHONY: valgrind-server helgrind gprof-analyze
@@ -438,6 +562,9 @@ clean-ipc:
 .PHONY: clean distclean
 clean:
 	rm -rf $(BUILD) $(BIN) gmon.out *.gcda *.gcno *.gcov profile_report.txt vgcore.*
+	rm -rf $(CMAKE_BUILD_DIR) CMakeCache.txt CMakeFiles cmake_install.cmake CTestTestfile.cmake Makefile.cmake
+	rm -rf _deps lib tests/CMakeFiles tests/cmake_install.cmake tests/CTestTestfile.cmake
+	rm -f tests/test_*_gtest
 
 distclean: clean
 	rm -f logs/*.log *.sock *.pid
@@ -455,13 +582,20 @@ help:
 	@echo ""
 	@echo "  debug / release / profile / coverage"
 	@echo ""
-	@echo "  test             Kör alla tester"
+	@echo "  test             Kör alla legacy C-tester"
 	@echo "  test-jwt / test-http-request / test-http-response"
 	@echo "  test-logger / test-api / test-weather / test-pipeline"
+	@echo "  test-gtest       Kör Google Tests med ASAN/UBSAN sanitizers"
+	@echo "  build-gtest      Bygg Google Tests (CMake-baserade)"
+	@echo "  test-all         Kör alla tester (legacy + Google Test)"
+	@echo "  clean-gtest      Rensa CMake build-katalog"
 	@echo ""
-	@echo "  dev              Starta utvecklingsmiljö med watchdog"
+	@echo "  start            Snabbstart med watchdog i foreground (development)"
+	@echo "  daemon           Starta watchdog i bakgrund (production)"
+	@echo "  run-server       Starta server med watchdog (samma som start)"
+	@echo "  server-run       Alias för run-server"
+	@echo "  dev              Utvecklingsmiljö med watchdog + test requests"
 	@echo "  stop             Stoppa alla GridGuard-processer"
-	@echo "  run-server       Kör server direkt (utan watchdog)"
 	@echo "  run-watchdog     Starta watchdog (kräver GRIDGUARD_JWT_SECRET)"
 	@echo ""
 	@echo "  valgrind-server  Minneskontroll"
@@ -474,5 +608,6 @@ help:
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
-.PHONY: dev stop run-server run-watchdog run-client
+.PHONY: build-gtest test-gtest clean-gtest test-all
+.PHONY: start daemon run-server server-run run-watchdog run-client dev stop
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help

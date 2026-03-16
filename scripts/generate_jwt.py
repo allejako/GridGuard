@@ -92,8 +92,8 @@ int main() {{
             print(f"Compilation failed:\\n{result.stderr}", file=sys.stderr)
             sys.exit(1)
 
-        # Run
-        result = subprocess.run([bin_file], capture_output=True, text=True)
+        # Run with inherited environment (needed for GRIDGUARD_JWT_SECRET)
+        result = subprocess.run([bin_file], capture_output=True, text=True, env=os.environ.copy())
         if result.returncode != 0:
             print(f"JWT generation failed:\\n{result.stderr}", file=sys.stderr)
             sys.exit(1)
