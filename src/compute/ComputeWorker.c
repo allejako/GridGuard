@@ -50,7 +50,8 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
 
     // --- Summary ---
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
-    cJSON_AddNumberToObject(summary, "forecast_hours", plan->count);
+    cJSON_AddNumberToObject(summary, "forecast_quarters", plan->count);
+    cJSON_AddNumberToObject(summary, "forecast_hours", plan->count / 4.0);
     cJSON_AddNumberToObject(summary, "total_cost_sek", plan->totalCostSek);
     cJSON_AddNumberToObject(summary, "grid_import_kwh", plan->totalGridImportKwh);
     cJSON_AddNumberToObject(summary, "grid_export_kwh", plan->totalGridExportKwh);
@@ -71,44 +72,83 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON_AddNumberToObject(win, "savings_sek", plan->bestBuyWindow.savingsSek);
     }
 
-    // --- Forecast grouped by calendar day ---
-    // Days use local time (device is on-site); individual timestamps are UTC.
+    // --- Forecast with intelligent filtering ---
+    // Only show actionable signals (BUY/SELL/AVOID) to reduce payload size.
+    // IDLE signals are noise — we skip them unless they're adjacent to an action.
+    // This reduces 384 entries to ~50-100 actionable windows.
     cJSON *days = cJSON_AddArrayToObject(root, "days");
 
     cJSON *currentDay = NULL;
-    cJSON *dayHours = NULL;
+    cJSON *daySignals = NULL;
     char currentDate[16] = {0};
 
-    for (int i = 0; i < plan->count; i++)
+    // Track signal transitions to group consecutive actions into windows
+    EnergyAction prev_action = ACTION_IDLE;
+    time_t window_start = 0;
+    int window_quarters = 0;
+    double window_production = 0.0;
+    double window_consumption = 0.0;
+
+    for (int i = 0; i <= plan->count; i++)
     {
-        const EnergyDataEntry *e = &plan->entries[i];
-        if (!e->valid)
-            continue;
+        const EnergyDataEntry *e = (i < plan->count) ? &plan->entries[i] : NULL;
+        EnergyAction current_action = (e && e->valid) ? e->action : ACTION_IDLE;
 
-        char date[16];
-        local_date(e->timestamp, date, sizeof(date));
+        // Detect signal change (or end of forecast)
+        bool signal_changed = (current_action != prev_action) || (i == plan->count);
 
-        if (strcmp(date, currentDate) != 0)
+        if (signal_changed && prev_action != ACTION_IDLE && window_quarters > 0)
         {
-            strncpy(currentDate, date, sizeof(currentDate) - 1);
-            currentDay = cJSON_CreateObject();
-            cJSON_AddStringToObject(currentDay, "date", date);
-            dayHours = cJSON_AddArrayToObject(currentDay, "hours");
-            cJSON_AddItemToArray(days, currentDay);
+            // Emit the completed action window
+            const EnergyDataEntry *window_entry = &plan->entries[i - window_quarters];
+
+            char date[16];
+            local_date(window_entry->timestamp, date, sizeof(date));
+
+            if (strcmp(date, currentDate) != 0)
+            {
+                strncpy(currentDate, date, sizeof(currentDate) - 1);
+                currentDay = cJSON_CreateObject();
+                cJSON_AddStringToObject(currentDay, "date", date);
+                daySignals = cJSON_AddArrayToObject(currentDay, "signals");
+                cJSON_AddItemToArray(days, currentDay);
+            }
+
+            char start_iso[32], end_iso[32];
+            iso8601_utc(window_start, start_iso, sizeof(start_iso));
+            iso8601_utc(window_entry->timestamp + (window_quarters - 1) * 15 * 60, end_iso, sizeof(end_iso));
+
+            cJSON *signal = cJSON_CreateObject();
+            cJSON_AddStringToObject(signal, "signal", EnergyAction_ToString(prev_action));
+            cJSON_AddStringToObject(signal, "start", start_iso);
+            cJSON_AddStringToObject(signal, "end", end_iso);
+            cJSON_AddNumberToObject(signal, "duration_minutes", window_quarters * 15);
+            cJSON_AddNumberToObject(signal, "price_sek_kwh", window_entry->spotPrice);
+            cJSON_AddNumberToObject(signal, "total_cost_sek_kwh", window_entry->totalCostSek);
+            cJSON_AddNumberToObject(signal, "price_vs_avg_pct", window_entry->priceVsAvgPct);
+            cJSON_AddNumberToObject(signal, "solar_kwh", window_production);
+            cJSON_AddNumberToObject(signal, "consumption_kwh", window_consumption);
+            cJSON_AddItemToArray(daySignals, signal);
+
+            // Reset window
+            window_quarters = 0;
+            window_production = 0.0;
+            window_consumption = 0.0;
         }
 
-        char iso[32];
-        iso8601_utc(e->timestamp, iso, sizeof(iso));
+        if (e && e->valid && current_action != ACTION_IDLE)
+        {
+            if (current_action != prev_action)
+            {
+                // Start new window
+                window_start = e->timestamp;
+            }
+            window_quarters++;
+            window_production += e->productionKwh;
+            window_consumption += e->consumptionKwh;
+        }
 
-        cJSON *entry = cJSON_CreateObject();
-        cJSON_AddStringToObject(entry, "time", iso);
-        cJSON_AddStringToObject(entry, "signal", EnergyAction_ToString(e->action));
-        cJSON_AddNumberToObject(entry, "price_sek_kwh", e->spotPrice);
-        cJSON_AddNumberToObject(entry, "total_cost_sek_kwh", e->totalCostSek);
-        cJSON_AddNumberToObject(entry, "price_vs_avg_pct", e->priceVsAvgPct);
-        cJSON_AddNumberToObject(entry, "solar_kwh", e->productionKwh);
-        cJSON_AddNumberToObject(entry, "consumption_kwh", e->consumptionKwh);
-        cJSON_AddItemToArray(dayHours, entry);
+        prev_action = current_action;
     }
 
     char *json = cJSON_PrintUnformatted(root);
