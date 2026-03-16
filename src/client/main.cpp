@@ -214,23 +214,44 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     for (int i = 0; i < shown; ++i)
         printForecastRow(entries[static_cast<size_t>(i)], minP, maxP);
 
-    // Collect BUY hours outside first 24
-    std::vector<const gridguard::ForecastEntry*> buyLater;
-    for (size_t i = static_cast<size_t>(shown); i < entries.size(); ++i)
-        if (entries[i].signal == "BUY")
-            buyLater.push_back(&entries[i]);
+    // Collect ALL BUY hours across full 96h, pick top 5 cheapest
+    static const int MAX_BUY_SHOWN = 5;
+    std::vector<const gridguard::ForecastEntry*> allBuy;
+    for (const auto& e : entries)
+        if (e.signal == "BUY")
+            allBuy.push_back(&e);
+
+    // STL: partial sort — cheapest first
+    std::partial_sort(allBuy.begin(),
+                      allBuy.begin() + std::min(MAX_BUY_SHOWN, static_cast<int>(allBuy.size())),
+                      allBuy.end(),
+                      [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
+                          return a->totalCostSekKwh < b->totalCostSekKwh;
+                      });
+    allBuy.resize(std::min(MAX_BUY_SHOWN, static_cast<int>(allBuy.size())));
+
+    // STL: restore chronological order for display
+    std::sort(allBuy.begin(), allBuy.end(),
+              [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
+                  return a->time < b->time;
+              });
 
     int remaining = static_cast<int>(entries.size()) - shown;
     if (remaining > 0) {
         std::string note = "  … " + std::to_string(remaining) + " more hours";
-        if (buyLater.empty()) note += "  (no further BUY signals)";
+        if (allBuy.empty()) note += "  (no BUY signals)";
         std::cout << "║" << DIM << pad(note, W) << RESET << "║\n";
     }
 
     // ── BUY windows panel ────────────────────────────────────────────────────
-    if (!buyLater.empty()) {
-        boxMid("BUY WINDOWS  " + std::to_string(static_cast<int>(buyLater.size())) + " hrs");
-        for (const auto* e : buyLater)
+    if (!allBuy.empty()) {
+        int totalBuy = countSignal("BUY");
+        std::string label = "TOP " + std::to_string(static_cast<int>(allBuy.size()))
+                          + " BUY HOURS";
+        if (totalBuy > MAX_BUY_SHOWN)
+            label += "  (of " + std::to_string(totalBuy) + ")";
+        boxMid(label);
+        for (const auto* e : allBuy)
             printForecastRow(*e, minP, maxP);
     }
 
@@ -304,15 +325,16 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
 
     boxTop("SCHEDULES");
 
-    // Column header — widths: load=13, start=11, dur=4, cost=8, saving=8, status=8  → total=66
+    // Column widths: load=15, start=11, dur=4, cost=8, saving=8, status=9
+    // Separators: load→start=" ", cost→saving=" ", rest="  "  → total row = 68
     std::cout << "║  "
               << BOLD
-              << pad("LOAD",   13) << "  "
+              << pad("LOAD",   15) << " "
               << pad("START",  11) << "  "
               << pad("DUR",     4) << "  "
-              << pad("COST",    8) << "  "
+              << pad("COST",    8) << " "
               << pad("SAVING",  8) << "  "
-              << pad("STATUS",  8)
+              << pad("STATUS",  9)
               << RESET << " ║\n";
     std::cout << "║" << DIM;
     for (int i = 0; i < W; ++i) std::cout << "─";
@@ -329,12 +351,12 @@ static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules
         dur    << s.durationMinutes << "m";
 
         std::cout << "║  "
-                  << pad(s.loadId,                   13) << "  "
+                  << pad(s.loadId,                   15) << " "
                   << pad(shortTime(s.scheduledStart), 11) << "  "
                   << pad(dur.str(),                    4) << "  "
-                  << std::right << std::setw(8) << cost.str()   << "  "
+                  << std::right << std::setw(8) << cost.str()   << " "
                   << BRIGHT_GREEN << std::setw(8) << saving.str() << RESET << "  "
-                  << stCol << pad(s.status, 8) << RESET
+                  << stCol << pad(s.status, 9) << RESET
                   << " ║\n";
     }
 
