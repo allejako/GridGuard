@@ -140,8 +140,7 @@ static void HandleMetrics(int fd)
 
     if (metrics->last_restart_time > 0)
     {
-        cJSON_AddNumberToObject(watchdog, "last_restart_seconds_ago",
-                                 (double)difftime(now, metrics->last_restart_time));
+        cJSON_AddNumberToObject(watchdog, "last_restart_seconds_ago", (double)difftime(now, metrics->last_restart_time));
     }
 
     // Fetcher process

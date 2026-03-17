@@ -164,14 +164,14 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 LOG_INFO("FetcherProcess: Periodic refresh triggered (%ld seconds since last fetch)", elapsed);
 
                 // Proactive cache warming for all Swedish regions (SE1-SE4)
-                // This ensures spotprice data is fresh every 15 minutes for any user/demo
+                // Invalidate old entries and fetch fresh data to ensure cache is always current
                 const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
                 int regions_count = 4;
 
                 struct tm today;
                 localtime_r(&now, &today);
 
-                int fetched = 0, cached = 0;
+                int fetched = 0, skipped = 0;
 
                 for (int r = 0; r < regions_count; r++)
                 {
@@ -180,42 +180,41 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
                              region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
 
-                    // Check if cache is stale - if so, fetch fresh data
-                    char tempBuf[SHARED_CACHE_DATA_MAX];
-                    if (SharedCache_Lookup(priceCache, priceKey, tempBuf, sizeof(tempBuf)) != 0)
+                    // Proactively invalidate old cache entry to force fresh fetch
+                    SharedCache_Invalidate(priceCache, priceKey);
+
+                    // Fetch fresh spot price data (skip if circuit breaker is open)
+                    if (now >= proc->priceBackoffUntil)
                     {
-                        // Cache miss or expired - fetch fresh spot price data
-                        if (now >= proc->priceBackoffUntil)  // Check circuit breaker
+                        char priceUrl[256];
+                        if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), region, NULL) == 0)
                         {
-                            char priceUrl[256];
-                            if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), region, NULL) == 0)
+                            HTTPFetchResponse priceResp;
+                            if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
                             {
-                                HTTPFetchResponse priceResp;
-                                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
-                                {
-                                    proc->priceFailures = 0;
-                                    proc->priceBackoffUntil = 0;
-                                    SharedCache_Store(priceCache, priceKey, priceResp.data);
-                                    HTTPFetcher_FreeResponse(&priceResp);
-                                    fetched++;
-                                }
-                                else
-                                {
-                                    proc->priceFailures++;
-                                    if (proc->priceFailures >= 5)
-                                        proc->priceBackoffUntil = time(NULL) + 300;
-                                }
+                                proc->priceFailures = 0;
+                                proc->priceBackoffUntil = 0;
+                                SharedCache_Store(priceCache, priceKey, priceResp.data);
+                                HTTPFetcher_FreeResponse(&priceResp);
+                                fetched++;
+                            }
+                            else
+                            {
+                                proc->priceFailures++;
+                                if (proc->priceFailures >= 5)
+                                    proc->priceBackoffUntil = time(NULL) + 300;
+                                skipped++;
                             }
                         }
                     }
                     else
                     {
-                        cached++;
+                        skipped++;
                     }
                 }
 
-                LOG_INFO("FetcherProcess: Periodic refresh complete - fetched %d regions, %d already cached",
-                         fetched, cached);
+                LOG_INFO("FetcherProcess: Periodic refresh complete - fetched %d regions, skipped %d (circuit breaker)",
+                         fetched, skipped);
 
                 proc->lastPeriodicFetch = now;
             }
