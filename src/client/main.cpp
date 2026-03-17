@@ -13,454 +13,403 @@
 #include <thread>
 #include <chrono>
 
-// ── Terminal colours ─────────────────────────────────────────────────────────
-static const char* RED           = "\033[31m";
-static const char* YELLOW        = "\033[33m";
-static const char* BOLD          = "\033[1m";
-static const char* RESET         = "\033[0m";
-static const char* BRIGHT_GREEN  = "\033[92m";
-static const char* BRIGHT_CYAN   = "\033[96m";
-static const char* BRIGHT_YELLOW = "\033[93m";
-static const char* BRIGHT_RED    = "\033[91m";
-static const char* DIM           = "\033[2m";
+// ── Palette ───────────────────────────────────────────────────────────────────
+static const char* R  = "\033[0m";    // reset
+static const char* B  = "\033[1m";    // bold
+static const char* D  = "\033[2m";    // dim
+static const char* W  = "\033[97m";   // bright white  — values
+static const char* G  = "\033[90m";   // dark gray     — labels, borders, metadata
+static const char* C  = "\033[96m";   // cyan          — accent, section headers
+static const char* GN = "\033[92m";   // green         — BUY, savings, ok
+static const char* YL = "\033[93m";   // yellow        — IDLE
+static const char* RD = "\033[91m";   // red           — AVOID, errors
 
-// ── Box-drawing helpers ───────────────────────────────────────────────────────
+// ── Layout ────────────────────────────────────────────────────────────────────
+static const int IW = 66;   // inner width between │ borders
 
-// Inner content width for all panels
-static const int W = 66;
+// ── String utilities ──────────────────────────────────────────────────────────
 
-static void boxTop(const std::string& label = "") {
-    // ╔══ LABEL ══...══╗
-    std::cout << "╔";
-    if (label.empty()) {
-        for (int i = 0; i < W; ++i) std::cout << "═";
-    } else {
-        std::string tag = "  " + label + "  ";
-        int remaining = W - static_cast<int>(tag.size());
-        int left = 2;
-        int right = remaining - left;
-        for (int i = 0; i < left;  ++i) std::cout << "═";
-        std::cout << tag;
-        for (int i = 0; i < right; ++i) std::cout << "═";
+static int visLen(const std::string& s) {
+    int n = 0; bool esc = false;
+    for (unsigned char c : s) {
+        if (c == '\033') { esc = true;  continue; }
+        if (esc)         { if (c == 'm') esc = false; continue; }
+        if ((c & 0xC0) != 0x80) ++n;
     }
-    std::cout << "╗\n";
+    return n;
 }
 
-static void boxMid(const std::string& label = "") {
-    // ╠══ LABEL ══...══╣  or  ╠══...══╣
-    std::cout << "╠";
-    if (label.empty()) {
-        for (int i = 0; i < W; ++i) std::cout << "═";
-    } else {
-        std::string tag = "  " + label + "  ";
-        int remaining = W - static_cast<int>(tag.size());
-        int left = 2;
-        int right = remaining - left;
-        for (int i = 0; i < left;  ++i) std::cout << "═";
-        std::cout << tag;
-        for (int i = 0; i < right; ++i) std::cout << "═";
-    }
-    std::cout << "╣\n";
-}
-
-static void boxBot() {
-    std::cout << "╚";
-    for (int i = 0; i < W; ++i) std::cout << "═";
-    std::cout << "╝\n";
-}
-
-// ── ANSI-safe terminal table rendering system ────────────────────────────────
-
-// Pad string to exact visual width (right-aligned padding with spaces)
-// Truncates if content exceeds width, preserving ANSI color codes
-static std::string pad_right(const std::string& s, int width) {
-    std::string result;
-    int len = 0;
-    bool in_ansi = false;
-    bool needs_reset = false;
-
+static std::string padR(const std::string& s, int w) {
+    std::string out; int len = 0; bool esc = false, had_color = false;
     for (size_t i = 0; i < s.size(); ++i) {
-        // Detect ANSI escape sequences
-        if (s[i] == '\033') {
-            in_ansi = true;
-            needs_reset = true;  // We started a color code
-        }
-
-        // Always include ANSI sequences (don't count towards width)
-        if (in_ansi) {
-            result += s[i];
-            if (s[i] == 'm') in_ansi = false;
-            continue;
-        }
-
-        // Count visible characters (UTF-8 safe)
-        if ((s[i] & 0xC0) != 0x80) {
-            if (len >= width) break;  // Truncate here
-            ++len;
-        }
-
-        result += s[i];
+        if (s[i] == '\033') { esc = true; had_color = true; }
+        if (esc) { out += s[i]; if (s[i] == 'm') esc = false; continue; }
+        if ((s[i] & 0xC0) != 0x80) { if (len >= w) break; ++len; }
+        out += s[i];
     }
-
-    // Close any open ANSI codes before padding
-    if (needs_reset && !in_ansi) {
-        result += "\033[0m";
-    }
-
-    // Pad if needed
-    if (len < width)
-        result += std::string(static_cast<size_t>(width - len), ' ');
-
-    return result;
+    if (had_color) out += R;
+    if (len < w) out += std::string(static_cast<size_t>(w - len), ' ');
+    return out;
 }
 
-// Helper: wrap text with ANSI color code
-static std::string colorize(const std::string& text, const char* color) {
-    return std::string(color) + text + RESET;
+// Repeat a UTF-8 string n times  (needed for multi-byte chars like ─)
+static std::string rep(const std::string& s, int n) {
+    std::string out; out.reserve(static_cast<size_t>(n) * s.size());
+    for (int i = 0; i < n; ++i) out += s;
+    return out;
 }
 
-// Render a table row with specified column widths
-// Builds entire row content first, then pads to exactly W chars
-static std::string render_row(const std::vector<std::string>& cols,
-                               const std::vector<int>& widths) {
+static std::string c(const char* code, const std::string& text) {
+    return std::string(code) + text + R;
+}
+
+// ── Border ────────────────────────────────────────────────────────────────────
+
+static void top()   { std::cout << c(G, "╭" + rep("─", IW) + "╮") << "\n"; }
+static void bot()   { std::cout << c(G, "╰" + rep("─", IW) + "╯") << "\n"; }
+static void rule()  { std::cout << c(G, "├" + rep("─", IW) + "┤") << "\n"; }
+static void blank() { std::cout << c(G, "│") << rep(" ", IW) << c(G, "│") << "\n"; }
+
+// Print a bordered row. Content is left-aligned with `indent` spaces before it.
+static void row(const std::string& content, int indent = 2) {
+    int fill = IW - indent - visLen(content);
+    if (fill < 0) fill = 0;
+    std::cout << c(G, "│")
+              << rep(" ", indent) << content << rep(" ", fill)
+              << c(G, "│") << "\n";
+}
+
+// Print a row with left and right content — right is pushed to the border.
+static void rowLR(const std::string& left, const std::string& right, int indent = 2) {
+    int used  = indent + visLen(left) + visLen(right) + 2; // 2 trailing spaces
+    int gap   = IW - used;
+    if (gap < 1) gap = 1;
+    std::cout << c(G, "│")
+              << rep(" ", indent) << left << rep(" ", gap) << right << "  "
+              << c(G, "│") << "\n";
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+// Forecast columns: TIME(11) SIGNAL(6) PRICE(9) BAR(10) SOLAR(9) VSAVG(7)
+//   = 52 visible + 5 spacers × 2 = 62. Row indent=2, trailing=2 → 2+62+2=66=IW ✓
+static const std::vector<int> FC = {11, 6, 9, 10, 9, 7};
+
+// Schedule columns: LOAD(10) START(11) DUR(4) COST(9) SAVING(9) STATUS(9)
+//   = 52 visible + 5 × 2 = 62. trow adds indent(2) + trailing(2) → 66 = IW ✓
+static const std::vector<int> SC = {10, 11, 4, 9, 9, 9};
+
+static std::string trow(const std::vector<std::string>& cols,
+                         const std::vector<int>& widths) {
     std::ostringstream out;
-
     for (size_t i = 0; i < cols.size(); ++i) {
-        if (i > 0) out << "  ";  // 2 spaces between columns
-        out << pad_right(cols[i], widths[i]);
+        if (i > 0) out << "  ";
+        out << padR(cols[i], widths[i]);
     }
-
-    // Pad the entire row content to W chars, then wrap with ║
     std::string content = out.str();
-    return "║ " + pad_right(content, W - 2) + " ║";
+    int fill = IW - 2 - visLen(content) - 2;
+    if (fill < 0) fill = 0;
+    return c(G, "│") + "  " + content + rep(" ", fill + 2) + c(G, "│");
 }
 
-// Legacy compatibility: pad() maps to pad_right()
-static std::string pad(const std::string& s, int width) {
-    return pad_right(s, width);
+// ── Signal ────────────────────────────────────────────────────────────────────
+
+struct Sig { const char* color; const char* label; };  // label always 4 chars
+
+static Sig sigOf(const std::string& s) {
+    if (s == "BUY")  return { GN, "BUY " };
+    if (s == "SELL") return { C,  "SELL" };
+    if (s == "IDLE") return { YL, "IDLE" };
+    return                  { RD, "SKIP" };
 }
 
-// ── Table column widths ───────────────────────────────────────────────────────
-
-// Forecast table columns:  TIME | SIGNAL | PRICE | LEVEL | SOLAR | DELTA
-// Total: 2 (leading space) + 11 + 1 + 7 + 1 + 8 + 1 + 8 + 1 + 9 + 1 + 9 + 2 (trailing) = 68
-// Content area: 11 + 7 + 8 + 8 + 9 + 9 + 5 spaces = 62 chars
-// Adding ║ on each side = 64, but W=66 so content must be 66
-// Adjusting: 2 + 11 + 2 + 7 + 2 + 8 + 2 + 8 + 2 + 9 + 2 + 9 = 64 (need 66)
-// New calculation: TIME(11) + SIGNAL(7) + PRICE(8) + LEVEL(8) + SOLAR(9) + DELTA(9) = 52
-// Plus 5 spacers (2 chars each except last) = 52 + 10 = 62
-// Plus 4 leading/trailing = 66 ✓
-static const std::vector<int> FORECAST_COL_WIDTHS = {11, 7, 8, 8, 9, 9};
-
-// Schedule table columns:  LOAD | START | DUR | COST | SAVING | STATUS
-// Must match forecast layout: sum(widths) + (5 × 2 spacers) = W - 2 = 64
-// Therefore: sum(widths) = 52
-// LOAD(16) + START(11) + DUR(4) + COST(8) + SAVING(8) + STATUS(5) = 52 ✓
-static const std::vector<int> SCHEDULE_COL_WIDTHS = {16, 11, 4, 8, 8, 5};
+// "▸ BUY" — 6 visible chars
+static std::string sigTag(const Sig& s) {
+    return c(s.color, std::string("▸ ") + s.label);
+}
 
 // ── Price bar ─────────────────────────────────────────────────────────────────
-// Returns an 8-char bar built from Unicode block characters.
-static std::string priceBar(double price, double minP, double maxP, int width = 8) {
-    double range = maxP - minP;
-    int filled = (range > 0.0)
-        ? static_cast<int>((price - minP) / range * width + 0.5)
-        : 0;
-    filled = std::max(0, std::min(filled, width));
-    std::string bar;
-    for (int i = 0; i < width; ++i)
-        bar += (i < filled) ? "█" : "░";
-    return bar;
+
+static std::string pbar(double v, double lo, double hi, const Sig& s, int w = 10) {
+    double range  = hi - lo;
+    int    filled = (range > 0.0) ? static_cast<int>((v - lo) / range * w + 0.5) : 0;
+    filled = std::max(0, std::min(filled, w));
+    std::string out(s.color);
+    for (int i = 0; i < w; ++i)
+        out += (i < filled) ? "█" : (std::string(D) + "░" + R + s.color);
+    return out + R;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Formatting helpers ────────────────────────────────────────────────────────
 
-static void printUsage(const char* prog) {
-    boxTop("GRIDGUARD CLI");
-    std::cout << "║  " << pad("Usage: " + std::string(prog) + " [OPTIONS] COMMAND", W - 2) << " ║\n";
-    std::cout << "║  " << pad("", W - 2) << " ║\n";
-    std::cout << "║  " << pad("Options:", W - 2) << " ║\n";
-    std::cout << "║    " << pad("--host HOST    server host  (default: localhost)", W - 4) << " ║\n";
-    std::cout << "║    " << pad("--port PORT    server port  (default: 8080)", W - 4) << " ║\n";
-    std::cout << "║    " << pad("--token TOKEN  JWT token    (or GRIDGUARD_TOKEN env)", W - 4) << " ║\n";
-    std::cout << "║  " << pad("", W - 2) << " ║\n";
-    boxMid("COMMANDS");
-    std::cout << "║    " << pad("health", W - 4) << " ║\n";
-    std::cout << "║    " << pad("forecast [--watch] [--interval SECONDS]", W - 4) << " ║\n";
-    std::cout << "║    " << pad("config get", W - 4) << " ║\n";
-    std::cout << "║    " << pad("config set --lat LAT --lon LON --region SE3", W - 4) << " ║\n";
-    std::cout << "║    " << pad("           [--location NAME] [--solar-area M2]", W - 4) << " ║\n";
-    std::cout << "║    " << pad("           [--solar-eff EFF] [--consumption KWH]", W - 4) << " ║\n";
-    std::cout << "║    " << pad("schedule list", W - 4) << " ║\n";
-    std::cout << "║    " << pad("schedule add --load ID --duration MIN --power KW", W - 4) << " ║\n";
-    std::cout << "║    " << pad("schedule delete ID", W - 4) << " ║\n";
-    boxBot();
-}
-
-// Format an ISO timestamp to a shorter "MM-DD HH:mm" form
 static std::string shortTime(const std::string& iso) {
     if (iso.size() < 16) return iso;
     return iso.substr(5, 5) + " " + iso.substr(11, 5);
 }
 
-// ── Signal tag ────────────────────────────────────────────────────────────────
-
-struct SigStyle { const char* color; std::string tag; };
-
-static SigStyle sigStyle(const std::string& signal) {
-    if (signal == "BUY")  return { BRIGHT_GREEN,  "[ BUY ]" };
-    if (signal == "SELL") return { BRIGHT_CYAN,   "[SELL ]" };
-    if (signal == "IDLE") return { BRIGHT_YELLOW, "[ IDLE]" };
-    return                       { BRIGHT_RED,    "[AVOID]" };
+static std::string ff(double v, int prec, const std::string& unit = "") {
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(prec) << v;
+    if (!unit.empty()) s << " " << unit;
+    return s.str();
 }
 
-// ── Print one forecast row ────────────────────────────────────────────────────
+// ── Single forecast row ───────────────────────────────────────────────────────
 
-static void printForecastRow(const gridguard::ForecastEntry& e,
-                              double minP, double maxP) {
-    auto [col, tag] = sigStyle(e.signal);
-    std::string bar = priceBar(e.totalCostSekKwh, minP, maxP);
+static void forecastRow(const gridguard::ForecastEntry& e,
+                         double lo, double hi, bool highlight = false) {
+    auto s = sigOf(e.signal);
 
-    // Format numeric values with appropriate precision
-    std::ostringstream price, solar, delta;
-    price << std::fixed << std::setprecision(2) << e.priceSekKwh << " kr";
+    std::string timeStr = shortTime(e.time);
+    if (highlight) timeStr = c(GN, timeStr);
 
-    // Smart formatting for solar: use 1 decimal if < 100, 0 decimals if >= 100
-    solar << std::fixed;
-    if (e.solarKwh >= 100.0) {
-        solar << std::setprecision(0) << e.solarKwh << " kWh";  // Rounded, correct unit
-    } else if (e.solarKwh >= 10.0) {
-        solar << std::setprecision(1) << e.solarKwh << " kWh";
-    } else {
-        solar << std::setprecision(2) << e.solarKwh << " kWh";
-    }
+    std::string solar;
+    if      (e.solarKwh >= 100.0) solar = ff(e.solarKwh, 0, "kWh");
+    else if (e.solarKwh >=  10.0) solar = ff(e.solarKwh, 1, "kWh");
+    else                           solar = ff(e.solarKwh, 2, "kWh");
 
-    delta << std::fixed << std::setprecision(1) << e.savingsVsMedian << "%";
+    double dev = e.savingsVsMedian;
+    const char* devColor = dev < -5.0 ? GN : (dev > 10.0 ? RD : G);
+    std::string devStr = (dev < 0 ? "" : "+") + ff(dev, 1) + "%";
 
-    std::vector<std::string> cols = {
-        shortTime(e.time),
-        colorize(tag, col),
-        price.str(),
-        colorize(bar, col),
-        solar.str(),
-        delta.str()
+    std::vector<std::string> cells = {
+        c(G, timeStr),
+        sigTag(s),
+        c(W, ff(e.priceSekKwh, 2, "kr")),
+        pbar(e.totalCostSekKwh, lo, hi, s),
+        c(G, solar),
+        c(devColor, devStr),
     };
-
-    std::cout << render_row(cols, FORECAST_COL_WIDTHS) << "\n";
+    std::cout << trow(cells, FC) << "\n";
 }
 
-// ── Display: forecast ─────────────────────────────────────────────────────────
+// ── Forecast view ─────────────────────────────────────────────────────────────
 
 static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
                          const gridguard::ForecastSummary& summary) {
     if (entries.empty()) {
-        std::cerr << RED << "No forecast data received.\n" << RESET;
+        std::cerr << c(RD, "no forecast data") << "\n";
         return;
     }
 
-    // STL: count signals
-    auto countSignal = [&](const std::string& sig) {
+    auto count = [&](const std::string& sig) {
         return static_cast<int>(std::count_if(entries.begin(), entries.end(),
             [&](const gridguard::ForecastEntry& e){ return e.signal == sig; }));
     };
 
-    // STL: cheapest total-cost hour
-    auto cheapest = std::min_element(entries.begin(), entries.end(),
+    auto lo_it = std::min_element(entries.begin(), entries.end(),
         [](const gridguard::ForecastEntry& a, const gridguard::ForecastEntry& b){
-            return a.totalCostSekKwh < b.totalCostSekKwh;
-        });
+            return a.totalCostSekKwh < b.totalCostSekKwh; });
+    auto hi_it = std::max_element(entries.begin(), entries.end(),
+        [](const gridguard::ForecastEntry& a, const gridguard::ForecastEntry& b){
+            return a.totalCostSekKwh < b.totalCostSekKwh; });
+    double lo = lo_it->totalCostSekKwh;
+    double hi = hi_it->totalCostSekKwh;
 
-    // STL: average price deviation for BUY hours
+    // Best BUY windows, cheapest first, then chronological
+    static const int MAX_BUY = 5;
+    std::vector<const gridguard::ForecastEntry*> buyList;
+    for (const auto& e : entries)
+        if (e.signal == "BUY") buyList.push_back(&e);
+    std::partial_sort(buyList.begin(),
+                      buyList.begin() + std::min(MAX_BUY, (int)buyList.size()),
+                      buyList.end(),
+                      [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
+                          return a->totalCostSekKwh < b->totalCostSekKwh; });
+    buyList.resize(std::min(MAX_BUY, (int)buyList.size()));
+    std::sort(buyList.begin(), buyList.end(),
+              [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
+                  return a->time < b->time; });
+
+    int buyCount = count("BUY");
     double totalDev = std::accumulate(entries.begin(), entries.end(), 0.0,
         [](double s, const gridguard::ForecastEntry& e){
-            return s + (e.savingsVsMedian < 0 ? e.savingsVsMedian : 0.0);
-        });
-    int buyCount = countSignal("BUY");
+            return s + (e.savingsVsMedian < 0.0 ? e.savingsVsMedian : 0.0); });
     double avgDev = buyCount > 0 ? totalDev / buyCount : 0.0;
 
-    // STL: price range for bar normalisation
-    double minP = std::min_element(entries.begin(), entries.end(),
-        [](const gridguard::ForecastEntry& a, const gridguard::ForecastEntry& b){
-            return a.totalCostSekKwh < b.totalCostSekKwh; })->totalCostSekKwh;
-    double maxP = std::max_element(entries.begin(), entries.end(),
-        [](const gridguard::ForecastEntry& a, const gridguard::ForecastEntry& b){
-            return a.totalCostSekKwh < b.totalCostSekKwh; })->totalCostSekKwh;
-
-    // ── Header ───────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     std::cout << "\n";
-    boxTop("GRIDGUARD");
-    {
-        // Display current weather from summary
-        std::ostringstream weather;
-        weather << std::fixed << std::setprecision(1);
-        weather << summary.currentTempC << "°C  ·  ☀ " << summary.currentSolarKw << " kW";
+    top();
+    blank();
 
-        std::string info = "  " + summary.userId
-                         + "  ·  " + summary.location
-                         + "  ·  " + summary.region
-                         + "  ·  " + weather.str();
-        std::cout << "║" << pad(info, W) << "║\n";
+    // Header: brand left, live weather right — location/user below
+    {
+        std::string solar = summary.currentSolarKw > 0.05
+                          ? ff(summary.currentSolarKw, 2) + " kW"
+                          : "—";
+        std::string weather = c(W, ff(summary.currentTempC, 1) + "°C")
+                            + c(G, "  ☀ ") + c(W, solar);
+        rowLR(c(C, std::string(B) + "GridGuard" + R), weather);
     }
     {
-        std::string note = "  Intelligent signal windows (BUY/SELL/AVOID)";
-        std::cout << "║" << DIM << pad(note, W) << RESET << "║\n";
+        std::string meta = summary.userId
+                         + "  " + summary.region
+                         + "  " + summary.location;
+        row(c(G, meta));
     }
-    boxMid("ACTION SIGNALS");
 
-    // Column header using render_row for consistent alignment
-    {
-        std::vector<std::string> headers = {
-            "TIME", "SIGNAL", "PRICE", "LEVEL", "SOLAR", "vs AVG"
-        };
-        std::cout << BOLD << render_row(headers, FORECAST_COL_WIDTHS) << RESET << "\n";
-    }
-    std::cout << "║" << DIM;
-    for (int i = 0; i < W; ++i) std::cout << "─";
-    std::cout << RESET << "║\n";
+    blank();
+    rule();
+    blank();
 
-    // Show ALL signal windows (BUY/AVOID/SELL) - these are already filtered by server
-    int shown = static_cast<int>(entries.size());
-    for (int i = 0; i < shown; ++i)
-        printForecastRow(entries[static_cast<size_t>(i)], minP, maxP);
-
-    // Collect ALL BUY hours across full 96h, pick top 5 cheapest
-    static const int MAX_BUY_SHOWN = 5;
-    std::vector<const gridguard::ForecastEntry*> allBuy;
+    // ── Signals ───────────────────────────────────────────────────────────────
+    row(c(W, std::string(B) + "Signals" + R));
+    blank();
     for (const auto& e : entries)
-        if (e.signal == "BUY")
-            allBuy.push_back(&e);
+        forecastRow(e, lo, hi);
 
-    // STL: partial sort — cheapest first
-    std::partial_sort(allBuy.begin(),
-                      allBuy.begin() + std::min(MAX_BUY_SHOWN, static_cast<int>(allBuy.size())),
-                      allBuy.end(),
-                      [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
-                          return a->totalCostSekKwh < b->totalCostSekKwh;
-                      });
-    allBuy.resize(std::min(MAX_BUY_SHOWN, static_cast<int>(allBuy.size())));
-
-    // STL: restore chronological order for display
-    std::sort(allBuy.begin(), allBuy.end(),
-              [](const gridguard::ForecastEntry* a, const gridguard::ForecastEntry* b){
-                  return a->time < b->time;
-              });
-
-    // No "more hours" message needed - we show all windows already
-
-    // ── BUY windows panel ────────────────────────────────────────────────────
-    if (!allBuy.empty()) {
-        int totalBuy = countSignal("BUY");
-        std::string label = "CHEAPEST " + std::to_string(static_cast<int>(allBuy.size()))
-                          + " BUY WINDOWS";
-        if (totalBuy > MAX_BUY_SHOWN)
-            label += "  (of " + std::to_string(totalBuy) + " total)";
-        boxMid(label);
-        for (const auto* e : allBuy)
-            printForecastRow(*e, minP, maxP);
+    // ── Best BUY windows ──────────────────────────────────────────────────────
+    if (!buyList.empty()) {
+        blank();
+        rule();
+        blank();
+        std::string hdr = std::string(B) + "Best buy windows" + R;
+        if (buyCount > MAX_BUY)
+            hdr += c(G, "  " + std::to_string(buyCount) + " total");
+        row(c(W, hdr));
+        blank();
+        for (const auto* e : buyList)
+            forecastRow(*e, lo, hi, true);
     }
 
-    // ── Summary panel ────────────────────────────────────────────────────────
-    boxMid("SUMMARY");
+    // ── Summary ───────────────────────────────────────────────────────────────
+    blank();
+    rule();
+    blank();
 
-    // Signal counts - build string and pad to W
+    // Signal dot summary:  ● 3 buy  ● 1 sell  ● 0 idle  ● 2 avoid
     {
-        std::ostringstream s;
-        s << "  " << BRIGHT_GREEN << "BUY " << countSignal("BUY") << RESET << "  ·  "
-          << BRIGHT_CYAN << "SELL " << countSignal("SELL") << RESET << "  ·  "
-          << BRIGHT_RED << "AVOID " << countSignal("AVOID") << RESET;
-        std::cout << "║" << pad(s.str(), W) << "║\n";
+        std::string line;
+        auto dot = [&](const char* color, int n, const std::string& name) {
+            if (!line.empty()) line += c(G, "   ");
+            line += c(color, "●") + c(G, " " + std::to_string(n) + " " + name);
+        };
+        dot(GN, count("BUY"),   "buy");
+        dot(C,  count("SELL"),  "sell");
+        dot(RD, count("AVOID"), "avoid");
+        row(line);
     }
+    blank();
 
+    // Energy flow
     {
-        std::ostringstream s;
-        s << std::fixed << std::setprecision(2);
-        s << "  Import: " << summary.gridImportKwh << " kWh"
-          << "  ·  Export: " << summary.gridExportKwh << " kWh"
-          << "  ·  Cost: " << summary.totalCostSek << " kr";
-        std::cout << "║" << pad(s.str(), W) << "║\n";
+        std::string line =
+            c(G, "import  ") + c(W, ff(summary.gridImportKwh,  2) + " kWh") +
+            c(G, "   export  ") + c(W, ff(summary.gridExportKwh, 2) + " kWh") +
+            c(G, "   cost  ")  + c(W, ff(summary.totalCostSek,   2) + " kr");
+        row(line);
     }
 
-    if (cheapest != entries.end()) {
-        std::ostringstream s;
-        s << std::fixed << std::setprecision(3);
-        s << "  " << BRIGHT_GREEN << "Best: " << shortTime(cheapest->time)
-          << " @ " << cheapest->totalCostSekKwh << " kr/kWh"
-          << std::setprecision(1) << "  ·  Avg BUY dev: " << avgDev << "%" << RESET;
-        std::cout << "║" << pad(s.str(), W) << "║\n";
+    // Best window
+    if (lo_it != entries.end()) {
+        blank();
+        std::string line = c(GN, "▸ " + shortTime(lo_it->time)
+                             + "  " + ff(lo_it->totalCostSekKwh, 3) + " kr/kWh");
+        if (buyCount > 0)
+            line += c(G, "   avg buy " + ff(avgDev, 1) + "% vs median");
+        row(line);
     }
 
-    boxBot();
+    blank();
+    bot();
     std::cout << "\n";
 }
 
-// ── Display: schedules ────────────────────────────────────────────────────────
+// ── Schedules view ────────────────────────────────────────────────────────────
 
 static void showSchedules(const std::vector<gridguard::ScheduleEntry>& schedules) {
     std::cout << "\n";
+    top();
+    blank();
+    row(c(C, std::string(B) + "Schedules" + R));
+    blank();
+
     if (schedules.empty()) {
-        boxTop("SCHEDULES");
-        std::cout << "║  " << YELLOW << pad("No active schedules.", W - 2) << RESET << " ║\n";
-        boxBot();
+        row(c(G, "No active schedules."));
+        blank();
+        bot();
         std::cout << "\n";
         return;
     }
 
-    // STL: sort by start time (lexicographic on ISO string)
     std::vector<gridguard::ScheduleEntry> sorted = schedules;
     std::sort(sorted.begin(), sorted.end(),
         [](const gridguard::ScheduleEntry& a, const gridguard::ScheduleEntry& b){
-            return a.scheduledStart < b.scheduledStart;
-        });
+            return a.scheduledStart < b.scheduledStart; });
 
-    // STL: total savings
     double totalSavings = std::accumulate(sorted.begin(), sorted.end(), 0.0,
-        [](double s, const gridguard::ScheduleEntry& e){ return s + e.savingsSek; });
+        [](double acc, const gridguard::ScheduleEntry& e){ return acc + e.savingsSek; });
 
-    boxTop("SCHEDULES");
-
-    // Column header using render_row for consistent alignment
+    // Column headers
     {
-        std::vector<std::string> headers = {
-            "LOAD", "START", "DUR", "COST", "SAVING", "STATUS"
+        std::vector<std::string> hdr = {
+            c(G, "Load"), c(G, "Start"), c(G, "Dur"),
+            c(G, "Cost"), c(G, "Saving"), c(G, "Status")
         };
-        std::cout << BOLD << render_row(headers, SCHEDULE_COL_WIDTHS) << RESET << "\n";
+        std::cout << std::string(D) << trow(hdr, SC) << R << "\n";
     }
-    std::cout << "║" << DIM;
-    for (int i = 0; i < W; ++i) std::cout << "─";
-    std::cout << RESET << "║\n";
+    blank();
 
     for (const auto& s : sorted) {
-        const char* stCol = (s.status == "completed") ? BRIGHT_GREEN
-                          : (s.status == "pending")   ? BRIGHT_YELLOW
-                          :                             BRIGHT_CYAN;
+        const char* stColor = (s.status == "completed") ? GN
+                            : (s.status == "pending")   ? YL : C;
 
-        std::ostringstream cost, saving, dur;
-        cost   << std::fixed << std::setprecision(2) << s.estimatedCostSek << " kr";
-        saving << std::fixed << std::setprecision(2) << s.savingsSek       << " kr";
-        dur    << s.durationMinutes << "m";
+        std::string loadId = s.loadId.size() > 10
+                           ? s.loadId.substr(0, 9) + "…"
+                           : s.loadId;
 
-        std::vector<std::string> cols = {
-            s.loadId,
-            shortTime(s.scheduledStart),
-            dur.str(),
-            cost.str(),
-            colorize(saving.str(), BRIGHT_GREEN),
-            colorize(s.status, stCol)
+        std::vector<std::string> cells = {
+            c(W, loadId),
+            c(G, shortTime(s.scheduledStart)),
+            c(G, std::to_string(s.durationMinutes) + "m"),
+            c(G, ff(s.estimatedCostSek, 2) + " kr"),
+            c(GN, ff(s.savingsSek,      2) + " kr"),
+            c(stColor, s.status),
         };
-
-        std::cout << render_row(cols, SCHEDULE_COL_WIDTHS) << "\n";
+        std::cout << trow(cells, SC) << "\n";
     }
 
-    std::cout << "║" << DIM;
-    for (int i = 0; i < W; ++i) std::cout << "─";
-    std::cout << RESET << "║\n";
+    blank();
+    row(c(G, "total savings  ") + c(GN, std::string(B) + ff(totalSavings, 2) + " kr" + R));
+    blank();
+    bot();
+    std::cout << "\n";
+}
 
-    std::ostringstream tot;
-    tot << std::fixed << std::setprecision(2) << totalSavings;
-    std::string savings_text = "  Total savings: " + tot.str() + " kr";
-    std::cout << "║" << BOLD << BRIGHT_GREEN
-              << pad(savings_text, W)
-              << RESET << "║\n";
-    boxBot();
+// ── Usage ─────────────────────────────────────────────────────────────────────
+
+static void printUsage(const char* prog) {
+    std::cout << "\n";
+    top();
+    blank();
+    row(c(C, std::string(B) + "GridGuard" + R) + c(G, "  energy management CLI"));
+    blank();
+    rule();
+    blank();
+    row(c(G, std::string(prog) + " [--host HOST] [--port PORT] [--token TOKEN] COMMAND"));
+    blank();
+    row(c(G, "Options"));
+    blank();
+    row(c(G, "--host   HOST   server hostname  ") + c(W, "default: localhost"));
+    row(c(G, "--port   PORT   server port      ") + c(W, "default: 8080"));
+    row(c(G, "--token  TOKEN  JWT token        ") + c(W, "or $GRIDGUARD_TOKEN"));
+    blank();
+    row(c(G, "Commands"));
+    blank();
+    row(c(C, "health"));
+    row(c(G, "  check server reachability"));
+    blank();
+    row(c(C, "forecast") + c(G, "  [--watch]  [--interval SECS]"));
+    row(c(G, "  energy signals and 48h price forecast"));
+    blank();
+    row(c(C, "config get"));
+    row(c(C, "config set") + c(G, "  --lat LAT  --lon LON  --region SE3"));
+    row(c(G, "  [--location NAME]  [--solar-area M2]  [--solar-eff EFF]"));
+    blank();
+    row(c(C, "schedule list"));
+    row(c(C, "schedule add") + c(G, "  --load ID  --duration MIN  --power KW"));
+    row(c(C, "schedule delete") + c(G, "  ID"));
+    blank();
+    bot();
     std::cout << "\n";
 }
 
@@ -472,8 +421,7 @@ static std::map<std::string, std::string> parseArgs(const std::vector<std::strin
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i].substr(0, 2) == "--") {
             if (i + 1 < args.size() && args[i + 1].substr(0, 2) != "--") {
-                const std::string key = args[i];
-                ++i;
+                const std::string key = args[i]; ++i;
                 flags[key] = args[i];
             } else {
                 flags[args[i]] = "";
@@ -486,19 +434,16 @@ static std::map<std::string, std::string> parseArgs(const std::vector<std::strin
 }
 
 static std::string getArg(const std::map<std::string, std::string>& flags,
-                           const std::string& flag,
-                           const std::string& def = "") {
+                           const std::string& flag, const std::string& def = "") {
     auto it = flags.find(flag);
-    return (it != flags.end()) ? it->second : def;
+    return it != flags.end() ? it->second : def;
 }
-
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
     std::vector<std::string> rawArgs(argv + 1, argv + argc);
 
-    // Show help only if explicitly requested
     if (std::find(rawArgs.begin(), rawArgs.end(), "--help") != rawArgs.end()
      || std::find(rawArgs.begin(), rawArgs.end(), "-h")     != rawArgs.end()) {
         printUsage(argv[0]);
@@ -507,7 +452,7 @@ int main(int argc, char* argv[]) {
 
     auto flags = parseArgs(rawArgs);
 
-    std::string host  = getArg(flags, "--host",  "localhost");
+    std::string host  = getArg(flags, "--host", "localhost");
     int         port  = std::stoi(getArg(flags, "--port", "8080"));
 
     std::string token = getArg(flags, "--token");
@@ -518,80 +463,72 @@ int main(int argc, char* argv[]) {
 
     std::string command    = getArg(flags, "cmd0");
     std::string subcommand = getArg(flags, "cmd1");
-
-    // Default to forecast if no command given
-    if (command.empty()) {
-        command = "forecast";
-    }
+    if (command.empty()) command = "forecast";
 
     gridguard::GridGuardClient client(host, port, token);
 
     // ── health ───────────────────────────────────────────────────────────────
     if (command == "health") {
-        boxTop("GRIDGUARD");
-        if (client.checkHealth()) {
-            std::cout << "║  " << BRIGHT_GREEN << BOLD
-                      << pad("SERVER UP  ·  " + host + ":" + std::to_string(port), W - 2)
-                      << RESET << " ║\n";
-        } else {
-            std::cout << "║  " << BRIGHT_RED << BOLD
-                      << pad("SERVER DOWN  ·  " + host + ":" + std::to_string(port), W - 2)
-                      << RESET << " ║\n";
-        }
-        boxBot();
-        if (!client.checkHealth()) return 1;
+        bool up = client.checkHealth();
+        std::cout << "\n";
+        top();
+        blank();
+        if (up)
+            row(c(GN, "●  online") + c(G, "   " + host + ":" + std::to_string(port)));
+        else
+            row(c(RD, "●  offline") + c(G, "   " + host + ":" + std::to_string(port)));
+        blank();
+        bot();
+        std::cout << "\n";
+        return up ? 0 : 1;
     }
 
     // ── forecast ─────────────────────────────────────────────────────────────
     else if (command == "forecast") {
         if (token.empty()) {
-            std::cerr << "Error: --token required for forecast.\n";
+            std::cerr << c(RD, "error: --token required") << "\n";
             return 1;
         }
 
-        bool watch_mode = flags.find("--watch") != flags.end();
-        int interval_sec = std::stoi(getArg(flags, "--interval", "60"));  // Default 60s (1 min)
+        bool watch_mode   = flags.find("--watch") != flags.end();
+        int  interval_sec = std::stoi(getArg(flags, "--interval", "60"));
 
         if (watch_mode) {
-            // Use system clear for better compatibility
-            system("clear");
-
+            // Each spinner frame is 3 UTF-8 bytes
+            static const char* spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+            int tick = 0;
             while (true) {
-                // Clear screen using system clear command (more reliable than ANSI codes)
                 system("clear");
 
-                // Show refresh info at the top
                 std::time_t now = std::time(nullptr);
-                char time_buf[64];
-                std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S",
-                              std::localtime(&now));
-                std::cout << DIM << "Last updated: " << time_buf
-                          << "  ·  Refreshing every " << interval_sec << "s"
-                          << "  ·  Press Ctrl+C to exit" << RESET << "\n\n";
+                char tbuf[16];
+                std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", std::localtime(&now));
+
+                int fi = (tick % 10) * 3;
+                std::string frame(spin + fi, spin + fi + 3);
+                std::cout << c(G, std::string(D) + frame + "  " + tbuf
+                                  + "  refresh every " + std::to_string(interval_sec) + "s"
+                                  + "  Ctrl+C to quit" + R) << "\n";
 
                 gridguard::ForecastSummary summary;
                 auto entries = client.getForecast(summary);
 
                 if (entries.empty()) {
-                    std::cerr << RED << "Failed to get forecast.\n" << RESET;
+                    std::cerr << c(RD, "failed to fetch forecast") << "\n";
                 } else {
                     showForecast(entries, summary);
-
-                    // Show schedules below forecast
-                    std::cout << "\n";
-                    auto schedules = client.getSchedules();
-                    showSchedules(schedules);
+                    showSchedules(client.getSchedules());
                 }
 
                 std::cout << std::flush;
+                ++tick;
                 std::this_thread::sleep_for(std::chrono::seconds(interval_sec));
             }
         } else {
             gridguard::ForecastSummary summary;
             auto entries = client.getForecast(summary);
             if (entries.empty()) {
-                std::cerr << RED << "Failed to get forecast. Is your config set? "
-                          << "Run: config set --lat ... --lon ... --region SE3\n" << RESET;
+                std::cerr << c(RD, "error: no forecast — run: config set --lat ... --lon ... --region SE3") << "\n";
                 return 1;
             }
             showForecast(entries, summary);
@@ -601,13 +538,13 @@ int main(int argc, char* argv[]) {
     // ── config ───────────────────────────────────────────────────────────────
     else if (command == "config") {
         if (token.empty()) {
-            std::cerr << "Error: --token required for config.\n";
+            std::cerr << c(RD, "error: --token required") << "\n";
             return 1;
         }
         if (subcommand == "get") {
             std::string cfg = client.getUserConfig();
             if (cfg.empty()) {
-                std::cerr << RED << "No config found. Use: config set\n" << RESET;
+                std::cerr << c(RD, "no config found — run: config set") << "\n";
                 return 1;
             }
             std::cout << cfg << "\n";
@@ -615,26 +552,26 @@ int main(int argc, char* argv[]) {
         else if (subcommand == "set") {
             std::string latStr = getArg(flags, "--lat");
             std::string lonStr = getArg(flags, "--lon");
-            std::string region = getArg(flags, "--region", "SE3");
-            std::string loc    = getArg(flags, "--location", "");
+            std::string region = getArg(flags, "--region",      "SE3");
+            std::string loc    = getArg(flags, "--location",    "");
             double area = std::stod(getArg(flags, "--solar-area",  "0.0"));
             double eff  = std::stod(getArg(flags, "--solar-eff",   "0.0"));
             double load = std::stod(getArg(flags, "--consumption", "0.5"));
 
             if (latStr.empty() || lonStr.empty()) {
-                std::cerr << "Error: --lat and --lon are required.\n";
+                std::cerr << c(RD, "error: --lat and --lon are required") << "\n";
                 return 1;
             }
             if (client.setUserConfig(std::stod(latStr), std::stod(lonStr),
-                                     region, loc, area, eff, load)) {
-                std::cout << BRIGHT_GREEN << "Config saved.\n" << RESET;
-            } else {
-                std::cerr << RED << "Failed to save config.\n" << RESET;
+                                     region, loc, area, eff, load))
+                std::cout << c(GN, "✓ config saved") << "\n";
+            else {
+                std::cerr << c(RD, "error: failed to save config") << "\n";
                 return 1;
             }
         }
         else {
-            std::cerr << "Unknown config subcommand: " << subcommand << "\n";
+            std::cerr << c(RD, "unknown subcommand: " + subcommand) << "\n";
             return 1;
         }
     }
@@ -642,7 +579,7 @@ int main(int argc, char* argv[]) {
     // ── schedule ─────────────────────────────────────────────────────────────
     else if (command == "schedule") {
         if (token.empty()) {
-            std::cerr << "Error: --token required for schedule.\n";
+            std::cerr << c(RD, "error: --token required") << "\n";
             return 1;
         }
         if (subcommand == "list") {
@@ -655,33 +592,33 @@ int main(int argc, char* argv[]) {
             long        deadline = std::stol(getArg(flags, "--deadline", "0"));
 
             if (loadId.empty() || duration <= 0 || power <= 0.0) {
-                std::cerr << "Error: --load, --duration and --power are required.\n";
+                std::cerr << c(RD, "error: --load, --duration and --power required") << "\n";
                 return 1;
             }
-            if (!client.createSchedule(loadId, duration, power, deadline))
+            if (client.createSchedule(loadId, duration, power, deadline))
+                std::cout << c(GN, "✓ schedule created") << "\n";
+            else
                 return 1;
         }
         else if (subcommand == "delete") {
             std::string scheduleId = getArg(flags, "cmd2");
             if (scheduleId.empty()) {
-                std::cerr << "Error: schedule delete <SCHEDULE_ID>\n";
+                std::cerr << c(RD, "error: schedule delete <ID>") << "\n";
                 return 1;
             }
-            if (client.deleteSchedule(scheduleId)) {
-                std::cout << BRIGHT_GREEN << "Schedule " << scheduleId << " cancelled.\n" << RESET;
-            } else {
-                std::cerr << RED << "Failed to delete schedule.\n" << RESET;
+            if (client.deleteSchedule(scheduleId))
+                std::cout << c(GN, "✓ schedule " + scheduleId + " cancelled") << "\n";
+            else
                 return 1;
-            }
         }
         else {
-            std::cerr << "Unknown schedule subcommand: " << subcommand << "\n";
+            std::cerr << c(RD, "unknown subcommand: " + subcommand) << "\n";
             return 1;
         }
     }
 
     else {
-        std::cerr << "Unknown command: " << command << "\n";
+        std::cerr << c(RD, "unknown command: " + command) << "\n";
         printUsage(argv[0]);
         return 1;
     }
