@@ -138,9 +138,10 @@ directories:
 	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration $(BUILD)/tests/benchmarks
 
 # ── Länkning ───────────────────────────────────────────────────────────
+# Server: Länkas med C-linker (gcc) enligt kurskrav "Server implementerad i C"
 $(SERVER_BIN): $(SERVER_OBJS)
-	@echo "Linking server..."
-	$(CXX) -o $@ $^ $(LDFLAGS)
+	@echo "Linking server with C linker..."
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(FETCHER_BIN): $(FETCHER_OBJS)
 	@echo "Linking fetcher..."
