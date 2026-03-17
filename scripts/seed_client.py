@@ -105,11 +105,13 @@ def fetch_forecast_signals(token):
         return []
 
 con = sqlite3.connect(db_path)
+
+# Tables should already exist (created by seed_user_config.py)
+# Just ensure they exist in case script is run standalone
 con.execute(CREATE_USER_CONFIGS)
 con.execute(CREATE_SCHEDULES)
 
 now = int(time.time())
-con.execute(INSERT_CONFIG, (now,))
 
 # Try to get real forecast periods (cheapest times)
 periods = fetch_forecast_signals(jwt_token)

@@ -227,7 +227,7 @@ static void printForecastRow(const gridguard::ForecastEntry& e,
     // Smart formatting for solar: use 1 decimal if < 100, 0 decimals if >= 100
     solar << std::fixed;
     if (e.solarKwh >= 100.0) {
-        solar << std::setprecision(0) << e.solarKwh << " kW";  // Rounded, shorter unit
+        solar << std::setprecision(0) << e.solarKwh << " kWh";  // Rounded, correct unit
     } else if (e.solarKwh >= 10.0) {
         solar << std::setprecision(1) << e.solarKwh << " kWh";
     } else {

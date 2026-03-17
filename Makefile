@@ -189,9 +189,9 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	echo "generating jwt token..."; \
 	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
-	echo "seeding gridguard.db..."; \
-	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
-	echo "starting gridguard..."; \
+	echo "seeding user config..."; \
+	python3 scripts/seed_user_config.py "$(CURDIR)/gridguard.db"; \
+	echo "starting gridguard (schedules will be created after forecast ready)..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
 	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
 	printf "waiting for server"; \
