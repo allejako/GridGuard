@@ -12,19 +12,19 @@ int LoadScheduler_FindWindow(
     if (!entries || count <= 0 || durationMinutes <= 0 || powerKw <= 0.0 || !out)
         return -1;
 
-    // Number of hourly slots needed (round up for partial last hour).
-    int    fullHours   = durationMinutes / 60;
-    double partialFrac = (durationMinutes % 60) / 60.0;
-    int    slotsNeeded = fullHours + (partialFrac > 0.0 ? 1 : 0);
+    // Number of 15-minute quarter slots needed (round up).
+    // Example: 90 minutes = 6 quarters, 100 minutes = 7 quarters
+    int quartersNeeded = (durationMinutes + 14) / 15;
 
-    if (slotsNeeded < 1 || slotsNeeded > count)
+    if (quartersNeeded < 1 || quartersNeeded > count)
         return -1;
 
     double bestCost = -1.0;
     int    bestIdx  = -1;
     double nowCost  = -1.0;  // Cost of "start as early as possible" window
 
-    for (int i = 0; i <= count - slotsNeeded; i++)
+    // Sliding window over 15-minute quarters
+    for (int i = 0; i <= count - quartersNeeded; i++)
     {
         // Skip slots that are already in the past.
         if (entries[i].timestamp < nowTime)
@@ -35,12 +35,32 @@ int LoadScheduler_FindWindow(
         if (deadline > 0 && windowEnd > deadline)
             continue;
 
-        // Accumulate energy cost for this window.
+        // Accumulate energy cost for this window across all quarters.
+        // Each quarter is 15 minutes = 0.25 hours.
+        // NOW: Account for solar production - only pay grid price for net import
         double windowCost = 0.0;
-        for (int j = 0; j < fullHours; j++)
-            windowCost += entries[i + j].totalCostPerKwh * powerKw * 1.0; // 1 full hour
-        if (partialFrac > 0.0)
-            windowCost += entries[i + slotsNeeded - 1].totalCostPerKwh * powerKw * partialFrac;
+        for (int j = 0; j < quartersNeeded; j++)
+        {
+            // Calculate fraction of power consumed in this quarter:
+            // - Full quarters (except possibly the last): 15 minutes = 0.25 hours
+            // - Last quarter might be partial
+            int remainingMinutes = durationMinutes - (j * 15);
+            double quarterHours = (remainingMinutes >= 15) ? 0.25 : (remainingMinutes / 60.0);
+
+            // Total load energy this quarter (kWh)
+            double loadEnergy = powerKw * quarterHours;
+
+            // Solar production available this quarter (kWh per 15min)
+            double solarAvailable = entries[i + j].productionKwh;
+
+            // Net grid import: load minus solar production (if available)
+            // Example: 2.75 kW load × 0.25h = 0.6875 kWh
+            //          Solar produces 0.4 kWh → grid import = 0.2875 kWh
+            double gridImport = loadEnergy - solarAvailable;
+            if (gridImport < 0.0) gridImport = 0.0;  // Can't use more solar than available
+
+            windowCost += entries[i + j].totalCostPerKwh * gridImport;
+        }
 
         // First valid window = "start now" reference for savings calculation.
         if (nowCost < 0.0)

@@ -334,19 +334,22 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
             goto allDied;
         }
 
+        // waitpid() with -1 waits for ANY child process.
+        // WNOHANG returns immediately if no child has exited (non-blocking).
+        // Returns: child PID if exited, 0 if still running, -1 on error.
         pid_t result = waitpid(-1, &waitStatus, WNOHANG);
 
         if (result < 0)
         {
             if (errno == EINTR)
                 continue;
-            if (errno == ECHILD)
+            if (errno == ECHILD)  // No more children
                 break;
             LOG_ERROR("Watchdog: waitpid() failed: %s", strerror(errno));
             break;
         }
 
-        if (result == 0)
+        if (result == 0)  // No child exited yet
             continue;
 
         allDied:
@@ -366,14 +369,17 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         else if (result == serverPid)
             deadProcess = "Server";
 
+        // Check how child process terminated
         if (WIFEXITED(waitStatus))
         {
+            // Process called exit() or returned from main()
             int code = WEXITSTATUS(waitStatus);
             LOG_WARNING("Watchdog: %s exited with code %d", deadProcess, code);
             statusWrite(status, "CRASH process=%s code=%d\n", deadProcess, code);
         }
         else if (WIFSIGNALED(waitStatus))
         {
+            // Process was killed by signal (SIGTERM, SIGKILL, SIGSEGV, etc.)
             int sig = WTERMSIG(waitStatus);
             LOG_WARNING("Watchdog: %s killed by signal %d (%s)", deadProcess, sig, strsignal(sig));
             statusWrite(status, "CRASH process=%s signal=%d\n", deadProcess, sig);

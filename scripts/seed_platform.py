@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT_USERS = """
 INSERT OR REPLACE INTO users (user_id, email, plan_type, created_at)
 VALUES
-    ('test_user', 'demo@gridguard.io', 'premium', ?),
+    ('SAAB_ARENA', 'demo@gridguard.io', 'premium', ?),
     ('free_user', 'free@gridguard.io', 'free', ?),
     ('basic_user', 'basic@gridguard.io', 'basic', ?)
 """
@@ -34,4 +34,4 @@ con.commit()
 con.close()
 
 print(f"✓ Platform DB seeded: {db_path}")
-print("  Users: test_user (premium), free_user (free), basic_user (basic)")
+print("  Users: SAAB_ARENA (premium), free_user (free), basic_user (basic)")

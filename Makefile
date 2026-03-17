@@ -138,9 +138,10 @@ directories:
 	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration $(BUILD)/tests/benchmarks
 
 # ── Länkning ───────────────────────────────────────────────────────────
+# Server: Länkas med C-linker (gcc) enligt kurskrav "Server implementerad i C"
 $(SERVER_BIN): $(SERVER_OBJS)
-	@echo "Linking server..."
-	$(CXX) -o $@ $^ $(LDFLAGS)
+	@echo "Linking server with C linker..."
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(FETCHER_BIN): $(FETCHER_OBJS)
 	@echo "Linking fetcher..."
@@ -174,8 +175,66 @@ $(BUILD)/%.o: $(SRC)/%.cpp
 
 # ── Individuella targets ────────────────────────────────────────────────
 .PHONY: client watchdog
-client: directories $(CLIENT_BIN)
-	$(CLIENT_BIN)
+client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
+	@if [ -f /tmp/gridguard.pid ]; then \
+	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
+	@pkill -9 GridGuard 2>/dev/null || true
+	@fuser -k -9 8080/tcp 2>/dev/null || true
+	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@sleep 0.5
+	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
+	echo "seeding platform.db..."; \
+	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
+	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
+	echo "generating jwt token..."; \
+	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
+	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
+	echo "seeding gridguard.db..."; \
+	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
+	echo "starting gridguard..."; \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
+	printf "waiting for server"; \
+	for i in $$(seq 1 20); do \
+	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	    printf "."; sleep 0.5; done; echo " ready"; \
+	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
+	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
+	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "DEMO READY"; \
+	echo ""; \
+	echo "  1. Open browser → http://localhost:8080"; \
+	echo ""; \
+	echo "  2. JWT Token (already generated):"; \
+	echo "     $$DEV_TOKEN"; \
+	echo ""; \
+	echo "  3. Test authenticated endpoint:"; \
+	echo "     curl -H \"Authorization: Bearer $$DEV_TOKEN\" \\"; \
+	echo "          http://localhost:8080/forecast"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	printf "waiting for forecast data (fetching APIs)"; \
+	for i in $$(seq 1 60); do \
+	    STATUS=$$(curl -s -o /dev/null -w "%{http_code}" \
+	        -H "Authorization: Bearer $$DEV_TOKEN" \
+	        http://localhost:8080/forecast 2>/dev/null); \
+	    [ "$$STATUS" = "200" ] && break; \
+	    printf "."; sleep 1; done; echo " ready"; \
+	echo ""; \
+	echo "re-seeding client DB with real forecast signals..."; \
+	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db" "$$DEV_TOKEN"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo ""; \
+	echo "Starting live dashboard (--watch mode, 60s refresh)..."; \
+	echo "Press Ctrl+C to exit"; \
+	echo ""; \
+	GRIDGUARD_TOKEN="$$DEV_TOKEN" $(CLIENT_BIN) forecast --watch;
 watchdog: directories $(WATCHDOG_BIN)
 
 # ── Bygg-varianter ─────────────────────────────────────────────────────
@@ -429,7 +488,7 @@ start: server
 	echo ""; \
 	echo "  2. Generate JWT token:"; \
 	echo "     export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\""; \
-	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db test_user)"; \
+	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db SAAB_ARENA)"; \
 	echo ""; \
 	echo "  3. Test endpoint:"; \
 	echo "     curl -H \"Authorization: Bearer \$$TOKEN\" http://localhost:8080/forecast"; \
@@ -471,7 +530,7 @@ dev: server watchdog platform-objects
 	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
 	echo "generating jwt token..."; \
-	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
+	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
 	echo "seeding gridguard.db..."; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
@@ -565,6 +624,7 @@ clean:
 	rm -rf $(CMAKE_BUILD_DIR) CMakeCache.txt CMakeFiles cmake_install.cmake CTestTestfile.cmake Makefile.cmake
 	rm -rf _deps lib tests/CMakeFiles tests/cmake_install.cmake tests/CTestTestfile.cmake
 	rm -f tests/test_*_gtest
+	rm -f /dev/shm/gridguard_* /tmp/gridguard_*.fifo /tmp/gridguard_*.sock
 
 distclean: clean
 	rm -f logs/*.log *.sock *.pid

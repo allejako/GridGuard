@@ -72,6 +72,33 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON_AddNumberToObject(win, "savings_sek", plan->bestBuyWindow.savingsSek);
     }
 
+    // --- Raw 15-minute quarters for scheduler (all 96 entries) ---
+    // LoadScheduler needs individual 15-min prices to find optimal windows.
+    cJSON *quarters = cJSON_AddArrayToObject(root, "quarters");
+    for (int i = 0; i < plan->count; i++)
+    {
+        const EnergyDataEntry *e = &plan->entries[i];
+        if (!e->valid)
+            continue;
+
+        cJSON *q = cJSON_CreateObject();
+
+        char iso[32];
+        iso8601_utc(e->timestamp, iso, sizeof(iso));
+
+        cJSON_AddStringToObject(q, "time", iso);
+        cJSON_AddNumberToObject(q, "spot_price_sek_kwh", e->spotPrice);
+        cJSON_AddNumberToObject(q, "total_cost_sek_kwh", e->totalCostSek);
+        cJSON_AddNumberToObject(q, "production_kwh", e->productionKwh);
+        cJSON_AddNumberToObject(q, "consumption_kwh", e->consumptionKwh);
+        cJSON_AddStringToObject(q, "action", EnergyAction_ToString(e->action));
+        cJSON_AddNumberToObject(q, "price_vs_avg_pct", e->priceVsAvgPct);
+        cJSON_AddNumberToObject(q, "temperature_c", e->temperature);
+        cJSON_AddNumberToObject(q, "wind_speed_ms", e->windSpeed);
+
+        cJSON_AddItemToArray(quarters, q);
+    }
+
     // --- Forecast with intelligent filtering ---
     // Only show actionable signals (BUY/SELL/AVOID) to reduce payload size.
     // IDLE signals are noise — we skip them unless they're adjacent to an action.
@@ -202,6 +229,7 @@ void *ComputeWorker_Run(void *arg)
             }
 
             LOG_ERROR("ComputeWorker: Failed to open notify FIFO %s: %s", worker->notifyPath, strerror(errno));
+            free(worker);
             return NULL;
         }
 
@@ -212,6 +240,7 @@ void *ComputeWorker_Run(void *arg)
     if (notifyFd < 0)
     {
         LOG_ERROR("ComputeWorker: Notify FIFO %s not available after 60s", worker->notifyPath);
+        free(worker);
         return NULL;
     }
 
@@ -329,5 +358,8 @@ void *ComputeWorker_Run(void *arg)
 exit_loop:
     close(notifyFd);
     LOG_INFO("ComputeWorker: exiting");
+
+    // Free the worker struct that was allocated in GridGuard_Initiate
+    free(worker);
     return NULL;
 }
