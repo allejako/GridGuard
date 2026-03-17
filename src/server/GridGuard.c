@@ -102,7 +102,9 @@ int GridGuard_Initiate(GridGuard *app)
     }
 
     app->isRunning = true;
+    app->lastDataUpdateCheck = 0;  // Initialize cache invalidation tracking
     pthread_mutex_init(&app->mutex, NULL);
+    pthread_mutex_init(&app->updateCheckMutex, NULL);
 
     // Note: Watchdog creates all FIFOs before spawning processes
     LOG_INFO("Using FIFO created by Watchdog: %s", app->fifoPath);
@@ -229,6 +231,7 @@ void GridGuard_Shutdown(GridGuard *app)
     Compute_Shutdown(&app->compute);
     ClientDB_Shutdown(&app->db);
 
+    pthread_mutex_destroy(&app->updateCheckMutex);
     pthread_mutex_destroy(&app->mutex);
 
     LOG_INFO("Shutdown complete");

@@ -17,7 +17,7 @@
 
 #define SHARED_CACHE_MAX_ENTRIES  16
 #define SHARED_CACHE_KEY_MAX      64
-#define SHARED_CACHE_DATA_MAX     32768   // 32 KB — sized for weather JSON
+#define SHARED_CACHE_DATA_MAX     65536   // 64 KB — forecast JSON with full signal details
 #define SHARED_CACHE_DEFAULT_TTL  900     // 15 minutes
 #define SHARED_CACHE_MAGIC        0xCA5EC0DE
 
