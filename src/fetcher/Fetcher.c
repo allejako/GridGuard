@@ -164,58 +164,96 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 LOG_INFO("FetcherProcess: Periodic refresh triggered (%ld seconds since last fetch)", elapsed);
 
                 // Proactive cache warming for all Swedish regions (SE1-SE4)
-                // This ensures spotprice data is fresh every 15 minutes for any user/demo
+                // Invalidate old entries and fetch fresh 48h data (today + tomorrow)
                 const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
                 int regions_count = 4;
 
-                struct tm today;
+                struct tm today, tomorrow;
                 localtime_r(&now, &today);
+                time_t tomorrowTime = now + (24 * 3600);
+                localtime_r(&tomorrowTime, &tomorrow);
 
-                int fetched = 0, cached = 0;
+                int fetched = 0, skipped = 0;
 
                 for (int r = 0; r < regions_count; r++)
                 {
                     const char *region = regions[r];
                     char priceKey[256];
-                    snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
-                             region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
+                    snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d",
+                             region,
+                             today.tm_year + 1900, today.tm_mon + 1, today.tm_mday,
+                             tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
 
-                    // Check if cache is stale - if so, fetch fresh data
-                    char tempBuf[SHARED_CACHE_DATA_MAX];
-                    if (SharedCache_Lookup(priceCache, priceKey, tempBuf, sizeof(tempBuf)) != 0)
+                    // Proactively invalidate old cache entry to force fresh fetch
+                    SharedCache_Invalidate(priceCache, priceKey);
+
+                    // Fetch fresh 48h spot price data (skip if circuit breaker is open)
+                    if (now >= proc->priceBackoffUntil)
                     {
-                        // Cache miss or expired - fetch fresh spot price data
-                        if (now >= proc->priceBackoffUntil)  // Check circuit breaker
+                        char todayUrl[256], tomorrowUrl[256];
+                        HTTPFetchResponse todayResp, tomorrowResp;
+                        bool todaySuccess = false, tomorrowSuccess = false;
+
+                        if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), region, NULL) == 0)
                         {
-                            char priceUrl[256];
-                            if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), region, NULL) == 0)
+                            if (HTTPFetcher_Fetch(fetcher, todayUrl, &todayResp) == 0)
+                                todaySuccess = true;
+                        }
+
+                        if (BuildSpotPriceTomorrowUrl(tomorrowUrl, sizeof(tomorrowUrl), region) == 0)
+                        {
+                            if (HTTPFetcher_Fetch(fetcher, tomorrowUrl, &tomorrowResp) == 0)
+                                tomorrowSuccess = true;
+                        }
+
+                        // Merge today + tomorrow and cache
+                        if (todaySuccess && tomorrowSuccess)
+                        {
+                            cJSON *todayArray = cJSON_Parse(todayResp.data);
+                            cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
+
+                            if (todayArray && tomorrowArray && cJSON_IsArray(todayArray) && cJSON_IsArray(tomorrowArray))
                             {
-                                HTTPFetchResponse priceResp;
-                                if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                                cJSON *item = NULL;
+                                cJSON_ArrayForEach(item, tomorrowArray)
                                 {
-                                    proc->priceFailures = 0;
-                                    proc->priceBackoffUntil = 0;
-                                    SharedCache_Store(priceCache, priceKey, priceResp.data);
-                                    HTTPFetcher_FreeResponse(&priceResp);
+                                    cJSON_AddItemToArray(todayArray, cJSON_Duplicate(item, 1));
+                                }
+
+                                char *combinedJson = cJSON_PrintUnformatted(todayArray);
+                                if (combinedJson)
+                                {
+                                    SharedCache_Store(priceCache, priceKey, combinedJson);
+                                    cJSON_free(combinedJson);
                                     fetched++;
                                 }
-                                else
-                                {
-                                    proc->priceFailures++;
-                                    if (proc->priceFailures >= 5)
-                                        proc->priceBackoffUntil = time(NULL) + 300;
-                                }
                             }
+
+                            if (todayArray) cJSON_Delete(todayArray);
+                            if (tomorrowArray) cJSON_Delete(tomorrowArray);
+
+                            proc->priceFailures = 0;
+                            proc->priceBackoffUntil = 0;
                         }
+                        else
+                        {
+                            proc->priceFailures++;
+                            if (proc->priceFailures >= 5)
+                                proc->priceBackoffUntil = time(NULL) + 300;
+                            skipped++;
+                        }
+
+                        if (todaySuccess) HTTPFetcher_FreeResponse(&todayResp);
+                        if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
                     }
                     else
                     {
-                        cached++;
+                        skipped++;
                     }
                 }
 
-                LOG_INFO("FetcherProcess: Periodic refresh complete - fetched %d regions, %d already cached",
-                         fetched, cached);
+                LOG_INFO("FetcherProcess: Periodic refresh complete (48h) - fetched %d regions, skipped %d (circuit breaker)",
+                         fetched, skipped);
 
                 proc->lastPeriodicFetch = now;
             }
@@ -306,17 +344,23 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
         }
 
-        // Hämta price data (dagens priser, 96 entries med 15-min granularitet)
+        // Hämta price data (dagens + morgondagens priser för 48h forecast)
+        // Cache key format: "SE3_2026-03-17+2026-03-18" för combined 48h data
         char priceKey[256];
         now = time(NULL);
-        struct tm today;
+        struct tm today, tomorrow;
         localtime_r(&now, &today);
-        snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d",
-                 request.region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday);
+        time_t tomorrowTime = now + (24 * 3600);
+        localtime_r(&tomorrowTime, &tomorrow);
+
+        snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d",
+                 request.region,
+                 today.tm_year + 1900, today.tm_mon + 1, today.tm_mday,
+                 tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
 
         if (SharedCache_Lookup(priceCache, priceKey, result.priceJson, sizeof(result.priceJson)) == 0)
         {
-            LOG_INFO("FetcherProcess: Price cache HIT (%s)", priceKey);
+            LOG_INFO("FetcherProcess: Price cache HIT (48h) (%s)", priceKey);
         }
         else
         {
@@ -328,36 +372,89 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
             else
             {
-                char priceUrl[256];
-                if (BuildSpotPriceApiUrl(priceUrl, sizeof(priceUrl), request.region, NULL) == 0)
+                // Fetch today's prices
+                char todayUrl[256], tomorrowUrl[256];
+                HTTPFetchResponse todayResp, tomorrowResp;
+                bool todaySuccess = false, tomorrowSuccess = false;
+
+                if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), request.region, NULL) == 0)
                 {
-                    HTTPFetchResponse priceResp;
-                    if (HTTPFetcher_Fetch(fetcher, priceUrl, &priceResp) == 0)
+                    if (HTTPFetcher_Fetch(fetcher, todayUrl, &todayResp) == 0)
                     {
-                        strncpy(result.priceJson, priceResp.data, sizeof(result.priceJson) - 1);
-                        result.priceJson[sizeof(result.priceJson) - 1] = '\0';
-                        SharedCache_Store(priceCache, priceKey, priceResp.data);
-                        HTTPFetcher_FreeResponse(&priceResp);
+                        todaySuccess = true;
+                        LOG_INFO("FetcherProcess: Fetched today's prices (%zu bytes)", strlen(todayResp.data));
+                    }
+                }
 
-                        proc->priceFailures = 0;
-                        proc->priceBackoffUntil = 0;
+                // Fetch tomorrow's prices
+                if (BuildSpotPriceTomorrowUrl(tomorrowUrl, sizeof(tomorrowUrl), request.region) == 0)
+                {
+                    if (HTTPFetcher_Fetch(fetcher, tomorrowUrl, &tomorrowResp) == 0)
+                    {
+                        tomorrowSuccess = true;
+                        LOG_INFO("FetcherProcess: Fetched tomorrow's prices (%zu bytes)", strlen(tomorrowResp.data));
+                    }
+                }
 
-                        LOG_INFO("FetcherProcess: Fetched price data (%zu bytes)", strlen(result.priceJson));
+                // Merge today + tomorrow into one JSON array
+                if (todaySuccess && tomorrowSuccess)
+                {
+                    // Parse and merge JSON arrays using cJSON
+                    cJSON *todayArray = cJSON_Parse(todayResp.data);
+                    cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
+
+                    if (todayArray && tomorrowArray && cJSON_IsArray(todayArray) && cJSON_IsArray(tomorrowArray))
+                    {
+                        // Append tomorrow's entries to today's array
+                        cJSON *item = NULL;
+                        cJSON_ArrayForEach(item, tomorrowArray)
+                        {
+                            cJSON_AddItemToArray(todayArray, cJSON_Duplicate(item, 1));
+                        }
+
+                        // Serialize combined array
+                        char *combinedJson = cJSON_PrintUnformatted(todayArray);
+                        if (combinedJson)
+                        {
+                            strncpy(result.priceJson, combinedJson, sizeof(result.priceJson) - 1);
+                            result.priceJson[sizeof(result.priceJson) - 1] = '\0';
+                            SharedCache_Store(priceCache, priceKey, combinedJson);
+                            cJSON_free(combinedJson);
+
+                            proc->priceFailures = 0;
+                            proc->priceBackoffUntil = 0;
+
+                            LOG_INFO("FetcherProcess: Merged 48h price data (%zu bytes)", strlen(result.priceJson));
+                        }
+                    }
+
+                    if (todayArray) cJSON_Delete(todayArray);
+                    if (tomorrowArray) cJSON_Delete(tomorrowArray);
+                }
+                else if (todaySuccess)
+                {
+                    // Fallback: use only today's data if tomorrow not available
+                    strncpy(result.priceJson, todayResp.data, sizeof(result.priceJson) - 1);
+                    result.priceJson[sizeof(result.priceJson) - 1] = '\0';
+                    LOG_WARNING("FetcherProcess: Using only today's prices (tomorrow not available yet)");
+                }
+                else
+                {
+                    // Both failed
+                    proc->priceFailures++;
+                    if (proc->priceFailures >= 5)
+                    {
+                        proc->priceBackoffUntil = time(NULL) + 300;
+                        LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures", proc->priceFailures);
                     }
                     else
                     {
-                        proc->priceFailures++;
-                        if (proc->priceFailures >= 5)
-                        {
-                            proc->priceBackoffUntil = time(NULL) + 300;
-                            LOG_ERROR("FetcherProcess: Price API circuit opened after %d failures", proc->priceFailures);
-                        }
-                        else
-                        {
-                            LOG_WARNING("FetcherProcess: Price fetch failed (failure %d/5)", proc->priceFailures);
-                        }
+                        LOG_WARNING("FetcherProcess: Price fetch failed (failure %d/5)", proc->priceFailures);
                     }
                 }
+
+                if (todaySuccess) HTTPFetcher_FreeResponse(&todayResp);
+                if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
             }
         }
 

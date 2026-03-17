@@ -131,11 +131,11 @@ INSERT INTO user_configs VALUES (
     strftime('%s', 'now')
 );
 
--- Extra användare: Stockholm, SE3
+-- Extra användare: SAAB ARENA, Linköping, SE3
 INSERT INTO user_configs VALUES (
-    'test_user_sthlm',
-    59.3293,
-    18.0686,
+    'SAAB_ARENA',
+    58.4109,
+    15.6216,
     'SE3',
     15.0,
     0.20,

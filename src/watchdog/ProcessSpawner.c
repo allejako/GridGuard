@@ -31,6 +31,7 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
         proc->heartbeatInitialized = 1;
     }
 
+    // fork() duplicates current process. Parent gets child PID, child gets 0.
     pid_t pid = fork();
 
     if (pid < 0)
@@ -49,6 +50,7 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
 
     if (pid == 0)
     {
+        // Child process: Pass heartbeat FD via environment
         if (proc->heartbeatInitialized)
         {
             Heartbeat_CloseReadFd(&proc->heartbeat);
@@ -58,12 +60,17 @@ static pid_t spawnProcess(const char *path, const char *name, char *const argv[]
             setenv("GRIDGUARD_HEARTBEAT_FD", fdStr, 1);
         }
 
+        // execv() replaces process image. Never returns on success.
         execv(path, argv);
 
+        // Only reached if execv() failed
         fprintf(stderr, "ProcessSpawner: execv(%s) failed: %s\n", path, strerror(errno));
+
+        // _exit() instead of exit() to avoid flushing parent's stdio buffers
         _exit(127);
     }
 
+    // Parent process: Close write end, keep read end for monitoring
     if (proc->heartbeatInitialized)
         Heartbeat_CloseWriteFd(&proc->heartbeat);
 
@@ -162,7 +169,8 @@ void ProcessGroup_KillAll(ProcessGroup *group, int signal)
         kill(group->server.pid, signal);
 }
 
-// Wait for all processes to terminate
+// Wait for all processes to terminate and reap them to prevent zombies.
+// waitpid() blocks until specified child exits and frees its resources.
 void ProcessGroup_WaitAll(ProcessGroup *group)
 {
     if (group->fetcher.pid > 0)

@@ -203,7 +203,15 @@ int SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t ma
             ts.tv_sec += 5;
             if (pthread_rwlock_timedwrlock(&r->rwlock, &ts) == 0)
             {
-                r->entries[i].occupied = 0;
+                // Re-validate: entry could have been modified after we released read lock
+                if (r->entries[i].occupied && strcmp(r->entries[i].key, key) == 0)
+                {
+                    double new_age = difftime(time(NULL), r->entries[i].createdAt);
+                    if (new_age > r->ttlSeconds)
+                    {
+                        r->entries[i].occupied = 0;
+                    }
+                }
                 pthread_rwlock_unlock(&r->rwlock);
             }
 
@@ -218,6 +226,38 @@ int SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t ma
 
     pthread_rwlock_unlock(&r->rwlock);
     LOG_DEBUG("SharedCache: MISS '%s'", key); return -1;
+}
+
+int SharedCache_Invalidate(SharedCache *cache, const char *key)
+{
+    if (!cache || !cache->isInitialized || !key) return -1;
+
+    SharedCacheRegion *r = cache->region;
+
+    // Acquire write lock with 5 second timeout
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 5;
+
+    if (pthread_rwlock_timedwrlock(&r->rwlock, &ts) != 0)
+    {
+        LOG_ERROR("SharedCache: write lock timeout for Invalidate('%s')", key); return -1;
+    }
+
+    for (int i = 0; i < SHARED_CACHE_MAX_ENTRIES; i++)
+    {
+        if (r->entries[i].occupied && strcmp(r->entries[i].key, key) == 0)
+        {
+            r->entries[i].occupied = 0;
+            pthread_rwlock_unlock(&r->rwlock);
+            LOG_DEBUG("SharedCache: Invalidated '%s'", key);
+            return 0;
+        }
+    }
+
+    pthread_rwlock_unlock(&r->rwlock);
+    LOG_DEBUG("SharedCache: Invalidate('%s') - key not found", key);
+    return -1;
 }
 
 void SharedCache_Shutdown(SharedCache *cache)

@@ -36,7 +36,7 @@ INSERT OR IGNORE INTO user_configs
      solar_area_m2, solar_efficiency, consumption_kwh,
      grid_fee_low, grid_fee_normal, grid_fee_high, updated_at)
 VALUES
-    ('test_user', 'Stockholm', 59.3293, 18.0686, 'SE3',
+    ('SAAB_ARENA', 'Linköping', 58.4109, 15.6216, 'SE3',
      20.0, 0.18, 1.5,
      0.25, 0.35, 0.45, ?)
 """
@@ -53,4 +53,4 @@ con.execute(INSERT, (int(time.time()),))
 con.commit()
 con.close()
 
-print("OK: test_user configured")
+print("OK: SAAB_ARENA configured")

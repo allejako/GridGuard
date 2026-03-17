@@ -67,10 +67,10 @@ int main(void)
     // Test 2: Single request
     print_separator("TEST 2: Single Request");
     WorkRequest req1 = {0};
-    strncpy(req1.userId,   "test_user",  sizeof(req1.userId)   - 1);
-    strncpy(req1.location, "Stockholm",  sizeof(req1.location) - 1);
-    strncpy(req1.lat,      "59.3300",    sizeof(req1.lat)      - 1);
-    strncpy(req1.lon,      "18.0700",    sizeof(req1.lon)      - 1);
+    strncpy(req1.userId,   "SAAB_ARENA",  sizeof(req1.userId)   - 1);
+    strncpy(req1.location, "Linköping",  sizeof(req1.location) - 1);
+    strncpy(req1.lat,      "58.4109",    sizeof(req1.lat)      - 1);
+    strncpy(req1.lon,      "15.6216",    sizeof(req1.lon)      - 1);
     strncpy(req1.region,   "SE3",        sizeof(req1.region)   - 1);
     req1.solarAreaM2     = 20.0;
     req1.solarEfficiency = 0.20;

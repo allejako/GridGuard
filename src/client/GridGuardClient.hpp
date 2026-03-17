@@ -18,16 +18,21 @@ struct ForecastEntry {
     double      savingsVsMedian{0.0};
     double      solarKwh{0.0};
     double      consumptionKwh{0.0};
+    double      temperatureC{0.0};
+    double      windSpeedMs{0.0};
 };
 
 struct ForecastSummary {
     std::string userId;
     std::string location;
     std::string region;
-    int         entries{0};
+    int         entries{0};         // forecast_hours (up to 48h)
+    int         quarters{0};        // forecast_quarters (up to 192× 15min)
     double      totalCostSek{0.0};
     double      gridImportKwh{0.0};
     double      gridExportKwh{0.0};
+    double      currentTempC{0.0};  // Current temperature from first quarter
+    double      currentWindMs{0.0}; // Current wind speed from first quarter
 };
 
 struct ScheduleEntry {
@@ -55,19 +60,11 @@ public:
 
     // User configuration
     std::string getUserConfig();
-    bool setUserConfig(double lat, double lon,
-                       const std::string& region,
-                       const std::string& location,
-                       double solarAreaM2,
-                       double solarEfficiency,
-                       double consumptionKwh);
+    bool setUserConfig(double lat, double lon, const std::string& region, const std::string& location, double solarAreaM2, double solarEfficiency, double consumptionKwh);
 
     // Schedule management
     std::vector<ScheduleEntry> getSchedules();
-    bool createSchedule(const std::string& loadId,
-                        int durationMinutes,
-                        double powerKw,
-                        long deadlineUnix = 0);
+    bool createSchedule(const std::string& loadId, int durationMinutes, double powerKw, long deadlineUnix = 0);
     bool deleteSchedule(const std::string& scheduleId);
 
 private:
@@ -86,8 +83,7 @@ private:
     static int extractInt(const std::string& json, const std::string& key);
 
     // Split a JSON array into individual object strings
-    static std::vector<std::string> splitJsonArray(const std::string& json,
-                                                   const std::string& key);
+    static std::vector<std::string> splitJsonArray(const std::string& json, const std::string& key);
 
     static std::vector<ForecastEntry> parseForecastArray(const std::string& json);
     static std::vector<ScheduleEntry> parseScheduleArray(const std::string& json);
