@@ -292,7 +292,7 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
         // Display current weather from summary
         std::ostringstream weather;
         weather << std::fixed << std::setprecision(1);
-        weather << summary.currentTempC << "°C  ·  " << summary.currentWindMs << " m/s";
+        weather << summary.currentTempC << "°C  ·  ☀ " << summary.currentSolarKw << " kW";
 
         std::string info = "  " + summary.userId
                          + "  ·  " + summary.location
