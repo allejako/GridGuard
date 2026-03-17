@@ -226,15 +226,17 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     // Smart cache invalidation: Check if input data (weather/prices) has been updated.
     // If yes, invalidate ALL forecast caches (not just this user's) to prevent race conditions.
     // This is safe because we only invalidate when data actually changes (not on every request).
-    static time_t last_checked_update = 0;
+    // Uses process-shared lastDataUpdateCheck to ensure only one worker thread invalidates per update.
+    pthread_mutex_lock(&app->updateCheckMutex);
     time_t last_data_update = read_last_data_update();
 
-    if (last_data_update > 0 && last_data_update > last_checked_update)
+    if (last_data_update > 0 && last_data_update > app->lastDataUpdateCheck)
     {
         LOG_INFO("ClientHandler: New data detected (timestamp %ld), invalidating ALL forecast caches", last_data_update);
         SharedCache_InvalidateAll(&app->forecastCache);
-        last_checked_update = last_data_update;
+        app->lastDataUpdateCheck = last_data_update;
     }
+    pthread_mutex_unlock(&app->updateCheckMutex);
 
     char cachedJson[SHARED_CACHE_DATA_MAX];
     if (SharedCache_Lookup(&app->forecastCache, cacheKey, cachedJson, sizeof(cachedJson)) == 0)
