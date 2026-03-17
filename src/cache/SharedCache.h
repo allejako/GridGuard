@@ -62,6 +62,10 @@ int  SharedCache_Store(SharedCache *cache, const char *key, const char *data);
 // Returns 0 on hit, -1 on miss or expired entry.
 int  SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t maxLen);
 
+// Invalidate a cache entry by key (marks as unoccupied).
+// Returns 0 on success, -1 if key not found or error.
+int  SharedCache_Invalidate(SharedCache *cache, const char *key);
+
 // Shutdown this process's access to the shared memory segment.
 // Unmaps the region and closes the file descriptor.
 // Does NOT destroy the rwlock or unlink - other processes may still be using it.
