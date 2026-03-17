@@ -28,7 +28,12 @@
 //   "2026-03-16T13:20:00"        (naiv UTC, t.ex. Open-Meteo med timezone=UTC)
 //   "2026-03-16T13:20:00Z"       (explicit UTC)
 //   "2026-03-16T00:00:00+01:00"  (med tidszonoffset, t.ex. Elpriset)
-time_t parse_iso8601(const char *timeStr)
+// Parse ISO8601 timestamp to UTC Unix timestamp
+// Handles explicit timezone offsets (e.g., "+01:00") or applies context offset
+// timeStr: ISO8601 string (e.g., "2026-03-17T00:00:00+01:00" or "2026-03-17T00:00")
+// utc_offset_seconds: Timezone offset from API metadata (e.g., 3600 for CET)
+//                     Use 0 if timestamp has explicit timezone or is already UTC
+time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
 {
     struct tm tm = {0};
     int tzHour = 0, tzMin = 0;
@@ -49,16 +54,30 @@ time_t parse_iso8601(const char *timeStr)
     tm.tm_mon -= 1;
     tm.tm_isdst = 0;
 
-    // timegm() behandlar alltid struct tm som UTC — ingen lokal tidszon blandas in
+    // timegm() treats struct tm as UTC
     time_t result = timegm(&tm);
 
-    // Justera för explicit tidszonoffset (+HH:MM eller -HH:MM)
+    // Explicit timezone in string? (e.g., "+01:00")
     if (parsed >= 9 && (tzSign == '+' || tzSign == '-')) {
         int tzOffset = tzHour * 3600 + tzMin * 60;
         result = (tzSign == '+') ? result - tzOffset : result + tzOffset;
     }
+    // No explicit timezone? Apply API-provided offset
+    else if (utc_offset_seconds != 0) {
+        result -= utc_offset_seconds;
+    }
 
     return result;
+}
+
+// Normalize timestamp to 15-minute boundary in UTC
+// This ensures both Open-Meteo (UTC) and Elpriset (CET/CEST) timestamps
+// can be matched reliably regardless of timezone differences
+static time_t normalize_to_15min_utc(time_t timestamp)
+{
+    // Truncate to nearest 15-minute boundary (900 seconds)
+    // Example: 10:07:32 -> 10:00:00, 10:23:45 -> 10:15:00
+    return (timestamp / 900) * 900;
 }
 
 // Bygg forecast data genom att matcha OpenMeteoResponse med ElprisetResponse baserat på timestamp
@@ -75,41 +94,46 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         const OpenMeteoEntry *src = &om->entries[i];
         ForecastEntry *entry = &forecast->entries[count];
 
-        entry->timestamp = parse_iso8601(src->time);
+        // Parse Open-Meteo timestamp with timezone context from API metadata
+        entry->timestamp = parse_iso8601(src->time, om->utc_offset_seconds);
         entry->temperature = src->temperature_2m;
         entry->humidity = src->humidity_2m;
         entry->cloudCover = src->cloud_cover;
         entry->windSpeed = src->wind_speed_10m;
         entry->solarIrradiance = src->shortwave_radiation;
 
-        // Matcha elpris mot väder-quarter genom att jämföra UTC-timme.
-        // Elpriset returnerar timpriser (ett pris per hel timme).
-        // Open-Meteo returnerar 15-min data — alla quarters inom samma timme
-        // delar samma spotpris.
+        // Match electricity price to weather quarter
+        // Both APIs provide 15-minute data. After parsing with timezone context,
+        // both timestamps are in UTC and can be matched directly.
         entry->spotPriceSek = 0.0;
+        entry->hasPriceData = false;
 
-        // Trunkera weather-timestamp till närmaste hela timme (UTC)
-        time_t weatherHour = (entry->timestamp / 3600) * 3600;
+        // Normalize weather timestamp to 15-min boundary
+        time_t weatherQuarter = normalize_to_15min_utc(entry->timestamp);
 
         for (int j = 0; j < elpriset->count; j++)
         {
             const ElprisetEntry *price = &elpriset->entries[j];
-            time_t priceTime = parse_iso8601(price->time_start);
-            time_t priceHour = (priceTime / 3600) * 3600;
+            // Elpriset has explicit timezone (+01:00), pass 0 for utc_offset
+            time_t priceTime = parse_iso8601(price->time_start, 0);
+            time_t priceQuarter = normalize_to_15min_utc(priceTime);
 
-            if (weatherHour == priceHour)
+            if (weatherQuarter == priceQuarter)
             {
                 entry->spotPriceSek = price->SEK_per_kWh;
+                entry->hasPriceData = true;
                 break;
             }
         }
 
+        // Log first 3 failed matches for debugging
         if (entry->spotPriceSek == 0.0 && i < 3)
         {
             struct tm weatherTime;
             gmtime_r(&entry->timestamp, &weatherTime);
-            LOG_WARNING("ParserProcess: No price match for %02d:%02d UTC",
-                       weatherTime.tm_hour, weatherTime.tm_min);
+            LOG_WARNING("ParserProcess: No price match for %04d-%02d-%02d %02d:%02d UTC (ts=%ld, quarter=%ld)",
+                       weatherTime.tm_year + 1900, weatherTime.tm_mon + 1, weatherTime.tm_mday,
+                       weatherTime.tm_hour, weatherTime.tm_min, (long)entry->timestamp, (long)weatherQuarter);
         }
 
         entry->valid = true;
@@ -117,7 +141,22 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
     }
 
     forecast->count = count;
-    LOG_INFO("ParserProcess: Built forecast with %d quarter-hour entries (%.1f hours)", count, count / 4.0);
+
+    // Log matching statistics for production monitoring
+    int matched = 0, unmatched = 0;
+    for (int i = 0; i < count; i++) {
+        if (forecast->entries[i].spotPriceSek > 0.0) matched++;
+        else unmatched++;
+    }
+
+    LOG_INFO("ParserProcess: Built forecast with %d quarters (%.1f hours)", count, count / 4.0);
+    LOG_INFO("ParserProcess: Price matching → %d matched, %d unmatched (%.1f%% coverage)",
+             matched, unmatched, matched * 100.0 / count);
+
+    if (unmatched > count / 2) {
+        LOG_WARNING("ParserProcess: >50%% prices missing! Check timezone: OpenMeteo=%s (UTC%+d)",
+                   om->timezone, om->utc_offset_seconds / 3600);
+    }
 }
 
 int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char *socketPath, const char *notifyPath)

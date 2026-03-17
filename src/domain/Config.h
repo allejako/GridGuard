@@ -16,7 +16,9 @@
 // Fallback coordinates used when user config is not yet set (SAAB ARENA, Linköping)
 #define WEATHER_LAT             "58.4109"
 #define WEATHER_LON             "15.6216"
-#define WEATHER_TIMEZONE        "UTC"
+// Use Europe/Stockholm to match Elprisetjustnu timezone (CET/CEST)
+// This ensures timestamps align correctly for price matching
+#define WEATHER_TIMEZONE        "Europe/Stockholm"
 
 // ============== SPOT PRICE API ==================
 // Format: /api/v1/prices/{year}/{month}-{day}_{region}.json
