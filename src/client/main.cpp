@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 #include <vector>
 #include <string>
 #include <map>
@@ -257,10 +258,15 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     std::cout << "\n";
     boxTop("GRIDGUARD");
     {
+        // Display current weather from summary
+        std::ostringstream weather;
+        weather << std::fixed << std::setprecision(1);
+        weather << summary.currentTempC << "°C  ·  " << summary.currentWindMs << " m/s";
+
         std::string info = "  " + summary.userId
                          + "  ·  " + summary.location
                          + "  ·  " + summary.region
-                         + "  ·  " + std::to_string(summary.quarters) + "× 15min quarters";
+                         + "  ·  " + weather.str();
         std::cout << "║" << pad(info, W) << "║\n";
     }
     {
@@ -462,8 +468,9 @@ static std::string getArg(const std::map<std::string, std::string>& flags,
 int main(int argc, char* argv[]) {
     std::vector<std::string> rawArgs(argv + 1, argv + argc);
 
-    if (rawArgs.empty() || std::find(rawArgs.begin(), rawArgs.end(), "--help") != rawArgs.end()
-                        || std::find(rawArgs.begin(), rawArgs.end(), "-h")     != rawArgs.end()) {
+    // Show help only if explicitly requested
+    if (std::find(rawArgs.begin(), rawArgs.end(), "--help") != rawArgs.end()
+     || std::find(rawArgs.begin(), rawArgs.end(), "-h")     != rawArgs.end()) {
         printUsage(argv[0]);
         return 0;
     }
@@ -482,10 +489,9 @@ int main(int argc, char* argv[]) {
     std::string command    = getArg(flags, "cmd0");
     std::string subcommand = getArg(flags, "cmd1");
 
+    // Default to forecast if no command given
     if (command.empty()) {
-        std::cerr << "Error: no command given.\n";
-        printUsage(argv[0]);
-        return 1;
+        command = "forecast";
     }
 
     gridguard::GridGuardClient client(host, port, token);

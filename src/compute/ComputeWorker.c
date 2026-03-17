@@ -93,6 +93,8 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON_AddNumberToObject(q, "consumption_kwh", e->consumptionKwh);
         cJSON_AddStringToObject(q, "action", EnergyAction_ToString(e->action));
         cJSON_AddNumberToObject(q, "price_vs_avg_pct", e->priceVsAvgPct);
+        cJSON_AddNumberToObject(q, "temperature_c", e->temperature);
+        cJSON_AddNumberToObject(q, "wind_speed_ms", e->windSpeed);
 
         cJSON_AddItemToArray(quarters, q);
     }

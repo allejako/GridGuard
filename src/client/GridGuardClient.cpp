@@ -93,6 +93,8 @@ std::vector<ForecastEntry> GridGuardClient::parseForecastArray(const std::string
             e.savingsVsMedian = extractDouble(obj, "price_vs_avg_pct");
             e.solarKwh        = extractDouble(obj, "solar_kwh");
             e.consumptionKwh  = extractDouble(obj, "consumption_kwh");
+            e.temperatureC    = extractDouble(obj, "temperature_c");
+            e.windSpeedMs     = extractDouble(obj, "wind_speed_ms");
             entries.push_back(std::move(e));
         }
     }
@@ -135,6 +137,13 @@ std::vector<ForecastEntry> GridGuardClient::getForecast(ForecastSummary& summary
     summary.totalCostSek = extractDouble(resp.body, "total_cost_sek");
     summary.gridImportKwh= extractDouble(resp.body, "grid_import_kwh");
     summary.gridExportKwh= extractDouble(resp.body, "grid_export_kwh");
+
+    // Extract current weather from first quarter in "quarters" array
+    auto quartersArray = splitJsonArray(resp.body, "quarters");
+    if (!quartersArray.empty()) {
+        summary.currentTempC = extractDouble(quartersArray[0], "temperature_c");
+        summary.currentWindMs = extractDouble(quartersArray[0], "wind_speed_ms");
+    }
 
     return parseForecastArray(resp.body);
 }

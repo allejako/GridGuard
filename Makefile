@@ -186,7 +186,7 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
 	echo "generating jwt token..."; \
-	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
+	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
 	echo "seeding gridguard.db..."; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
@@ -487,7 +487,7 @@ start: server
 	echo ""; \
 	echo "  2. Generate JWT token:"; \
 	echo "     export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\""; \
-	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db test_user)"; \
+	echo "     export TOKEN=\$$(python3 scripts/generate_jwt.py platform.db SAAB_ARENA)"; \
 	echo ""; \
 	echo "  3. Test endpoint:"; \
 	echo "     curl -H \"Authorization: Bearer \$$TOKEN\" http://localhost:8080/forecast"; \
@@ -529,7 +529,7 @@ dev: server watchdog platform-objects
 	rm -f "$(CURDIR)/platform.db" "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_platform.py "$(CURDIR)/platform.db"; \
 	echo "generating jwt token..."; \
-	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" test_user 2>/dev/null); \
+	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
 	echo "seeding gridguard.db..."; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \

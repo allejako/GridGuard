@@ -16,7 +16,7 @@ typedef struct {
 } ForecastEntry;
 
 typedef struct {
-    ForecastEntry entries[96];
+    ForecastEntry entries[192];  // 48h forecast: 192 quarters (2 days × 96 quarters/day)
     int count;
     time_t lastUpdated;
 } ForecastData;

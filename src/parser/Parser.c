@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -71,7 +72,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
     LOG_INFO("ParserProcess: build_forecast_data() called with om->count=%d, elpriset->count=%d", om->count, elpriset->count);
 
     int count = 0;
-    for (int i = 0; i < om->count && count < 96; i++)
+    for (int i = 0; i < om->count && count < 192; i++)  // 48h = 192 quarters
     {
         const OpenMeteoEntry *src = &om->entries[i];
         ForecastEntry *entry = &forecast->entries[count];
@@ -291,17 +292,34 @@ int ParserProcess_Run(ParserProcess *proc)
         if (FD_ISSET(proc->fifoFd, &readfds) && !pendingResult)
         {
             FetchResult fetchResult;
-            ssize_t bytesRead = read(proc->fifoFd, &fetchResult, sizeof(fetchResult));
+            size_t totalRead = 0;
+            size_t expectedSize = sizeof(fetchResult);
 
-            if (bytesRead == 0)
+            // Read entire struct in chunks (handles large structs > PIPE_BUF)
+            while (totalRead < expectedSize)
             {
-                LOG_INFO("ParserProcess: FIFO closed, exiting");
-                break;
+                ssize_t bytesRead = read(proc->fifoFd, ((char*)&fetchResult) + totalRead, expectedSize - totalRead);
+
+                if (bytesRead == 0)
+                {
+                    LOG_INFO("ParserProcess: FIFO closed, exiting");
+                    proc->isRunning = false;
+                    break;
+                }
+
+                if (bytesRead < 0)
+                {
+                    LOG_ERROR("ParserProcess: Read error from FIFO: %s", strerror(errno));
+                    break;
+                }
+
+                totalRead += bytesRead;
             }
 
-            if (bytesRead != sizeof(fetchResult))
+            if (!proc->isRunning || totalRead != expectedSize)
             {
-                LOG_ERROR("ParserProcess: Partial read from FIFO (%zd bytes)", bytesRead);
+                if (totalRead != expectedSize)
+                    LOG_ERROR("ParserProcess: Incomplete read from FIFO (%zu/%zu bytes)", totalRead, expectedSize);
                 continue;
             }
 

@@ -11,7 +11,7 @@ typedef struct {
 } OpenMeteoEntry;
 
 typedef struct {
-    OpenMeteoEntry entries[96];
+    OpenMeteoEntry entries[192];  // 48h forecast: 192 quarters
     int count;
 } OpenMeteoResponse;
 
