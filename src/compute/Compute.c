@@ -43,7 +43,7 @@
 // 1. You have at least 50 Wh excess (inverter losses below this)
 // 2. Spot price is positive (negative = you PAY to export!)
 #define MIN_SURPLUS_TO_SELL_KWH 0.05
-#define MIN_PRICE_TO_SELL_SEK 0.05
+#define MIN_PRICE_TO_SELL_SEK 0.01
 
 // ========== HELPER FUNCTIONS ==========
 
