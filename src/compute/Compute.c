@@ -173,7 +173,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     if (!initialized)
         return -1;
 
-    int num_quarters = forecast->count;  // Should be 96 (15-min intervals)
+    int num_quarters = forecast->count;  // Should be 192 (15-min intervals, 48h)
     if (num_quarters <= 0)
     {
         LOG_ERROR("Compute: No forecast data to work with (count=%d). Check if Fetcher and Parser are working.", num_quarters);
@@ -184,14 +184,14 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     // Spot prices are per hour, so sample one quarter per hour (every 4th entry)
     // For each hour, compute what the customer ACTUALLY pays per kWh:
     // Total = (spot price + grid fee + energy tax) × (1 + VAT)
-    int num_hours = (num_quarters + 3) / 4;  // Round up: 96 quarters = 24 hours
-    double actual_costs[24];  // Store hourly costs (one per hour)
-    double sorted_costs[24];
+    int num_hours = (num_quarters + 3) / 4;  // Round up: 192 quarters = 48 hours
+    double actual_costs[48];  // Store hourly costs (one per hour, up to 48h)
+    double sorted_costs[48];
     int valid_hours = 0;
 
     // OPTIMIZATION: Pre-compute hour-of-day and weekday arrays for all hours
-    int hours_of_day[24];
-    int weekdays[24];
+    int hours_of_day[48];
+    int weekdays[48];
     struct tm tm_buf;
     for (int h = 0; h < num_hours; h++)
     {
@@ -290,12 +290,12 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     LOG_INFO("Compute: Price analysis → cheap: %.2f SEK/kWh, median: %.2f, expensive: %.2f", cheap_threshold, median_price, expensive_threshold);
 
-    // Generate 15-minute quarter-hour recommendations (24h = 96 quarters)
+    // Generate 15-minute quarter-hour recommendations (48h = 192 quarters)
     // Open-Meteo minutely_15 and Elprisetjustnu provide native 15-min data (from Oct 1, 2025)
     memset(plan, 0, sizeof(EnergyData));
     double total_import = 0.0, total_export = 0.0, total_cost = 0.0;
 
-    for (int i = 0; i < num_quarters && i < 96; i++)
+    for (int i = 0; i < num_quarters && i < 192; i++)
     {
         const ForecastEntry *quarter_data = &forecast->entries[i];
         EnergyDataEntry *plan_entry = &plan->entries[i];
@@ -381,6 +381,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         plan_entry->spotPrice = quarter_data->spotPriceSek;
         plan_entry->totalCostSek = hourly_cost;
         plan_entry->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
+        plan_entry->temperature = temperature;
+        plan_entry->windSpeed = wind_speed;
         plan_entry->valid = true;
     }
 

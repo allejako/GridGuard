@@ -13,9 +13,9 @@
 // Open-Meteo: temperature, humidity, cloud cover, wind, solar irradiance
 #define OPENMETEO_API_BASE_URL  "https://api.open-meteo.com/v1/forecast"
 
-// Fallback coordinates used when user config is not yet set (Stockholm)
-#define WEATHER_LAT             "59.33"
-#define WEATHER_LON             "18.07"
+// Fallback coordinates used when user config is not yet set (SAAB ARENA, Linköping)
+#define WEATHER_LAT             "58.4109"
+#define WEATHER_LON             "15.6216"
 #define WEATHER_TIMEZONE        "Europe/Stockholm"
 
 // ============== SPOT PRICE API ==================

@@ -21,6 +21,8 @@ typedef struct
     double       spotPrice;            // SEK/kWh spot (constant within the hour)
     double       totalCostSek;         // SEK/kWh total (spot + grid + tax + VAT)
     double       priceVsAvgPct;        // % vs median
+    double       temperature;          // °C air temperature
+    double       windSpeed;            // m/s wind speed
     bool         valid;
 } EnergyDataEntry;
 
@@ -38,7 +40,7 @@ typedef struct
 
 typedef struct
 {
-    EnergyDataEntry entries[96]; // 24h hourly forecast (limited by daily price data availability)
+    EnergyDataEntry entries[192]; // 48h forecast (192 quarters: today + tomorrow)
     int       count;
     time_t    generatedAt;
     double    totalCostSek;

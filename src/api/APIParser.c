@@ -193,7 +193,7 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
     int arraySize = cJSON_GetArraySize(times);
     int parsedCount = 0;
 
-    for (int i = 0; i < arraySize && parsedCount < 96; i++)  // Weather limited to 96 (24h forecast)
+    for (int i = 0; i < arraySize && parsedCount < 192; i++)  // Weather limited to 192 (48h forecast)
     {
         OpenMeteoEntry *data = &forecast->entries[parsedCount];
 
