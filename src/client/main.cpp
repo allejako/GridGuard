@@ -71,27 +71,47 @@ static void boxBot() {
 
 // ── ANSI-safe terminal table rendering system ────────────────────────────────
 
-// Calculate visual width by skipping ANSI escape sequences and counting UTF-8 chars
-static int visible_length(const std::string& s) {
-    int count = 0;
+// Pad string to exact visual width (right-aligned padding with spaces)
+// Truncates if content exceeds width, preserving ANSI color codes
+static std::string pad_right(const std::string& s, int width) {
+    std::string result;
+    int len = 0;
+    bool in_ansi = false;
+    bool needs_reset = false;
+
     for (size_t i = 0; i < s.size(); ++i) {
-        // Skip ANSI escape sequences: \033[...m
+        // Detect ANSI escape sequences
         if (s[i] == '\033') {
-            while (i < s.size() && s[i] != 'm') ++i;
+            in_ansi = true;
+            needs_reset = true;  // We started a color code
+        }
+
+        // Always include ANSI sequences (don't count towards width)
+        if (in_ansi) {
+            result += s[i];
+            if (s[i] == 'm') in_ansi = false;
             continue;
         }
-        // Count only the start of UTF-8 sequences (not continuation bytes 10xxxxxx)
-        if ((s[i] & 0xC0) != 0x80) ++count;
-    }
-    return count;
-}
 
-// Pad string to exact visual width (right-aligned padding with spaces)
-static std::string pad_right(const std::string& s, int width) {
-    int len = visible_length(s);
-    if (len >= width)
-        return s; // Already at or exceeds width
-    return s + std::string(static_cast<size_t>(width - len), ' ');
+        // Count visible characters (UTF-8 safe)
+        if ((s[i] & 0xC0) != 0x80) {
+            if (len >= width) break;  // Truncate here
+            ++len;
+        }
+
+        result += s[i];
+    }
+
+    // Close any open ANSI codes before padding
+    if (needs_reset && !in_ansi) {
+        result += "\033[0m";
+    }
+
+    // Pad if needed
+    if (len < width)
+        result += std::string(static_cast<size_t>(width - len), ' ');
+
+    return result;
 }
 
 // Helper: wrap text with ANSI color code
@@ -133,9 +153,10 @@ static std::string pad(const std::string& s, int width) {
 static const std::vector<int> FORECAST_COL_WIDTHS = {11, 7, 8, 8, 9, 9};
 
 // Schedule table columns:  LOAD | START | DUR | COST | SAVING | STATUS
-// Must match forecast total: 52 + (5 × 2 spacers) = 62, padded to 64 by render_row
-// LOAD(15) + START(11) + DUR(4) + COST(7) + SAVING(7) + STATUS(8) = 52 ✓
-static const std::vector<int> SCHEDULE_COL_WIDTHS = {15, 11, 4, 7, 7, 8};
+// Must match forecast layout: sum(widths) + (5 × 2 spacers) = W - 2 = 64
+// Therefore: sum(widths) = 52
+// LOAD(16) + START(11) + DUR(4) + COST(8) + SAVING(8) + STATUS(5) = 52 ✓
+static const std::vector<int> SCHEDULE_COL_WIDTHS = {16, 11, 4, 8, 8, 5};
 
 // ── Price bar ─────────────────────────────────────────────────────────────────
 // Returns an 8-char bar built from Unicode block characters.
