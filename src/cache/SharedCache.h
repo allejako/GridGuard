@@ -66,16 +66,17 @@ int  SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t m
 // Returns 0 on success, -1 if key not found or error.
 int  SharedCache_Invalidate(SharedCache *cache, const char *key);
 
+// Cleanup the shared memory segment completely (Watchdog only).
+// Destroys the rwlock and unlinks the shared memory object.
+// MUST be called ONLY after all processes using the cache have exited.
+// Typically called from Watchdog during final cleanup.
+void SharedCache_Cleanup(SharedCache *cache);
+
 // Shutdown this process's access to the shared memory segment.
 // Unmaps the region and closes the file descriptor.
 // Does NOT destroy the rwlock or unlink - other processes may still be using it.
 // Safe to call from any process at any time.
 void SharedCache_Shutdown(SharedCache *cache);
 
-// Cleanup the shared memory segment completely (Watchdog only).
-// Destroys the rwlock and unlinks the shared memory object.
-// MUST be called ONLY after all processes using the cache have exited.
-// Typically called from Watchdog during final cleanup.
-void SharedCache_Cleanup(SharedCache *cache);
 
 #endif // SHARED_CACHE_H
