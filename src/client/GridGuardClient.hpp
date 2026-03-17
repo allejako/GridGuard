@@ -31,8 +31,8 @@ struct ForecastSummary {
     double      totalCostSek{0.0};
     double      gridImportKwh{0.0};
     double      gridExportKwh{0.0};
-    double      currentTempC{0.0};  // Current temperature from first quarter
-    double      currentWindMs{0.0}; // Current wind speed from first quarter
+    double      currentTempC{0.0};       // Current temperature from first quarter
+    double      currentSolarKw{0.0};     // Current solar output from first quarter (kW)
 };
 
 struct ScheduleEntry {

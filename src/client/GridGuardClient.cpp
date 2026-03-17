@@ -141,8 +141,8 @@ std::vector<ForecastEntry> GridGuardClient::getForecast(ForecastSummary& summary
     // Extract current weather from first quarter in "quarters" array
     auto quartersArray = splitJsonArray(resp.body, "quarters");
     if (!quartersArray.empty()) {
-        summary.currentTempC = extractDouble(quartersArray[0], "temperature_c");
-        summary.currentWindMs = extractDouble(quartersArray[0], "wind_speed_ms");
+        summary.currentTempC   = extractDouble(quartersArray[0], "temperature_c");
+        summary.currentSolarKw = extractDouble(quartersArray[0], "production_kwh") * 4.0;
     }
 
     return parseForecastArray(resp.body);
