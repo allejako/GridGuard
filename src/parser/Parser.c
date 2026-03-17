@@ -360,7 +360,6 @@ int ParserProcess_Run(ParserProcess *proc)
             }
 
             LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
-            LOG_INFO("ParserProcess: priceJson length=%zu, preview: %.200s", strlen(fetchResult.priceJson), fetchResult.priceJson);
 
             // Parsa JSON data från FetchResult
             OpenMeteoResponse omData = {0};
