@@ -219,6 +219,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         if (sorted_costs[q] >= expensive_threshold) num_avoid++;
     }
 
+    int negative_logged = 0, buy_logged = 0, sell_logged = 0, avoid_logged = 0;
+
     LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
     LOG_INFO("Compute: 48-HOUR FORECAST ANALYSIS");
     LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
@@ -246,7 +248,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         if (!quarter_data->valid)
             continue;
 
-        struct tm *time_info = localtime(&quarter_data->timestamp);
+        struct tm time_info_buf;
+        struct tm *time_info = localtime_r(&quarter_data->timestamp, &time_info_buf);
         int hour_of_day = time_info ? time_info->tm_hour : 12;
         int minute_of_hour = time_info ? time_info->tm_min : 0;
 
@@ -278,7 +281,6 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         else if (quarter_data->spotPriceSek < 0.0)
         {
             recommendation = ACTION_BUY_FROM_GRID;
-            static int negative_logged = 0;
             if (negative_logged < 2)
             {
                 LOG_INFO("Compute: [%02d:%02d] ⚡ BUY (negative price!) → %.3f kr/kWh", hour_of_day, minute_of_hour, quarter_data->spotPriceSek);
@@ -288,7 +290,6 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         else if (quarter_cost <= cheap_threshold)
         {
             recommendation = ACTION_BUY_FROM_GRID;
-            static int buy_logged = 0;
             if (buy_logged < 5)
             {
                 LOG_INFO("Compute: [%02d:%02d] ✓ BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)",
@@ -301,7 +302,6 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         {
             recommendation = ACTION_SELL_TO_GRID;
             total_export += net_energy;
-            static int sell_logged = 0;
             if (sell_logged < 3)
             {
                 LOG_INFO("Compute: [%02d:%02d] ⚡ SELL → %.1f kWh surplus @ %.3f kr/kWh (expensive period)",
@@ -312,7 +312,6 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         else if (quarter_cost >= expensive_threshold)
         {
             recommendation = ACTION_AVOID_HIGH_PRICE;
-            static int avoid_logged = 0;
             if (avoid_logged < 3)
             {
                 LOG_INFO("Compute: [%02d:%02d] ⚠ AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)",
@@ -407,7 +406,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                     best_score = practical_score;
                     plan->bestBuyWindow.start = plan->entries[window_start].timestamp;
                     plan->bestBuyWindow.end = plan->entries[window_end].timestamp;
-                    plan->bestBuyWindow.hours = window_quarters / 4; // Convert quarters to hours for display
+                    plan->bestBuyWindow.durationMinutes = window_quarters * 15;
                     plan->bestBuyWindow.avgCostSek = window_cost / window_quarters;
                     plan->bestBuyWindow.savingsSek = window_savings;
                     plan->hasBuyWindow = 1;
@@ -424,7 +423,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     if (plan->hasBuyWindow)
     {
-        LOG_INFO("Compute: Best time to run flexible loads → %d hour window, saves %.2f SEK", plan->bestBuyWindow.hours, plan->bestBuyWindow.savingsSek);
+        LOG_INFO("Compute: Best time to run flexible loads → %d min window, saves %.2f SEK", plan->bestBuyWindow.durationMinutes, plan->bestBuyWindow.savingsSek);
     }
     else
     {

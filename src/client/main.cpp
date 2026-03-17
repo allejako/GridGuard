@@ -366,7 +366,6 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
         std::ostringstream s;
         s << "  " << BRIGHT_GREEN << "BUY " << countSignal("BUY") << RESET << "  ·  "
           << BRIGHT_CYAN << "SELL " << countSignal("SELL") << RESET << "  ·  "
-          << BRIGHT_YELLOW << "IDLE " << countSignal("IDLE") << RESET << "  ·  "
           << BRIGHT_RED << "AVOID " << countSignal("AVOID") << RESET;
         std::cout << "║" << pad(s.str(), W) << "║\n";
     }
