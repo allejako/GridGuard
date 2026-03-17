@@ -60,7 +60,7 @@ gtest_discover_tests(test_restart_policy_gtest)
 # Energy-Aware Scheduling Tests - LoadScheduler spot price optimization
 add_executable(test_scheduler_gtest
     unit/test_scheduler_gtest.cpp
-    ${CMAKE_SOURCE_DIR}/src/domain/Scheduler.c
+    ${CMAKE_SOURCE_DIR}/src/domain/LoadScheduler.c
     ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
 )
 
@@ -70,6 +70,24 @@ target_link_libraries(test_scheduler_gtest
 )
 
 gtest_discover_tests(test_scheduler_gtest)
+
+# ISO 8601 Timestamp Parser Tests - Correct UTC conversion (fixes 04:45 solar bug)
+add_executable(test_parser_gtest
+    unit/test_parser_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/parser/Parser.c
+    ${CMAKE_SOURCE_DIR}/src/api/APIParser.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+    ${CMAKE_SOURCE_DIR}/src/sys/ProcessHeartbeat.c
+    ${CMAKE_SOURCE_DIR}/src/libs/cJSON.c
+)
+
+target_link_libraries(test_parser_gtest
+    GTest::gtest_main
+    Threads::Threads
+    OpenSSL::SSL OpenSSL::Crypto
+)
+
+gtest_discover_tests(test_parser_gtest)
 
 # Concurrent Queue Stress Tests - Multi-threaded work distribution
 add_executable(test_queue_concurrent_gtest

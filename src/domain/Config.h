@@ -16,7 +16,7 @@
 // Fallback coordinates used when user config is not yet set (SAAB ARENA, Linköping)
 #define WEATHER_LAT             "58.4109"
 #define WEATHER_LON             "15.6216"
-#define WEATHER_TIMEZONE        "Europe/Stockholm"
+#define WEATHER_TIMEZONE        "UTC"
 
 // ============== SPOT PRICE API ==================
 // Format: /api/v1/prices/{year}/{month}-{day}_{region}.json

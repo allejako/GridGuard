@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <time.h>
+
+time_t parse_iso8601(const char *timeStr);
 
 // Dedikerad parse-process som körs som egen executable via exec().
 // Läser FetchResult från FIFO (named pipe från Fetch process).

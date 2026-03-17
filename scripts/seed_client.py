@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS schedules (
 )
 """
 
-# Insert demo user config (SAAB ARENA, Linköping, 20m² solar panels, premium setup)
+# Insert demo user config (SAAB ARENA, Linköping)
+# Solar: 1500 m² monocrystalline panels on arena roof (10% of ~15 000 m² roof area)
+# Consumption: ~45 kWh/h base load (standby — HVAC, lighting, facilities, no event)
 INSERT_CONFIG = """
 INSERT OR REPLACE INTO user_configs
     (user_id, location, latitude, longitude, region,
@@ -53,7 +55,7 @@ INSERT OR REPLACE INTO user_configs
      grid_fee_low, grid_fee_normal, grid_fee_high, updated_at)
 VALUES
     ('SAAB_ARENA', 'Linköping', 58.4109, 15.6216, 'SE3',
-     20.0, 0.18, 1.5,
+     1500.0, 0.20, 45.0,
      0.25, 0.35, 0.45, ?)
 """
 
@@ -63,9 +65,9 @@ INSERT OR REPLACE INTO schedules
     (schedule_id, user_id, load_id, scheduled_start, duration_minutes,
      power_kw, estimated_cost_sek, savings_sek, status, created_at)
 VALUES
-    ('demo_ev_001', 'SAAB_ARENA', 'ev_charger',         ?, 240, 11.0, 32.50, 58.30, 'pending', ?),
-    ('demo_dw_001', 'SAAB_ARENA', 'dishwasher',         ?, 120,  1.8,  2.10,  1.20, 'pending', ?),
-    ('demo_wm_001', 'SAAB_ARENA', 'washing_machine',    ?, 90,   2.0,  1.80,  0.95, 'completed', ?)
+    ('demo_ev_001', 'SAAB_ARENA', 'ev_fleet_charger',    ?, 240, 50.0, 320.00, 580.00, 'pending', ?),
+    ('demo_dw_001', 'SAAB_ARENA', 'hvac_precool',       ?, 120, 30.0,  85.00,  42.00, 'pending', ?),
+    ('demo_wm_001', 'SAAB_ARENA', 'zamboni_charge',     ?, 90,  15.0,  40.00,  18.00, 'completed', ?)
 """
 
 def fetch_forecast_signals(token):
@@ -116,9 +118,9 @@ periods = fetch_forecast_signals(jwt_token)
 buy_periods = [p for p in periods if p.get("signal") == "BUY"]
 
 # Default savings values
-ev_savings = 58.30
-dw_savings = 1.20
-wm_savings = 0.95
+ev_savings = 580.00
+dw_savings = 42.00
+wm_savings = 18.00
 
 if buy_periods and len(buy_periods) >= 2:
     # BEST CASE: We have BUY signals - use them!
@@ -163,9 +165,9 @@ INSERT OR REPLACE INTO schedules
     (schedule_id, user_id, load_id, scheduled_start, duration_minutes,
      power_kw, estimated_cost_sek, savings_sek, status, created_at)
 VALUES
-    ('demo_ev_001', 'SAAB_ARENA', 'ev_charger',      ?, 240, 11.0, 32.50, {ev_savings}, 'pending', ?),
-    ('demo_dw_001', 'SAAB_ARENA', 'dishwasher',      ?, 120,  1.8,  2.10, {dw_savings}, 'pending', ?),
-    ('demo_wm_001', 'SAAB_ARENA', 'washing_machine', ?, 90,   2.0,  1.80, {wm_savings}, 'completed', ?)
+    ('demo_ev_001', 'SAAB_ARENA', 'ev_fleet_charger', ?, 240, 50.0, 320.00, {ev_savings}, 'pending', ?),
+    ('demo_dw_001', 'SAAB_ARENA', 'hvac_precool',    ?, 120, 30.0,  85.00, {dw_savings}, 'pending', ?),
+    ('demo_wm_001', 'SAAB_ARENA', 'zamboni_charge',  ?, 90,  15.0,  40.00, {wm_savings}, 'completed', ?)
 """, (
     ev_start, now,
     dw_start, now,
@@ -176,5 +178,5 @@ con.commit()
 con.close()
 
 print(f"✓ Client DB seeded: {db_path}")
-print("  User: SAAB_ARENA (Linköping, 20m² solar, SE3)")
-print("  Schedules: 3 demo loads (EV charger, dishwasher, washing machine)")
+print("  User: SAAB_ARENA (Linköping, 1500m² solar roof, SE3, 45 kWh/h base load)")
+print("  Schedules: 3 arena loads (EV fleet charger, HVAC pre-cool, Zamboni charge)")
