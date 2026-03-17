@@ -28,7 +28,7 @@
 #define DEMO_PRICE_BOOST 0.25
 
 // Solar export policy: balance between maximizing revenue and grid stability
-#define MIN_SURPLUS_TO_SELL_KWH 5.0  // Only export meaningful quantities
+#define MIN_SURPLUS_TO_SELL_KWH 0.5  // Minimum net surplus per 15-min quarter to trigger export (~2 kWh/h)
 #define MIN_PRICE_TO_SELL_SEK 0.01   // Avoid exporting at negative prices
 
 // Swedish time-of-use tariffs: typical elbolag structure
