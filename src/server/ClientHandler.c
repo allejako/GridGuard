@@ -218,7 +218,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     gmtime_r(&now, &now_tm);
 
     char cacheKey[SHARED_CACHE_KEY_MAX];
-    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%.6s:%.1f",
+    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f",
              now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
              cfg.latitude, cfg.longitude, cfg.region,
              cfg.solarAreaM2);

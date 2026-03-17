@@ -72,7 +72,6 @@ int UserConfigDB_Upsert(ClientDB *db, const UserConfig *config)
         return -1;
     }
 
-    long now = (long)time(NULL);
     sqlite3_bind_text(stmt,   1, config->userId, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt,   2, config->location, -1, SQLITE_STATIC);
     sqlite3_bind_double(stmt, 3, config->latitude);
@@ -84,7 +83,7 @@ int UserConfigDB_Upsert(ClientDB *db, const UserConfig *config)
     sqlite3_bind_double(stmt, 9, config->gridFee_low);
     sqlite3_bind_double(stmt, 10, config->gridFee_normal);
     sqlite3_bind_double(stmt, 11, config->gridFee_high);
-    sqlite3_bind_int64(stmt,  12, (sqlite3_int64)now);
+    sqlite3_bind_int64(stmt,  12, (sqlite3_int64)time(NULL));
 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
