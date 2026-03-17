@@ -33,7 +33,7 @@ typedef struct
 {
     time_t  start;           // First BUY hour
     time_t  end;             // Last BUY hour
-    int     hours;           // Window length
+    int     durationMinutes; // Window length in minutes
     double  avgCostSek;      // SEK/kWh average consumer cost over the window
     double  savingsSek;      // Total SEK saved vs buying at the median hour
 } BuyWindow;
