@@ -108,14 +108,16 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    // Initialize periodic fetch timer 
-    proc->periodicIntervalSeconds = 900;  // 15 minutes
-    proc->lastPeriodicFetch = time(NULL);
+    // Initialize separate timers for weather (15 min) and price (daily at 13:00)
+    proc->weatherIntervalSeconds = 900;  // 15 minutes
+    proc->lastWeatherFetch = time(NULL);
+    proc->lastPriceFetch = 0;  // Force immediate price fetch on startup
+    proc->lastPriceFetchDate = 0;
 
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s, Periodic interval: %ds)",
-             getpid(), requestFifoPath, resultFifoPath, proc->periodicIntervalSeconds);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s, Weather interval: %ds, Price fetch: daily at 13:00 CET)",
+             getpid(), requestFifoPath, resultFifoPath, proc->weatherIntervalSeconds);
     return 0;
 }
 
@@ -157,23 +159,33 @@ int FetcherProcess_Run(FetcherProcess *proc)
         {
             // Timeout, no user request - check if it's time for periodic background fetch
             time_t now = time(NULL);
-            time_t elapsed = now - proc->lastPeriodicFetch;
+            struct tm now_tm;
+            localtime_r(&now, &now_tm);
 
-            if (elapsed >= proc->periodicIntervalSeconds)
+            // === PRICE FETCH: Daily at 13:00 CET (when tomorrow's prices are published) ===
+            // Check if: (1) we haven't fetched today yet, AND (2) it's after 13:00
+            bool should_fetch_prices = false;
+
+            // Get today's date as YYYYMMDD for tracking
+            int today_date = (now_tm.tm_year + 1900) * 10000 + (now_tm.tm_mon + 1) * 100 + now_tm.tm_mday;
+
+            if (proc->lastPriceFetchDate != today_date && now_tm.tm_hour >= 13)
             {
-                LOG_INFO("FetcherProcess: Periodic refresh triggered (%ld seconds since last fetch)", elapsed);
+                should_fetch_prices = true;
+                LOG_INFO("FetcherProcess: Price fetch triggered (daily 13:00+ schedule, current hour: %02d:00)", now_tm.tm_hour);
+            }
 
-                // Proactive cache warming for all Swedish regions (SE1-SE4)
-                // Invalidate old entries and fetch fresh 48h data (today + tomorrow)
+            if (should_fetch_prices && now >= proc->priceBackoffUntil)
+            {
+                // Fetch prices for all Swedish regions (SE1-SE4)
                 const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
                 int regions_count = 4;
+                int fetched = 0, skipped = 0;
 
                 struct tm today, tomorrow;
                 localtime_r(&now, &today);
                 time_t tomorrowTime = now + (24 * 3600);
                 localtime_r(&tomorrowTime, &tomorrow);
-
-                int fetched = 0, skipped = 0;
 
                 for (int r = 0; r < regions_count; r++)
                 {
@@ -184,78 +196,98 @@ int FetcherProcess_Run(FetcherProcess *proc)
                              today.tm_year + 1900, today.tm_mon + 1, today.tm_mday,
                              tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
 
-                    // Proactively invalidate old cache entry to force fresh fetch
+                    // Invalidate old cache to force fresh fetch
                     SharedCache_Invalidate(priceCache, priceKey);
 
-                    // Fetch fresh 48h spot price data (skip if circuit breaker is open)
-                    if (now >= proc->priceBackoffUntil)
+                    char todayUrl[256], tomorrowUrl[256];
+                    HTTPFetchResponse todayResp, tomorrowResp;
+                    bool todaySuccess = false, tomorrowSuccess = false;
+
+                    if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), region, NULL) == 0)
                     {
-                        char todayUrl[256], tomorrowUrl[256];
-                        HTTPFetchResponse todayResp, tomorrowResp;
-                        bool todaySuccess = false, tomorrowSuccess = false;
+                        if (HTTPFetcher_Fetch(fetcher, todayUrl, &todayResp) == 0)
+                            todaySuccess = true;
+                    }
 
-                        if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), region, NULL) == 0)
+                    if (BuildSpotPriceTomorrowUrl(tomorrowUrl, sizeof(tomorrowUrl), region) == 0)
+                    {
+                        if (HTTPFetcher_Fetch(fetcher, tomorrowUrl, &tomorrowResp) == 0)
+                            tomorrowSuccess = true;
+                    }
+
+                    // Merge today + tomorrow and cache
+                    if (todaySuccess && tomorrowSuccess)
+                    {
+                        cJSON *todayArray = cJSON_Parse(todayResp.data);
+                        cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
+
+                        if (todayArray && tomorrowArray && cJSON_IsArray(todayArray) && cJSON_IsArray(tomorrowArray))
                         {
-                            if (HTTPFetcher_Fetch(fetcher, todayUrl, &todayResp) == 0)
-                                todaySuccess = true;
-                        }
-
-                        if (BuildSpotPriceTomorrowUrl(tomorrowUrl, sizeof(tomorrowUrl), region) == 0)
-                        {
-                            if (HTTPFetcher_Fetch(fetcher, tomorrowUrl, &tomorrowResp) == 0)
-                                tomorrowSuccess = true;
-                        }
-
-                        // Merge today + tomorrow and cache
-                        if (todaySuccess && tomorrowSuccess)
-                        {
-                            cJSON *todayArray = cJSON_Parse(todayResp.data);
-                            cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
-
-                            if (todayArray && tomorrowArray && cJSON_IsArray(todayArray) && cJSON_IsArray(tomorrowArray))
+                            cJSON *item = NULL;
+                            cJSON_ArrayForEach(item, tomorrowArray)
                             {
-                                cJSON *item = NULL;
-                                cJSON_ArrayForEach(item, tomorrowArray)
-                                {
-                                    cJSON_AddItemToArray(todayArray, cJSON_Duplicate(item, 1));
-                                }
-
-                                char *combinedJson = cJSON_PrintUnformatted(todayArray);
-                                if (combinedJson)
-                                {
-                                    SharedCache_Store(priceCache, priceKey, combinedJson);
-                                    cJSON_free(combinedJson);
-                                    fetched++;
-                                }
+                                cJSON_AddItemToArray(todayArray, cJSON_Duplicate(item, 1));
                             }
 
-                            if (todayArray) cJSON_Delete(todayArray);
-                            if (tomorrowArray) cJSON_Delete(tomorrowArray);
-
-                            proc->priceFailures = 0;
-                            proc->priceBackoffUntil = 0;
+                            char *combinedJson = cJSON_PrintUnformatted(todayArray);
+                            if (combinedJson)
+                            {
+                                SharedCache_Store(priceCache, priceKey, combinedJson);
+                                cJSON_free(combinedJson);
+                                fetched++;
+                            }
                         }
-                        else
+
+                        if (todayArray) cJSON_Delete(todayArray);
+                        if (tomorrowArray) cJSON_Delete(tomorrowArray);
+
+                        proc->priceFailures = 0;
+                        proc->priceBackoffUntil = 0;
+                    }
+                    else if (todaySuccess)  // At least got today's prices
+                    {
+                        cJSON *todayArray = cJSON_Parse(todayResp.data);
+                        if (todayArray && cJSON_IsArray(todayArray))
                         {
-                            proc->priceFailures++;
-                            if (proc->priceFailures >= 5)
-                                proc->priceBackoffUntil = time(NULL) + 300;
-                            skipped++;
+                            char *combinedJson = cJSON_PrintUnformatted(todayArray);
+                            if (combinedJson)
+                            {
+                                SharedCache_Store(priceCache, priceKey, combinedJson);
+                                cJSON_free(combinedJson);
+                                fetched++;
+                                LOG_WARNING("FetcherProcess: Only today's prices available for %s (tomorrow not published yet)", region);
+                            }
+                            cJSON_Delete(todayArray);
                         }
-
-                        if (todaySuccess) HTTPFetcher_FreeResponse(&todayResp);
-                        if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
+                        proc->priceFailures = 0;
                     }
                     else
                     {
+                        proc->priceFailures++;
+                        if (proc->priceFailures >= 5)
+                            proc->priceBackoffUntil = time(NULL) + 300;
                         skipped++;
                     }
+
+                    if (todaySuccess) HTTPFetcher_FreeResponse(&todayResp);
+                    if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
                 }
 
-                LOG_INFO("FetcherProcess: Periodic refresh complete (48h) - fetched %d regions, skipped %d (circuit breaker)",
+                LOG_INFO("FetcherProcess: Daily price fetch complete (13:00+) - fetched %d regions, skipped %d",
                          fetched, skipped);
 
-                proc->lastPeriodicFetch = now;
+                proc->lastPriceFetch = now;
+                proc->lastPriceFetchDate = today_date;  // Mark today as fetched
+            }
+
+            // === WEATHER FETCH: Every 15 minutes ===
+            time_t weather_elapsed = now - proc->lastWeatherFetch;
+            if (weather_elapsed >= proc->weatherIntervalSeconds)
+            {
+                LOG_INFO("FetcherProcess: Weather refresh triggered (%ld seconds since last fetch)", weather_elapsed);
+                // Weather invalidation happens on-demand per user request
+                // We just update the timer here to invalidate cached data
+                proc->lastWeatherFetch = now;
             }
 
             continue; // No FIFO data - loop again to send heartbeat

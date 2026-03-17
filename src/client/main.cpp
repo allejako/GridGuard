@@ -220,10 +220,20 @@ static void printForecastRow(const gridguard::ForecastEntry& e,
     auto [col, tag] = sigStyle(e.signal);
     std::string bar = priceBar(e.totalCostSekKwh, minP, maxP);
 
-    // Format numeric values without setw
+    // Format numeric values with appropriate precision
     std::ostringstream price, solar, delta;
-    price << std::fixed << std::setprecision(3) << e.priceSekKwh << " kr";
-    solar << std::fixed << std::setprecision(3) << e.solarKwh << " kWh";
+    price << std::fixed << std::setprecision(2) << e.priceSekKwh << " kr";
+
+    // Smart formatting for solar: use 1 decimal if < 100, 0 decimals if >= 100
+    solar << std::fixed;
+    if (e.solarKwh >= 100.0) {
+        solar << std::setprecision(0) << e.solarKwh << " kW";  // Rounded, shorter unit
+    } else if (e.solarKwh >= 10.0) {
+        solar << std::setprecision(1) << e.solarKwh << " kWh";
+    } else {
+        solar << std::setprecision(2) << e.solarKwh << " kWh";
+    }
+
     delta << std::fixed << std::setprecision(1) << e.savingsVsMedian << "%";
 
     std::vector<std::string> cols = {
@@ -299,7 +309,7 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     // Column header using render_row for consistent alignment
     {
         std::vector<std::string> headers = {
-            "TIME", "SIGNAL", "kr/kWh", "LEVEL", "SOLAR", "Δ AVG"
+            "TIME", "SIGNAL", "PRICE", "LEVEL", "SOLAR", "vs AVG"
         };
         std::cout << BOLD << render_row(headers, FORECAST_COL_WIDTHS) << RESET << "\n";
     }

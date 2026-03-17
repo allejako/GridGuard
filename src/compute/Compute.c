@@ -342,9 +342,15 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         // --- Decide recommendation ---
         EnergyAction recommendation;
 
+        // CRITICAL: Only give price-based signals if we have actual price data
+        // Missing price data (e.g., tomorrow's prices not published yet) = no recommendation
+        if (!quarter_data->hasPriceData)
+        {
+            recommendation = ACTION_IDLE;
+        }
         // Negative prices = essentially free electricity (or paid to consume)
         // Always recommend BUY regardless of consumption patterns
-        if (quarter_data->spotPriceSek < 0.0)
+        else if (quarter_data->spotPriceSek < 0.0)
         {
             recommendation = ACTION_BUY_FROM_GRID;
         }
@@ -404,7 +410,11 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
         for (int i = 0; i <= num_quarters; i++)
         {
-            bool is_cheap_quarter = (i < num_quarters && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
+            // Only consider quarters with actual price data for BUY window
+            bool is_cheap_quarter = (i < num_quarters &&
+                                    plan->entries[i].valid &&
+                                    forecast->entries[i].hasPriceData &&
+                                    plan->entries[i].action == ACTION_BUY_FROM_GRID);
 
             if (is_cheap_quarter)
             {
