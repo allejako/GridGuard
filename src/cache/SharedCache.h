@@ -66,6 +66,15 @@ int  SharedCache_Lookup(SharedCache *cache, const char *key, char *out, size_t m
 // Returns 0 on success, -1 if key not found or error.
 int  SharedCache_Invalidate(SharedCache *cache, const char *key);
 
+// Get the creation timestamp of a cache entry.
+// Returns timestamp on success, 0 if key not found or error.
+time_t SharedCache_GetTimestamp(SharedCache *cache, const char *key);
+
+// Invalidate all cache entries (marks all as unoccupied).
+// Used when input data changes and all cached forecasts are stale.
+// Returns number of entries invalidated.
+int SharedCache_InvalidateAll(SharedCache *cache);
+
 // Cleanup the shared memory segment completely (Watchdog only).
 // Destroys the rwlock and unlinks the shared memory object.
 // MUST be called ONLY after all processes using the cache have exited.

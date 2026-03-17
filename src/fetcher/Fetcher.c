@@ -20,6 +20,70 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+// Timestamp file path for cache invalidation signaling
+#define DATA_UPDATE_TIMESTAMP_PATH "/tmp/gridguard_last_data_update"
+
+// Maximum reasonable number of price entries (24h * 4 quarters + buffer = 100)
+#define MAX_PRICE_ENTRIES 100
+
+// Helper: Write timestamp file to signal that fresh data is available
+// This allows the server to invalidate forecast caches automatically
+static void signal_data_updated(void)
+{
+    FILE *f = fopen(DATA_UPDATE_TIMESTAMP_PATH, "w");
+    if (f)
+    {
+        fprintf(f, "%ld", time(NULL));
+        fclose(f);
+        LOG_DEBUG("FetcherProcess: Data update timestamp written");
+    }
+    else
+    {
+        LOG_WARNING("FetcherProcess: Failed to write data update timestamp");
+    }
+}
+
+// Helper: Validate Elpriset API response structure
+// Returns true if array is valid (correct size and has required fields)
+static bool validate_price_array(cJSON *array, const char *label)
+{
+    if (!array || !cJSON_IsArray(array))
+    {
+        LOG_ERROR("FetcherProcess: %s is not a valid JSON array", label);
+        return false;
+    }
+
+    int count = cJSON_GetArraySize(array);
+    if (count == 0)
+    {
+        LOG_WARNING("FetcherProcess: %s is empty", label);
+        return false;
+    }
+
+    if (count > MAX_PRICE_ENTRIES)
+    {
+        LOG_ERROR("FetcherProcess: %s has too many entries (%d > %d)", label, count, MAX_PRICE_ENTRIES);
+        return false;
+    }
+
+    // Validate first entry has required fields
+    cJSON *first = cJSON_GetArrayItem(array, 0);
+    if (!first || !cJSON_IsObject(first))
+    {
+        LOG_ERROR("FetcherProcess: %s first entry is not an object", label);
+        return false;
+    }
+
+    if (!cJSON_HasObjectItem(first, "time_start") || !cJSON_HasObjectItem(first, "SEK_per_kWh"))
+    {
+        LOG_ERROR("FetcherProcess: %s missing required fields (time_start, SEK_per_kWh)", label);
+        return false;
+    }
+
+    LOG_DEBUG("FetcherProcess: %s validated (%d entries)", label, count);
+    return true;
+}
+
 int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, const char *resultFifoPath)
 {
     if (!proc || !requestFifoPath || !resultFifoPath) return -1;
@@ -159,20 +223,35 @@ int FetcherProcess_Run(FetcherProcess *proc)
         {
             // Timeout, no user request - check if it's time for periodic background fetch
             time_t now = time(NULL);
-            struct tm now_tm;
-            localtime_r(&now, &now_tm);
+
+            // CRITICAL: Must use Europe/Stockholm timezone for price fetch timing
+            // Elprisetjustnu publishes at 13:00 CET, regardless of server timezone
+            struct tm now_tm_stockholm;
+            {
+                // Force Europe/Stockholm timezone for this conversion
+                char *old_tz = getenv("TZ");
+                setenv("TZ", "Europe/Stockholm", 1);
+                tzset();
+                localtime_r(&now, &now_tm_stockholm);
+                // Restore original timezone
+                if (old_tz)
+                    setenv("TZ", old_tz, 1);
+                else
+                    unsetenv("TZ");
+                tzset();
+            }
 
             // === PRICE FETCH: Daily at 13:00 CET (when tomorrow's prices are published) ===
-            // Check if: (1) we haven't fetched today yet, AND (2) it's after 13:00
+            // Check if: (1) we haven't fetched today yet, AND (2) it's after 13:00 Stockholm time
             bool should_fetch_prices = false;
 
-            // Get today's date as YYYYMMDD for tracking
-            int today_date = (now_tm.tm_year + 1900) * 10000 + (now_tm.tm_mon + 1) * 100 + now_tm.tm_mday;
+            // Get today's date in Stockholm timezone as YYYYMMDD for tracking
+            int today_date = (now_tm_stockholm.tm_year + 1900) * 10000 + (now_tm_stockholm.tm_mon + 1) * 100 + now_tm_stockholm.tm_mday;
 
-            if (proc->lastPriceFetchDate != today_date && now_tm.tm_hour >= 13)
+            if (proc->lastPriceFetchDate != today_date && now_tm_stockholm.tm_hour >= 13)
             {
                 should_fetch_prices = true;
-                LOG_INFO("FetcherProcess: Price fetch triggered (daily 13:00+ schedule, current hour: %02d:00)", now_tm.tm_hour);
+                LOG_INFO("FetcherProcess: Price fetch triggered (daily 13:00+ Stockholm time, current hour: %02d:00)", now_tm_stockholm.tm_hour);
             }
 
             if (should_fetch_prices && now >= proc->priceBackoffUntil)
@@ -182,10 +261,21 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 int regions_count = 4;
                 int fetched = 0, skipped = 0;
 
+                // Use Stockholm timezone for today/tomorrow date calculation
                 struct tm today, tomorrow;
-                localtime_r(&now, &today);
+                today = now_tm_stockholm;  // Already in Stockholm time
                 time_t tomorrowTime = now + (24 * 3600);
-                localtime_r(&tomorrowTime, &tomorrow);
+                {
+                    char *old_tz = getenv("TZ");
+                    setenv("TZ", "Europe/Stockholm", 1);
+                    tzset();
+                    localtime_r(&tomorrowTime, &tomorrow);
+                    if (old_tz)
+                        setenv("TZ", old_tz, 1);
+                    else
+                        unsetenv("TZ");
+                    tzset();
+                }
 
                 for (int r = 0; r < regions_count; r++)
                 {
@@ -221,7 +311,11 @@ int FetcherProcess_Run(FetcherProcess *proc)
                         cJSON *todayArray = cJSON_Parse(todayResp.data);
                         cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
 
-                        if (todayArray && tomorrowArray && cJSON_IsArray(todayArray) && cJSON_IsArray(tomorrowArray))
+                        // Validate both arrays before merging
+                        bool todayValid = validate_price_array(todayArray, "Today prices");
+                        bool tomorrowValid = validate_price_array(tomorrowArray, "Tomorrow prices");
+
+                        if (todayValid && tomorrowValid)
                         {
                             cJSON *item = NULL;
                             cJSON_ArrayForEach(item, tomorrowArray)
@@ -235,7 +329,12 @@ int FetcherProcess_Run(FetcherProcess *proc)
                                 SharedCache_Store(priceCache, priceKey, combinedJson);
                                 cJSON_free(combinedJson);
                                 fetched++;
+                                LOG_INFO("FetcherProcess: Cached %s prices (today+tomorrow)", region);
                             }
+                        }
+                        else
+                        {
+                            LOG_ERROR("FetcherProcess: %s price data validation failed", region);
                         }
 
                         if (todayArray) cJSON_Delete(todayArray);
@@ -247,7 +346,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     else if (todaySuccess)  // At least got today's prices
                     {
                         cJSON *todayArray = cJSON_Parse(todayResp.data);
-                        if (todayArray && cJSON_IsArray(todayArray))
+                        if (validate_price_array(todayArray, "Today prices"))
                         {
                             char *combinedJson = cJSON_PrintUnformatted(todayArray);
                             if (combinedJson)
@@ -257,8 +356,13 @@ int FetcherProcess_Run(FetcherProcess *proc)
                                 fetched++;
                                 LOG_WARNING("FetcherProcess: Only today's prices available for %s (tomorrow not published yet)", region);
                             }
-                            cJSON_Delete(todayArray);
                         }
+                        else
+                        {
+                            LOG_ERROR("FetcherProcess: %s today price data validation failed", region);
+                        }
+
+                        if (todayArray) cJSON_Delete(todayArray);
                         proc->priceFailures = 0;
                     }
                     else
@@ -276,18 +380,34 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 LOG_INFO("FetcherProcess: Daily price fetch complete (13:00+) - fetched %d regions, skipped %d",
                          fetched, skipped);
 
+                // Signal that fresh price data is available (for cache invalidation)
+                if (fetched > 0)
+                {
+                    signal_data_updated();
+                }
+
                 proc->lastPriceFetch = now;
                 proc->lastPriceFetchDate = today_date;  // Mark today as fetched
             }
 
-            // === WEATHER FETCH: Every 15 minutes ===
+            // === WEATHER CACHE INVALIDATION: Every 15 minutes ===
+            // Proactively invalidate weather cache to force fresh fetch on next user request.
+            // This ensures weather data is never more than 15 minutes stale.
             time_t weather_elapsed = now - proc->lastWeatherFetch;
             if (weather_elapsed >= proc->weatherIntervalSeconds)
             {
-                LOG_INFO("FetcherProcess: Weather refresh triggered (%ld seconds since last fetch)", weather_elapsed);
-                // Weather invalidation happens on-demand per user request
-                // We just update the timer here to invalidate cached data
+                LOG_INFO("FetcherProcess: Invalidating ALL weather cache entries after %ld seconds", weather_elapsed);
+
+                // Invalidate ALL weather cache entries to force fresh fetch
+                // This prevents the TTL timing issue where:
+                // - Weather fetched at 13:00:00, cached with TTL=900s (expires 13:15:00)
+                // - Fetcher checks at 13:15:00: elapsed=900s >= 900s ✓
+                // - But cache lookup at 13:15:00: age=900s > 900s? NO (not strictly greater)
+                // - Result: Cache HIT when we wanted cache MISS!
+                SharedCache_InvalidateAll((SharedCache *)proc->weatherCache);
+
                 proc->lastWeatherFetch = now;
+                LOG_INFO("FetcherProcess: Weather cache invalidated, next request will fetch fresh data");
             }
 
             continue; // No FIFO data - loop again to send heartbeat
@@ -357,6 +477,9 @@ int FetcherProcess_Run(FetcherProcess *proc)
                         SharedCache_Store(weatherCache, weatherKey, omResp.data);
                         HTTPFetcher_FreeResponse(&omResp);
                         LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
+
+                        // Signal that fresh weather data is available (for cache invalidation)
+                        signal_data_updated();
                     }
                     else
                     {
