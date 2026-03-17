@@ -127,7 +127,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         }
 
         // Log first 3 failed matches for debugging
-        if (entry->spotPriceSek == 0.0 && i < 3)
+        if (!entry->hasPriceData && i < 3)
         {
             struct tm weatherTime;
             gmtime_r(&entry->timestamp, &weatherTime);

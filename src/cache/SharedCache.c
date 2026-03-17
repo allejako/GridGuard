@@ -260,6 +260,69 @@ int SharedCache_Invalidate(SharedCache *cache, const char *key)
     return -1;
 }
 
+time_t SharedCache_GetTimestamp(SharedCache *cache, const char *key)
+{
+    if (!cache || !cache->isInitialized || !key) return 0;
+
+    SharedCacheRegion *r = cache->region;
+
+    // Acquire read lock with 5 second timeout
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 5;
+
+    if (pthread_rwlock_timedrdlock(&r->rwlock, &ts) != 0)
+    {
+        LOG_ERROR("SharedCache: read lock timeout for GetTimestamp('%s')", key);
+        return 0;
+    }
+
+    for (int i = 0; i < SHARED_CACHE_MAX_ENTRIES; i++)
+    {
+        if (r->entries[i].occupied && strcmp(r->entries[i].key, key) == 0)
+        {
+            time_t timestamp = r->entries[i].createdAt;
+            pthread_rwlock_unlock(&r->rwlock);
+            return timestamp;
+        }
+    }
+
+    pthread_rwlock_unlock(&r->rwlock);
+    return 0;  // Not found
+}
+
+int SharedCache_InvalidateAll(SharedCache *cache)
+{
+    if (!cache || !cache->isInitialized) return -1;
+
+    SharedCacheRegion *r = cache->region;
+
+    // Acquire write lock with 5 second timeout
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 5;
+
+    if (pthread_rwlock_timedwrlock(&r->rwlock, &ts) != 0)
+    {
+        LOG_ERROR("SharedCache: write lock timeout for InvalidateAll()");
+        return -1;
+    }
+
+    int invalidated = 0;
+    for (int i = 0; i < SHARED_CACHE_MAX_ENTRIES; i++)
+    {
+        if (r->entries[i].occupied)
+        {
+            r->entries[i].occupied = 0;
+            invalidated++;
+        }
+    }
+
+    pthread_rwlock_unlock(&r->rwlock);
+    LOG_INFO("SharedCache: Invalidated all entries (%d total)", invalidated);
+    return invalidated;
+}
+
 void SharedCache_Shutdown(SharedCache *cache)
 {
     if (!cache || !cache->isInitialized) return;
