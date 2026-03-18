@@ -116,3 +116,132 @@ target_link_libraries(test_config_parser_gtest
 )
 
 gtest_discover_tests(test_config_parser_gtest)
+
+# ==============================================================================
+# Extended Coverage Tests (Security, Database, Compute, Synchronization)
+# ==============================================================================
+
+# Locate mbedTLS and SQLite3 libraries needed by the extended tests
+find_library(MBEDTLS_LIB    NAMES mbedtls)
+find_library(MBEDX509_LIB   NAMES mbedx509)
+find_library(MBEDCRYPTO_LIB NAMES mbedcrypto)
+find_library(SQLITE3_LIB    NAMES sqlite3)
+
+# JWT Tests - token issuance and signature validation (JWTIssuer + JWTValidator)
+add_executable(test_jwt_gtest
+    unit/test_jwt_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/auth/JWTIssuer.c
+    ${CMAKE_SOURCE_DIR}/src/auth/JWTValidator.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_jwt_gtest
+    GTest::gtest_main
+    Threads::Threads
+    ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB}
+)
+
+gtest_discover_tests(test_jwt_gtest)
+
+# RuntimeConfig Tests - three-level fallback chain (file → env → default)
+add_executable(test_runtime_config_gtest
+    unit/test_runtime_config_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/RuntimeConfig.c
+    ${CMAKE_SOURCE_DIR}/src/config/ConfigParser.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_runtime_config_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_runtime_config_gtest)
+
+# API Endpoint URL Builder Tests
+add_executable(test_api_endpoints_gtest
+    unit/test_api_endpoints_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/api/APIEndpoints.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_api_endpoints_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_api_endpoints_gtest)
+
+# Compute Energy Plan Tests - BUY/SELL/AVOID/IDLE signal generation
+add_executable(test_compute_gtest
+    unit/test_compute_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/compute/Compute.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_compute_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_compute_gtest)
+
+# WorkCompletion Tests - one-shot signal/wait synchronization primitive
+add_executable(test_work_completion_gtest
+    unit/test_work_completion_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/sys/WorkCompletion.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_work_completion_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_work_completion_gtest)
+
+# Heartbeat Tests - pipe-based process health-check
+add_executable(test_heartbeat_gtest
+    unit/test_heartbeat_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/watchdog/Heartbeat.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_heartbeat_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_heartbeat_gtest)
+
+# ScheduleDB Tests - CRUD for scheduled loads (in-memory SQLite)
+add_executable(test_schedule_db_gtest
+    unit/test_schedule_db_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/ScheduleDB.c
+    ${CMAKE_SOURCE_DIR}/src/db/ClientDB.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_schedule_db_gtest
+    GTest::gtest_main
+    Threads::Threads
+    ${SQLITE3_LIB}
+)
+
+gtest_discover_tests(test_schedule_db_gtest)
+
+# UserConfigDB Tests - user location/solar/grid-fee persistence (in-memory SQLite)
+add_executable(test_user_config_db_gtest
+    unit/test_user_config_db_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/db/UserConfigDB.c
+    ${CMAKE_SOURCE_DIR}/src/db/ClientDB.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_user_config_db_gtest
+    GTest::gtest_main
+    Threads::Threads
+    ${SQLITE3_LIB}
+)
+
+gtest_discover_tests(test_user_config_db_gtest)
