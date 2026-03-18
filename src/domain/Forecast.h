@@ -13,6 +13,7 @@ typedef struct {
     double humidity;          // 0-100%
     double spotPriceSek;      // SEK/kWh
     bool valid;
+    bool hasPriceData;        // true if spotPriceSek is actual data (not default 0.0)
 } ForecastEntry;
 
 typedef struct {

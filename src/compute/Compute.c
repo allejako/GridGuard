@@ -4,131 +4,93 @@
 #include <string.h>
 #include <time.h>
 
-// ========== SOLAR PANEL CONSTANTS ==========
-// These are based on IEC 61724 standards for crystalline silicon panels.
-// Real-world solar panels lose ~25% efficiency from ideal lab conditions.
-#define SOLAR_REAL_WORLD_EFFICIENCY 0.75 // Wiring, inverter, dust losses
+// Forecast window: 48-hour lookahead with 15-minute resolution
+#define MAX_QUARTERS 192
+#define MAX_HOURS 48
 
-// Temperature affects solar panels significantly:
-// - Hot panels (summer) produce LESS power than cold panels (winter)
-// - Wind cools panels down, improving performance
-#define PANEL_TEMP_AT_STANDARD_TEST 25.0 // °C - lab test condition
-#define PANEL_TEMP_COEFFICIENT -0.0045   // -0.45% per °C above 25°C
-#define WIND_COOLING_FACTOR 0.04         // More wind = cooler panels
+// Solar panel efficiency model (IEC 61724 crystalline silicon standard)
+#define SOLAR_REAL_WORLD_EFFICIENCY 0.75  // Accounts for wiring, inverter, and soiling losses
+#define PANEL_TEMP_AT_STANDARD_TEST 25.0  // STC reference temperature
+#define PANEL_TEMP_COEFFICIENT -0.0045    // Power loss per °C above STC
+#define WIND_COOLING_FACTOR 0.04          // Convective cooling coefficient
 
-// ========== SWEDISH ELECTRICITY COSTS ==========
-// These are fixed costs that EVERY Swedish household pays, regardless of spot price.
-#define SWEDISH_ENERGY_TAX_SEK_PER_KWH 0.40 // Energiskatt (2024)
-#define SWEDISH_VAT 0.25                    // 25% moms on everything
+// Swedish grid tariff structure (2024)
+#define SWEDISH_ENERGY_TAX_SEK_PER_KWH 0.40
+#define SWEDISH_VAT 0.25
 
-// ========== DECISION THRESHOLDS ==========
-// We tell customers to BUY (run appliances) during the cheapest 30% of hours.
-// This is a balance: too strict (10%) and you rarely get signals,
-// too loose (50%) and "cheap" isn't actually cheap.
-#define CHEAP_HOURS_PERCENTILE 0.30     // Bottom 30% = "cheap"
-#define EXPENSIVE_HOURS_PERCENTILE 0.70 // Top 30% = "expensive"
+// Signal thresholds: percentile-based classification over 48h window
+#define CHEAP_QUARTERS_PERCENTILE 0.33     // Bottom third of price distribution
+#define EXPENSIVE_QUARTERS_PERCENTILE 0.70 // Top third of price distribution
+#define MINIMUM_SAVINGS_THRESHOLD 0.08     // Require 8% deviation from median for signal quality
 
-// Quality check: don't signal "cheap" unless it's below median.
-// With demo mode enabled, we use 5% threshold to ensure signals appear.
-#define MINIMUM_SAVINGS_THRESHOLD 0.05 // 5% discount required (works with demo boost)
+// Demo mode: artificial price variation for flat-price scenarios
+#define DEMO_MODE_ENABLED 0
+#define DEMO_PRICE_BOOST 0.25
 
-// ========== DEMO MODE ==========
-// On flat-price days, add artificial variation to make demo more interesting.
-// This multiplier is applied based on time-of-day to simulate typical patterns.
-#define DEMO_MODE_ENABLED 0     // Set to 0 to disable demo boost
-#define DEMO_PRICE_BOOST 0.25    // ±25% variation around base price (ensures signals even on flat days)
+// Solar export policy: balance between maximizing revenue and grid stability
+#define MIN_SURPLUS_TO_SELL_KWH 0.5  // Minimum net surplus per 15-min quarter to trigger export (~2 kWh/h)
+#define MIN_PRICE_TO_SELL_SEK 0.01   // Avoid exporting at negative prices
 
-// ========== SOLAR SELLING THRESHOLDS ==========
-// Only recommend selling solar surplus if:
-// 1. You have at least 50 Wh excess (inverter losses below this)
-// 2. Spot price is positive (negative = you PAY to export!)
-#define MIN_SURPLUS_TO_SELL_KWH 0.05
-#define MIN_PRICE_TO_SELL_SEK 0.05
-
-// ========== HELPER FUNCTIONS ==========
-
-// Swedish grid fees vary by time of day and weekday (time-of-use pricing).
-// Most Swedish grid operators (elbolag) use this structure:
-// - Night (lågtid): 00:00-06:00 every day
-// - Peak (högtid):  17:00-21:00 Monday-Friday only
-// - Day (normaltid): All other hours
+// Swedish time-of-use tariffs: typical elbolag structure
+// - Lågtid (night):  00:00-06:00 daily
+// - Högtid (peak):   17:00-21:00 weekdays only
+// - Normaltid (day): all other periods
 static double get_grid_fee_for_hour(int hour, int weekday, double low, double normal, double high)
 {
-    // Night rate: 00:00-06:00 (all days)
     if (hour >= 0 && hour < 6)
         return low;
-
-    // Peak rate: 17:00-21:00 (Monday=1 through Friday=5 only)
     if (hour >= 17 && hour < 21 && weekday >= 1 && weekday <= 5)
         return high;
-
-    // Day rate: everything else (06:00-17:00 all days, 17:00-21:00 weekends, 21:00-24:00 all days)
     return normal;
 }
 
-// Calculate actual solar panel temperature from weather conditions.
-// Hotter panels = less power output. Wind = cooling = better.
+// NOCT-based panel temperature model (IEC 61215)
+// Higher temperatures reduce photovoltaic efficiency; wind provides convective cooling
 static double calculate_panel_temperature(double air_temp, double sun_intensity, double wind_speed)
 {
-    // NOCT model (Nominal Operating Cell Temperature) from IEC 61215
-    double temp_rise_per_sun = (45.0 - 20.0) / 800.0; // Standard: 45°C at 800 W/m²
+    double temp_rise_per_sun = (45.0 - 20.0) / 800.0;
     double cooling_effect = 1.0 + WIND_COOLING_FACTOR * wind_speed;
     return air_temp + (temp_rise_per_sun * sun_intensity) / cooling_effect;
 }
 
-// Typical Swedish household electricity consumption pattern with 15-minute granularity.
-// Returns factor to multiply user's average consumption by.
-// Example: user says "I use 1 kWh/h average" → at 18:15 they actually use 1.92 kWh/h (1.6 × 1.2)
+// Consumption profile for Swedish residential users (15-minute resolution)
+// Captures daily behavioral patterns: morning rush, daytime baseline, evening peak
 static double get_consumption_pattern_quarter(int hour, int minute)
 {
-    // Base hourly pattern
-    double hourly_base = 1.00;  // Default day rate
+    double hourly_base = 1.00;
+    if (hour < 7)        hourly_base = 0.40;
+    else if (hour < 17)  hourly_base = 1.00;
+    else if (hour < 23)  hourly_base = 1.60;
+    else                 hourly_base = 0.70;
 
-    if (hour < 7)
-        hourly_base = 0.40;     // Night (00-06): Sleeping
-    else if (hour < 17)
-        hourly_base = 1.00;     // Day (07-16): At work
-    else if (hour < 23)
-        hourly_base = 1.60;     // Evening (17-22): Peak
-    else
-        hourly_base = 0.70;     // Late night (23)
-
-    // Add realistic within-hour variation based on typical Swedish household behavior
     double minute_factor = 1.0;
 
-    // Morning rush: 06:30-07:15 (breakfast, shower, coffee maker)
-    if (hour == 6 && minute >= 30)
-        minute_factor = 1.4;
-    if (hour == 7 && minute < 15)
-        minute_factor = 1.5;  // Peak morning
+    // Morning: 06:30-07:15
+    if (hour == 6 && minute >= 30) minute_factor = 1.4;
+    if (hour == 7 && minute < 15)  minute_factor = 1.5;
 
-    // Lunch: 12:00-12:30 (microwave, stove)
-    if (hour == 12 && minute < 30)
-        minute_factor = 1.3;
+    // Middag: 12:00-12:30
+    if (hour == 12 && minute < 30) minute_factor = 1.3;
 
-    // Evening cooking: 17:00-19:00 (stove, oven, dishwasher)
+    // Kvällsmatlagning: 17:00-19:00
     if (hour == 17)
     {
-        if (minute < 15)      minute_factor = 1.3;  // Starting prep
-        else if (minute < 30) minute_factor = 1.5;  // Cooking starts
+        if (minute < 15)      minute_factor = 1.3;
+        else if (minute < 30) minute_factor = 1.5;
         else if (minute < 45) minute_factor = 1.4;
         else                  minute_factor = 1.2;
     }
     if (hour == 18)
     {
-        if (minute < 15)      minute_factor = 1.4;  // Peak cooking
-        else if (minute < 30) minute_factor = 1.6;  // Absolute peak (stove + oven + microwave)
-        else if (minute < 45) minute_factor = 1.2;  // Winding down
-        else                  minute_factor = 0.9;  // Cleanup
+        if (minute < 15)      minute_factor = 1.4;
+        else if (minute < 30) minute_factor = 1.6;
+        else if (minute < 45) minute_factor = 1.2;
+        else                  minute_factor = 0.9;
     }
-    if (hour == 19 && minute < 30)
-        minute_factor = 1.1;  // Dishwasher running
+    if (hour == 19 && minute < 30) minute_factor = 1.1;
 
-    // Evening TV/entertainment: 20:00-22:00 (more uniform)
-    if (hour >= 20 && hour < 22)
-        minute_factor = 1.0;  // Stable TV watching
+    if (hour >= 20 && hour < 22) minute_factor = 1.0;
 
-    // Late evening: 22:00-23:00 (preparing for bed)
     if (hour == 22)
     {
         if (minute < 30)      minute_factor = 0.9;
@@ -182,116 +144,99 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     // Calculate hourly costs for threshold determination
     // Spot prices are per hour, so sample one quarter per hour (every 4th entry)
-    // For each hour, compute what the customer ACTUALLY pays per kWh:
-    // Total = (spot price + grid fee + energy tax) × (1 + VAT)
-    int num_hours = (num_quarters + 3) / 4;  // Round up: 192 quarters = 48 hours
-    double actual_costs[48];  // Store hourly costs (one per hour, up to 48h)
-    double sorted_costs[48];
-    int valid_hours = 0;
+    // Quarter-hour cost calculation: spot price + tariff + tax + VAT
+    // Percentile thresholds computed at 15-minute resolution for accurate signal generation
+    double actual_costs[MAX_QUARTERS];
+    double sorted_costs[MAX_QUARTERS];
+    int valid_quarters = 0;
 
-    // OPTIMIZATION: Pre-compute hour-of-day and weekday arrays for all hours
-    int hours_of_day[48];
-    int weekdays[48];
     struct tm tm_buf;
-    for (int h = 0; h < num_hours; h++)
+    for (int q = 0; q < num_quarters; q++)
     {
-        int quarter_idx = h * 4;  // First quarter of this hour
-        if (quarter_idx < num_quarters && localtime_r(&forecast->entries[quarter_idx].timestamp, &tm_buf) != NULL)
-        {
-            hours_of_day[h] = tm_buf.tm_hour;
-            weekdays[h] = tm_buf.tm_wday;  // 0=Sunday, 1=Monday, ..., 6=Saturday
-        }
-        else
-        {
-            hours_of_day[h] = 12;  // Fallback to noon if conversion fails
-            weekdays[h] = 3;        // Fallback to Wednesday (mid-week)
-        }
-    }
+        const ForecastEntry *quarter = &forecast->entries[q];
 
-    // Build hourly cost array (sample first quarter of each hour for spot price)
-    for (int h = 0; h < num_hours; h++)
-    {
-        int quarter_idx = h * 4;  // Sample first quarter of each hour for price
-        if (quarter_idx >= num_quarters)
-            break;
-
-        const ForecastEntry *quarter = &forecast->entries[quarter_idx];
-        if (!quarter->valid)
+        if (!quarter->valid || !quarter->hasPriceData)
+        {
+            actual_costs[q] = 0.0;
             continue;
+        }
 
-        int hour_of_day = hours_of_day[h];  // Array access instead of syscall, 100× faster
-        int weekday = weekdays[h];
+        if (localtime_r(&quarter->timestamp, &tm_buf) == NULL)
+        {
+            actual_costs[q] = 0.0;
+            continue;
+        }
+
+        int hour_of_day = tm_buf.tm_hour;
+        int weekday = tm_buf.tm_wday;
 
         double grid_fee = get_grid_fee_for_hour(hour_of_day, weekday, gridFee_low, gridFee_normal, gridFee_high);
-        double total_cost = (quarter->spotPriceSek + grid_fee + SWEDISH_ENERGY_TAX_SEK_PER_KWH) * (1.0 + SWEDISH_VAT);
+        double quarter_cost = (quarter->spotPriceSek + grid_fee + SWEDISH_ENERGY_TAX_SEK_PER_KWH) * (1.0 + SWEDISH_VAT);
 
-#if DEMO_MODE_ENABLED
-        // Demo boost: Add time-of-day variation to make flat-price days more interesting
-        // IMPORTANT: Applied BEFORE threshold calculation so percentiles reflect the boost!
-        // Night (00-06): -25% (cheapest → BUY signals)
-        // Morning (07-11): +8%
-        // Day (12-16): 0% (baseline)
-        // Evening peak (17-20): +25% (most expensive → AVOID signals)
-        // Late evening (21-23): +8%
-        double demo_multiplier = 1.0;
-        if (hour_of_day >= 0 && hour_of_day < 7) {
-            demo_multiplier = 1.0 - DEMO_PRICE_BOOST;  // Night: cheap
-        } else if (hour_of_day >= 7 && hour_of_day < 12) {
-            demo_multiplier = 1.0 + (DEMO_PRICE_BOOST * 0.33);  // Morning: slightly higher
-        } else if (hour_of_day >= 17 && hour_of_day < 21) {
-            demo_multiplier = 1.0 + DEMO_PRICE_BOOST;  // Evening peak: expensive
-        } else if (hour_of_day >= 21 && hour_of_day < 24) {
-            demo_multiplier = 1.0 + (DEMO_PRICE_BOOST * 0.33);  // Late: slightly higher
-        }
-        total_cost *= demo_multiplier;
-#endif
-
-        // Store boosted hourly cost
-        actual_costs[h] = total_cost;
-        sorted_costs[valid_hours++] = total_cost;  // Now includes demo boost!
+        actual_costs[q] = quarter_cost;
+        sorted_costs[valid_quarters++] = quarter_cost;
     }
 
-    if (valid_hours == 0)
+    if (valid_quarters < 4)
     {
-        LOG_ERROR("Compute: All forecast hours are invalid (checked %d hours from %d quarters, 0 valid). Parser may have failed to validate data.", num_hours, num_quarters);
+        LOG_ERROR("Compute: Insufficient valid quarters (%d < 4). Cannot generate forecast.", valid_quarters);
         return -1;
     }
 
-    // Find cheap and expensive hours
-    // Sort all costs to find percentiles (cheap 30%, expensive 30%)
-    qsort(sorted_costs, valid_hours, sizeof(double), compare_doubles);
+    qsort(sorted_costs, valid_quarters, sizeof(double), compare_doubles);
 
-    int cheap_index = (int)(valid_hours * CHEAP_HOURS_PERCENTILE);
-    int median_index = valid_hours / 2;
-    int expensive_index = (int)(valid_hours * EXPENSIVE_HOURS_PERCENTILE);
+    int cheap_index = (int)(valid_quarters * CHEAP_QUARTERS_PERCENTILE);
+    int median_index = valid_quarters / 2;
+    int expensive_index = (int)(valid_quarters * EXPENSIVE_QUARTERS_PERCENTILE);
 
-    // Clamp to array bounds
-    if (cheap_index >= valid_hours)
-        cheap_index = valid_hours - 1;
-    if (median_index >= valid_hours)
-        median_index = valid_hours - 1;
-    if (expensive_index >= valid_hours)
-        expensive_index = valid_hours - 1;
+    if (cheap_index >= valid_quarters) cheap_index = valid_quarters - 1;
+    if (median_index >= valid_quarters) median_index = valid_quarters - 1;
+    if (expensive_index >= valid_quarters) expensive_index = valid_quarters - 1;
 
     double cheap_threshold = sorted_costs[cheap_index];
     double median_price = sorted_costs[median_index];
     double expensive_threshold = sorted_costs[expensive_index];
 
-    // Quality check: Only signal "cheap" if it's meaningfully cheaper than median.
-    // On days where prices are flat, p30 ≈ median, so "cheap" isn't actually cheap.
+    // Quality filter: require minimum deviation from median to ensure signal value
     double min_cheap_price = median_price * (1.0 - MINIMUM_SAVINGS_THRESHOLD);
     if (cheap_threshold > min_cheap_price)
+    {
         cheap_threshold = min_cheap_price;
+        LOG_INFO("Compute: Threshold adjusted → BUY at %.3f kr/kWh (8%% median discount)", cheap_threshold);
+    }
 
-    // Same for expensive: only warn if meaningfully more expensive
     double min_expensive_price = median_price * (1.0 + MINIMUM_SAVINGS_THRESHOLD);
     if (expensive_threshold < min_expensive_price)
+    {
         expensive_threshold = min_expensive_price;
+        LOG_INFO("Compute: Threshold adjusted → AVOID at %.3f kr/kWh (8%% median premium)", expensive_threshold);
+    }
 
-    LOG_INFO("Compute: Price analysis → cheap: %.2f SEK/kWh, median: %.2f, expensive: %.2f", cheap_threshold, median_price, expensive_threshold);
+    int num_buy = 0, num_avoid = 0;
+    for (int q = 0; q < valid_quarters; q++)
+    {
+        if (sorted_costs[q] <= cheap_threshold) num_buy++;
+        if (sorted_costs[q] >= expensive_threshold) num_avoid++;
+    }
 
-    // Generate 15-minute quarter-hour recommendations (48h = 192 quarters)
-    // Open-Meteo minutely_15 and Elprisetjustnu provide native 15-min data (from Oct 1, 2025)
+    int negative_logged = 0, buy_logged = 0, sell_logged = 0, avoid_logged = 0;
+
+    LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
+    LOG_INFO("Compute: 48-HOUR FORECAST ANALYSIS");
+    LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
+    LOG_INFO("Compute: Quarters analyzed: %d (%.1f hours)", valid_quarters, valid_quarters / 4.0);
+    LOG_INFO("Compute: Price range: %.3f - %.3f kr/kWh (spread: %.0f%%)",
+             sorted_costs[0], sorted_costs[valid_quarters-1],
+             (sorted_costs[valid_quarters-1] - sorted_costs[0]) / sorted_costs[0] * 100.0);
+    LOG_INFO("Compute: Decision thresholds:");
+    LOG_INFO("Compute:   → BUY window:   ≤ %.3f kr/kWh (cheapest %d quarters ≈ %.1fh)",
+             cheap_threshold, num_buy, num_buy / 4.0);
+    LOG_INFO("Compute:   → MEDIAN price:   %.3f kr/kWh", median_price);
+    LOG_INFO("Compute:   → AVOID window: ≥ %.3f kr/kWh (most expensive %d quarters ≈ %.1fh)",
+             expensive_threshold, num_avoid, num_avoid / 4.0);
+    LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
+
+    // Signal generation loop: evaluate each 15-minute period independently
     memset(plan, 0, sizeof(EnergyData));
     double total_import = 0.0, total_export = 0.0, total_cost = 0.0;
 
@@ -303,84 +248,96 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         if (!quarter_data->valid)
             continue;
 
-        struct tm *time_info = localtime(&quarter_data->timestamp);
+        struct tm time_info_buf;
+        struct tm *time_info = localtime_r(&quarter_data->timestamp, &time_info_buf);
         int hour_of_day = time_info ? time_info->tm_hour : 12;
         int minute_of_hour = time_info ? time_info->tm_min : 0;
 
-        // Find corresponding hourly cost (prices matched during parsing)
-        int hour_idx = i / 4;  // 4 quarters per hour
-        if (hour_idx >= num_hours)
-            hour_idx = num_hours - 1;
-        double hourly_cost = actual_costs[hour_idx];
-
-        // --- Use native 15-minute data (no interpolation needed) ---
+        double quarter_cost = actual_costs[i];
         double irradiance = quarter_data->solarIrradiance;
         double temperature = quarter_data->temperature;
         double wind_speed = quarter_data->windSpeed;
 
-        // --- Calculate solar production for this 15-minute slot ---
+        // Solar production model with temperature derating
         double panel_temp = calculate_panel_temperature(temperature, irradiance, wind_speed);
         double temp_efficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panel_temp - PANEL_TEMP_AT_STANDARD_TEST);
+        if (temp_efficiency < 0.70) temp_efficiency = 0.70;
+        if (temp_efficiency > 1.10) temp_efficiency = 1.10;
 
-        // Clamp to realistic efficiency range
-        if (temp_efficiency < 0.70)
-            temp_efficiency = 0.70;
-        if (temp_efficiency > 1.10)
-            temp_efficiency = 1.10;
-
-        // Solar production for 15 minutes (kWh per quarter-hour)
         double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency *
                                    SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
 
-        // --- Calculate consumption for this 15-minute slot with minute-level variation ---
-        // Now includes realistic variation within each hour (cooking peaks, morning rush, etc.)
+        // Load profile application
         double quarter_consumption = (consumptionKwh * get_consumption_pattern_quarter(hour_of_day, minute_of_hour)) * 0.25;
-
-        // --- Net energy: negative = need to buy, positive = can sell ---
         double net_energy = quarter_production - quarter_consumption;
 
-        // --- Decide recommendation ---
+        // Signal classification with priority ordering
         EnergyAction recommendation;
 
-        // Negative prices = essentially free electricity (or paid to consume)
-        // Always recommend BUY regardless of consumption patterns
-        if (quarter_data->spotPriceSek < 0.0)
+        if (!quarter_data->hasPriceData || quarter_cost == 0.0)
+        {
+            recommendation = ACTION_IDLE;
+        }
+        else if (quarter_data->spotPriceSek < 0.0)
         {
             recommendation = ACTION_BUY_FROM_GRID;
+            if (negative_logged < 2)
+            {
+                LOG_INFO("Compute: [%02d:%02d] ⚡ BUY (negative price!) → %.3f kr/kWh", hour_of_day, minute_of_hour, quarter_data->spotPriceSek);
+                negative_logged++;
+            }
         }
-        else if (net_energy > MIN_SURPLUS_TO_SELL_KWH && quarter_data->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
+        else if (quarter_cost <= cheap_threshold)
+        {
+            recommendation = ACTION_BUY_FROM_GRID;
+            if (buy_logged < 5)
+            {
+                LOG_INFO("Compute: [%02d:%02d] ✓ BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)",
+                         hour_of_day, minute_of_hour, quarter_cost, cheap_threshold,
+                         (quarter_cost / median_price) * 100.0, net_energy);
+                buy_logged++;
+            }
+        }
+        else if (net_energy > MIN_SURPLUS_TO_SELL_KWH && quarter_cost >= expensive_threshold)
         {
             recommendation = ACTION_SELL_TO_GRID;
             total_export += net_energy;
+            if (sell_logged < 3)
+            {
+                LOG_INFO("Compute: [%02d:%02d] ⚡ SELL → %.1f kWh surplus @ %.3f kr/kWh (expensive period)",
+                         hour_of_day, minute_of_hour, net_energy, quarter_cost);
+                sell_logged++;
+            }
         }
-        else if (hourly_cost <= cheap_threshold)
-        {
-            recommendation = ACTION_BUY_FROM_GRID;
-        }
-        else if (hourly_cost >= expensive_threshold)
+        else if (quarter_cost >= expensive_threshold)
         {
             recommendation = ACTION_AVOID_HIGH_PRICE;
+            if (avoid_logged < 3)
+            {
+                LOG_INFO("Compute: [%02d:%02d] ⚠ AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)",
+                         hour_of_day, minute_of_hour, quarter_cost, expensive_threshold,
+                         (quarter_cost / median_price) * 100.0);
+                avoid_logged++;
+            }
         }
         else
         {
             recommendation = ACTION_IDLE;
         }
 
-        // --- Track grid imports and costs ---
         if (net_energy < 0.0)
         {
             total_import += -net_energy;
-            total_cost += -net_energy * hourly_cost;
+            total_cost += -net_energy * quarter_cost;
         }
 
-        // --- Store results for this quarter ---
         plan_entry->timestamp = quarter_data->timestamp;
         plan_entry->action = recommendation;
         plan_entry->productionKwh = quarter_production;
         plan_entry->consumptionKwh = quarter_consumption;
         plan_entry->spotPrice = quarter_data->spotPriceSek;
-        plan_entry->totalCostSek = hourly_cost;
-        plan_entry->priceVsAvgPct = median_price > 0.0 ? (hourly_cost - median_price) / median_price * 100.0 : 0.0;
+        plan_entry->totalCostSek = quarter_cost;
+        plan_entry->priceVsAvgPct = median_price > 0.0 ? (quarter_cost - median_price) / median_price * 100.0 : 0.0;
         plan_entry->temperature = temperature;
         plan_entry->windSpeed = wind_speed;
         plan_entry->valid = true;
@@ -404,7 +361,11 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
         for (int i = 0; i <= num_quarters; i++)
         {
-            bool is_cheap_quarter = (i < num_quarters && plan->entries[i].valid && plan->entries[i].action == ACTION_BUY_FROM_GRID);
+            // Only consider quarters with actual price data for BUY window
+            bool is_cheap_quarter = (i < num_quarters &&
+                                    plan->entries[i].valid &&
+                                    forecast->entries[i].hasPriceData &&
+                                    plan->entries[i].action == ACTION_BUY_FROM_GRID);
 
             if (is_cheap_quarter)
             {
@@ -445,7 +406,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                     best_score = practical_score;
                     plan->bestBuyWindow.start = plan->entries[window_start].timestamp;
                     plan->bestBuyWindow.end = plan->entries[window_end].timestamp;
-                    plan->bestBuyWindow.hours = window_quarters / 4; // Convert quarters to hours for display
+                    plan->bestBuyWindow.durationMinutes = window_quarters * 15;
                     plan->bestBuyWindow.avgCostSek = window_cost / window_quarters;
                     plan->bestBuyWindow.savingsSek = window_savings;
                     plan->hasBuyWindow = 1;
@@ -462,7 +423,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
 
     if (plan->hasBuyWindow)
     {
-        LOG_INFO("Compute: Best time to run flexible loads → %d hour window, saves %.2f SEK", plan->bestBuyWindow.hours, plan->bestBuyWindow.savingsSek);
+        LOG_INFO("Compute: Best time to run flexible loads → %d min window, saves %.2f SEK", plan->bestBuyWindow.durationMinutes, plan->bestBuyWindow.savingsSek);
     }
     else
     {

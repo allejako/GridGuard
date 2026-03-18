@@ -10,6 +10,7 @@
 #include "sys/SignalHandler.h"
 #include "sys/Logger.h"
 #include "domain/Config.h"
+#include "config/RuntimeConfig.h"
 
 int Server_Initiate(Server *server)
 {
@@ -36,10 +37,11 @@ int Server_Initiate(Server *server)
         return -1;
     }
 
-    // Initialize TCP server
-    if (TCPServer_Initiate(&server->tcpServer, SERVER_PORT) != 0)
+    // Initialize TCP server with configurable port
+    const char *port = RuntimeConfig_Get("server.port", NULL, SERVER_PORT);
+    if (TCPServer_Initiate(&server->tcpServer, port) != 0)
     {
-        LOG_FATAL("Server: Failed to initialize TCP server on port %s", SERVER_PORT);
+        LOG_FATAL("Server: Failed to initialize TCP server on port %s", port);
         ThreadPool_Shutdown(&server->threadPool);
         GridGuard_Shutdown(&server->app);
         return -1;
@@ -61,6 +63,20 @@ int Server_Run(Server *server)
 
     while (*server->isRunning)
     {
+        // Check for SIGHUP signal (config reload)
+        if (SignalHandler_CheckReload())
+        {
+            LOG_INFO("Server: SIGHUP received, reloading configuration...");
+            if (RuntimeConfig_Reload() == 0)
+            {
+                LOG_INFO("Server: Configuration reloaded successfully");
+            }
+            else
+            {
+                LOG_ERROR("Server: Failed to reload configuration");
+            }
+        }
+
         int clientSocket = TCPServer_Accept(&server->tcpServer);
         if (clientSocket <= 0)
         {

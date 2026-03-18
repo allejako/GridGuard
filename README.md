@@ -47,7 +47,7 @@ export GRIDGUARD_JWT_SECRET="gridguard-test-secret"
 make start
 
 # 4. Generera token
-export TOKEN=$(python3 scripts/generate_jwt.py platform.db test_user)
+export TOKEN=$(python3 scripts/generate_jwt.py platform.db SAAB_ARENA)
 
 # 5. Testa
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/forecast
@@ -59,12 +59,56 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/forecast
 make stop
 ```
 
-## Miljövariabler
+## Konfiguration
+
+GridGuard använder en flexibel konfigurationslösning med tre nivåer:
+
+1. **Config-fil** (`config/gridguard.conf`) - INI-format, valfri
+2. **Miljövariabler** - Överskrider config-filen
+3. **Compile-time defaults** - Fallback om inget annat anges
+
+### Config-fil (rekommenderat)
+
+Redigera `config/gridguard.conf`:
+
+```ini
+[server]
+port=8080
+
+[database]
+db_path=gridguard.db
+
+[jwt]
+jwt_secret=your_secret_here
+
+[network]
+timeout=30
+max_retries=3
+
+[cache]
+weather_ttl=900
+price_ttl=3600
+forecast_ttl=1800
+```
+
+Ange custom config-fil:
+```bash
+bin/GridGuard-watchdog --config /path/to/config.conf
+```
+
+Hot-reload config utan omstart:
+```bash
+kill -SIGHUP $(cat /tmp/gridguard.pid)
+```
+
+### Miljövariabler
 
 | Variabel | Beskrivning | Standard |
 |---|---|---|
 | `GRIDGUARD_JWT_SECRET` | Hemlig nyckel för JWT-validering | — (obligatorisk) |
 | `GRIDGUARD_DB_PATH` | Sökväg till gridguard.db | Löses automatiskt |
+
+Se `docs/CONFIG_DESIGN.md` för fullständig dokumentation.
 
 ## API
 
@@ -170,26 +214,29 @@ src/
 ├── watchdog/   Processövervakning, heartbeats, omstartslogik
 ├── domain/     Domänmodeller och lastschemaläggning
 ├── cache/      Process-delad cache (POSIX shm + rwlock)
+├── api/        URL-byggare för externa API:er (Open-Meteo, Elprisetjustnu)
 ├── auth/       JWT-validering (mbedTLS)
 ├── db/         SQLite-databas (användarkonfiguration, scheman)
+├── ipc/        IPC-structs (WorkRequest, FetchResult, ParseResult)
 ├── net/        TCP-server, HTTP-parser
 ├── sys/        Logger, trådpool, kö, signalhantering
-└── client/     C++-klient med RAII och STL
-
-tests/
-├── unit/       Google Test — scheduler, restart policy, HTTP, kö, logger
-├── integration/C-integrationstester — pipeline, API, parser
-└── benchmarks/ Prestandamätningar — compute, cache, kö
+├── libs/       Tredjepartsbibliotek (cJSON)
+├── client/     C++-klient med RAII och STL
+└── tests/
+    ├── unit/         Google Test — scheduler, restart policy, HTTP, kö, logger
+    ├── integration/  C-integrationstester — pipeline, API, parser
+    └── benchmarks/   Prestandamätningar — compute, cache, kö
 
 docs/
-├── SYSTEM_OVERVIEW.md
-├── PERFORMANCE_REPORT.md
-├── PROFILING_PRESENTATION.md
+├── ARCHITECTURE.md
+├── API.md
+├── Old/        Arkiverade dokument
 └── Changelog/
 ```
 
 ## Dokumentation
 
-- `docs/SYSTEM_OVERVIEW.md` — Arkitektur och designbeslut
-- `docs/PERFORMANCE_REPORT.md` — Profileringsresultat och optimeringar
+- `docs/ARCHITECTURE.md` — Arkitektur, IPC, watchdog och designbeslut
+- `docs/API.md` — Komplett API-referens med request/response-exempel
+- `docs/Old/PERFORMANCE_REPORT.md` — Profileringsresultat och optimeringar
 - `docs/Changelog/` — Detaljerade ändringsloggar per vecka
