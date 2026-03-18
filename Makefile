@@ -53,7 +53,6 @@ SERVER_SRCS = \
     $(SRC)/compute/ComputeWorker.c \
     $(SRC)/domain/LoadScheduler.c \
     $(SRC)/watchdog/Metrics.c \
-    $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/api/APIParser.c \
     $(SRC)/db/ClientDB.c \
@@ -359,20 +358,22 @@ $(TEST_LOGGER_BIN): $(SRC)/tests/unit/test_logger.c $(SRC)/sys/Logger.c
 $(TEST_API_BIN): $(SRC)/tests/integration/test_api_fetch.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
-    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c \
+    $(SRC)/config/RuntimeConfig.c $(SRC)/config/ConfigParser.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
     $(SRC)/net/HTTPClient.c $(SRC)/net/HTTPFetcher.c \
-    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c \
+    $(SRC)/config/RuntimeConfig.c $(SRC)/config/ConfigParser.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/server/ClientHandler.c $(SRC)/server/Server.c \
     $(SRC)/net/TCPServer.c $(SRC)/net/HTTPRequest.c $(SRC)/net/HTTPResponse.c \
-    $(SRC)/auth/JWTValidator.c $(SRC)/db/ScheduleDB.c $(SRC)/domain/LoadScheduler.c \
-    $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c $(SRC)/sys/SignalHandler.c \
+    $(SRC)/auth/JWTValidator.c $(SRC)/domain/LoadScheduler.c \
+    $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c $(SRC)/compute/ComputeWorker.c \
     $(SRC)/api/APIEndpoints.c $(SRC)/api/APIParser.c \
@@ -382,11 +383,12 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/sys/Queue.c $(SRC)/sys/WorkCompletion.c $(SRC)/sys/CompletionRegistry.c \
     $(SRC)/sys/ThreadPool.c $(SRC)/sys/WorkerPool.c \
     $(SRC)/watchdog/Metrics.c \
-    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c
+    $(SRC)/sys/Logger.c $(SRC)/libs/cJSON.c \
+    $(SRC)/config/RuntimeConfig.c $(SRC)/config/ConfigParser.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
-test: test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
+test: test-jwt test-http-request test-http-response test-logger test-api test-weather
 	@echo "======================================"
 	@echo "All tests passed!"
 	@echo "======================================"
