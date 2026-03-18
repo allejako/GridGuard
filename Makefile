@@ -38,6 +38,11 @@ SYS_SRCS = \
     $(SRC)/sys/Daemon.c \
     $(SRC)/sys/PidFile.c
 
+# ── Config subsystem (används av alla processer) ──────────────────────
+CONFIG_SRCS = \
+    $(SRC)/config/ConfigParser.c \
+    $(SRC)/config/RuntimeConfig.c
+
 # ── Server ─────────────────────────────────────────────────────────────
 SERVER_SRCS = \
     $(SRC)/server/main.c \
@@ -61,6 +66,7 @@ SERVER_SRCS = \
     $(SRC)/net/HTTPResponse.c \
     $(SRC)/net/HTTPClient.c \
     $(SRC)/libs/cJSON.c \
+    $(CONFIG_SRCS) \
     $(SYS_SRCS)
 
 # ── Fetcher ────────────────────────────────────────────────────────────
@@ -73,7 +79,8 @@ FETCHER_SRCS = \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/sys/Logger.c \
     $(SRC)/sys/ProcessHeartbeat.c \
-    $(SRC)/libs/cJSON.c
+    $(SRC)/libs/cJSON.c \
+    $(CONFIG_SRCS)
 
 # ── Parser ─────────────────────────────────────────────────────────────
 PARSER_SRCS = \
@@ -82,7 +89,8 @@ PARSER_SRCS = \
     $(SRC)/api/APIParser.c \
     $(SRC)/sys/Logger.c \
     $(SRC)/sys/ProcessHeartbeat.c \
-    $(SRC)/libs/cJSON.c
+    $(SRC)/libs/cJSON.c \
+    $(CONFIG_SRCS)
 
 # ── Watchdog ───────────────────────────────────────────────────────────
 WATCHDOG_SRCS = \
@@ -94,7 +102,8 @@ WATCHDOG_SRCS = \
     $(SRC)/watchdog/ProcessSpawner.c \
     $(SRC)/sys/Daemon.c \
     $(SRC)/sys/PidFile.c \
-    $(SRC)/sys/Logger.c
+    $(SRC)/sys/Logger.c \
+    $(CONFIG_SRCS)
 
 # ── Platform-objekt (för generate_jwt.py — länkas EJ in i server) ──────
 PLATFORM_SRCS = \
@@ -133,7 +142,7 @@ directories:
 	@mkdir -p $(BIN) logs
 	@mkdir -p $(BUILD)/server $(BUILD)/fetcher $(BUILD)/parser $(BUILD)/watchdog
 	@mkdir -p $(BUILD)/compute $(BUILD)/domain $(BUILD)/api $(BUILD)/db
-	@mkdir -p $(BUILD)/cache $(BUILD)/auth $(BUILD)/net $(BUILD)/sys
+	@mkdir -p $(BUILD)/cache $(BUILD)/auth $(BUILD)/net $(BUILD)/sys $(BUILD)/config
 	@mkdir -p $(BUILD)/ipc $(BUILD)/libs $(BUILD)/client
 	@mkdir -p $(BUILD)/tests/unit $(BUILD)/tests/integration $(BUILD)/tests/benchmarks
 

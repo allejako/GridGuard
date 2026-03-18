@@ -6,6 +6,7 @@
 #include "net/HTTPFetcher.h"
 #include "net/HTTPClient.h"
 #include "domain/Config.h"
+#include "config/RuntimeConfig.h"
 #include "sys/Logger.h"
 
 int HTTPFetcher_Initiate(HTTPFetcher *fetcher)
@@ -29,13 +30,17 @@ int HTTPFetcher_Fetch(HTTPFetcher *fetcher, const char *url, HTTPFetchResponse *
 
     pthread_mutex_lock(&fetcher->mutex);
 
+    // Get configurable HTTP settings
+    int timeout = RuntimeConfig_GetInt("network.timeout", NULL, HTTP_TIMEOUT);
+    int maxRetries = RuntimeConfig_GetInt("network.max_retries", NULL, HTTP_MAX_RETRIES);
+
     int attemptCount = 0;
 
-    while (attemptCount <= HTTP_MAX_RETRIES)
+    while (attemptCount <= maxRetries)
     {
         HTTPClientResponse httpResp = {0};
 
-        if (HTTPClient_Get(&fetcher->httpClient, url, &httpResp, HTTP_TIMEOUT) == 0)
+        if (HTTPClient_Get(&fetcher->httpClient, url, &httpResp, timeout) == 0)
         {
             if (httpResp.statusCode >= 200 && httpResp.statusCode < 300)
             {
@@ -47,7 +52,7 @@ int HTTPFetcher_Fetch(HTTPFetcher *fetcher, const char *url, HTTPFetchResponse *
             }
 
             // 4xx — retry hjälper inte
-            if (httpResp.statusCode < 500 || attemptCount == HTTP_MAX_RETRIES)
+            if (httpResp.statusCode < 500 || attemptCount == maxRetries)
             {
                 HTTPClient_FreeResponse(&httpResp);
                 break;

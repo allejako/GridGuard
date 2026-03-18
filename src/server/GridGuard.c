@@ -5,6 +5,7 @@
 #include "sys/CompletionRegistry.h"
 #include "sys/Logger.h"
 #include "domain/Config.h"
+#include "config/RuntimeConfig.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +36,12 @@ int GridGuard_Initiate(GridGuard *app)
 
     LOG_INFO("Initializing GR1DGU4RD application core...");
 
-    // Resolve database path relative to binary location (works when running as daemon)
-    const char *dbPath = getenv("GRIDGUARD_DB_PATH");
+    // Resolve database path with fallback chain:
+    // 1. Runtime config (gridguard.conf)
+    // 2. Environment variable (GRIDGUARD_DB_PATH)
+    // 3. Auto-resolve relative to binary
+    // 4. Compile-time default (DB_PATH)
+    const char *dbPath = RuntimeConfig_Get("database.db_path", "GRIDGUARD_DB_PATH", NULL);
     char resolvedDbPath[PATH_MAX];
 
     if (!dbPath || dbPath[0] == '\0')
@@ -73,8 +78,12 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize shared memory caches för väder och elprisdata, används av både Fetch och Parse-processerna
-    if (SharedCache_Initiate(&app->weatherCache, "/gridguard_weather", SHARED_CACHE_DEFAULT_TTL) != 0)
+    // Initialize shared memory caches with configurable TTL values
+    int weatherTTL = RuntimeConfig_GetInt("cache.weather_ttl", NULL, 900);   // Default 15 min
+    int priceTTL = RuntimeConfig_GetInt("cache.price_ttl", NULL, 3600);      // Default 60 min
+    int forecastTTL = RuntimeConfig_GetInt("cache.forecast_ttl", NULL, 1800); // Default 30 min
+
+    if (SharedCache_Initiate(&app->weatherCache, "/gridguard_weather", weatherTTL) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate weather shared cache");
         Compute_Shutdown(&app->compute);
@@ -82,7 +91,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    if (SharedCache_Initiate(&app->priceCache, "/gridguard_price", SHARED_CACHE_DEFAULT_TTL) != 0)
+    if (SharedCache_Initiate(&app->priceCache, "/gridguard_price", priceTTL) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate price shared cache");
         SharedCache_Shutdown(&app->weatherCache);
@@ -91,7 +100,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    if (SharedCache_Initiate(&app->forecastCache, "/gridguard_forecast", SHARED_CACHE_DEFAULT_TTL) != 0)
+    if (SharedCache_Initiate(&app->forecastCache, "/gridguard_forecast", forecastTTL) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate forecast shared cache");
         SharedCache_Shutdown(&app->priceCache);

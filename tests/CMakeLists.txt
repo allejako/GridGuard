@@ -102,3 +102,17 @@ target_link_libraries(test_queue_concurrent_gtest
 )
 
 gtest_discover_tests(test_queue_concurrent_gtest)
+
+# Config Parser Tests - INI configuration file parsing
+add_executable(test_config_parser_gtest
+    unit/test_config_parser_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/ConfigParser.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_config_parser_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_config_parser_gtest)
