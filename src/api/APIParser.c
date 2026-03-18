@@ -166,6 +166,21 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
     }
 
     // Open-Meteo format: minutely_15.time[], minutely_15.temperature_2m[], etc.
+    // Extract timezone metadata from API response
+    cJSON *timezone = cJSON_GetObjectItem(root, "timezone");
+    cJSON *utc_offset = cJSON_GetObjectItem(root, "utc_offset_seconds");
+
+    if (cJSON_IsString(timezone)) {
+        strncpy(forecast->timezone, timezone->valuestring, sizeof(forecast->timezone) - 1);
+        forecast->timezone[sizeof(forecast->timezone) - 1] = '\0';
+    } else {
+        strncpy(forecast->timezone, "UTC", sizeof(forecast->timezone) - 1);
+    }
+
+    forecast->utc_offset_seconds = cJSON_IsNumber(utc_offset) ? utc_offset->valueint : 0;
+
+    LOG_INFO("OpenMeteo timezone: %s (UTC%+d)", forecast->timezone, forecast->utc_offset_seconds / 3600);
+
     cJSON *minutely = cJSON_GetObjectItem(root, "minutely_15");
     if (!cJSON_IsObject(minutely))
     {

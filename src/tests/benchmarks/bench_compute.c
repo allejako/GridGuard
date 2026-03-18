@@ -206,8 +206,8 @@ int main(void)
     printf("  gridExport   : %.4f kWh\n", plan.totalGridExportKwh);
     if (plan.hasBuyWindow)
     {
-        printf("  buyWindow    : %d hours, avg %.4f SEK/kWh, saves %.4f SEK\n",
-               plan.bestBuyWindow.hours,
+        printf("  buyWindow    : %d min, avg %.4f SEK/kWh, saves %.4f SEK\n",
+               plan.bestBuyWindow.durationMinutes,
                plan.bestBuyWindow.avgCostSek,
                plan.bestBuyWindow.savingsSek);
     }

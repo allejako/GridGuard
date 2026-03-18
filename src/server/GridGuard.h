@@ -32,6 +32,10 @@ typedef struct GridGuard
     SharedCache forecastCache;    // shm_open/mmap - cache for complete forecast JSON
     ClientDB db;                  // Persistent user config
 
+    // Cache invalidation tracking (shared across all worker threads)
+    time_t lastDataUpdateCheck;   // Timestamp of last checked data update
+    pthread_mutex_t updateCheckMutex;  // Protects lastDataUpdateCheck
+
     // Control
     bool isRunning;
     pthread_mutex_t mutex;

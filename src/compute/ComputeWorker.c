@@ -67,7 +67,7 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON *win = cJSON_AddObjectToObject(summary, "best_buy_window");
         cJSON_AddStringToObject(win, "start", startIso);
         cJSON_AddStringToObject(win, "end", endIso);
-        cJSON_AddNumberToObject(win, "hours", plan->bestBuyWindow.hours);
+        cJSON_AddNumberToObject(win, "duration_minutes", plan->bestBuyWindow.durationMinutes);
         cJSON_AddNumberToObject(win, "avg_cost_sek_kwh", plan->bestBuyWindow.avgCostSek);
         cJSON_AddNumberToObject(win, "savings_sek", plan->bestBuyWindow.savingsSek);
     }

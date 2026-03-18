@@ -66,7 +66,8 @@ void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...
     
     // Get timestamp
     time_t now = time(NULL);
-    struct tm *tmInfo = localtime(&now);
+    struct tm tmBuf;
+    struct tm *tmInfo = localtime_r(&now, &tmBuf);
     char timestamp[20];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tmInfo);
     

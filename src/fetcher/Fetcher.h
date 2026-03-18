@@ -21,9 +21,11 @@ typedef struct
     void *priceCache;      // SharedCache for price data
     bool isRunning;
 
-    // Periodic background refresh every 15 minutes
-    time_t lastPeriodicFetch;
-    int periodicIntervalSeconds;  // Default: 900 (15 minutes)
+    // Separate timers for weather (15 min) and price (daily at 13:00)
+    time_t lastWeatherFetch;
+    time_t lastPriceFetch;
+    int weatherIntervalSeconds;   // Default: 900 (15 minutes)
+    time_t lastPriceFetchDate;   // Track date of last price fetch (YYYY-MM-DD)
 
     // Circuit breaker state for weather API
     int weatherFailures;

@@ -23,6 +23,25 @@
 extern time_t  timegm(struct tm *tm);
 extern char   *strptime(const char *s, const char *format, struct tm *tm);
 
+// Timestamp file path for cache invalidation checking
+#define DATA_UPDATE_TIMESTAMP_PATH "/tmp/gridguard_last_data_update"
+
+// Helper: Read the last data update timestamp from Fetcher's signal file
+// Returns 0 if file doesn't exist or can't be read (never invalidate in that case)
+static time_t read_last_data_update(void)
+{
+    FILE *f = fopen(DATA_UPDATE_TIMESTAMP_PATH, "r");
+    if (!f)
+        return 0;
+
+    time_t timestamp = 0;
+    if (fscanf(f, "%ld", &timestamp) != 1)
+        timestamp = 0;
+
+    fclose(f);
+    return timestamp;
+}
+
 // Parse ISO 8601 UTC timestamp ("2026-03-09T14:30:00Z") to time_t.
 static time_t ParseISO8601(const char *s)
 {
@@ -193,11 +212,31 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     }
 
     // Check cache before running pipeline.
+    // Include today's date in cache key to prevent serving yesterday's forecast
+    time_t now = time(NULL);
+    struct tm now_tm;
+    gmtime_r(&now, &now_tm);
+
     char cacheKey[SHARED_CACHE_KEY_MAX];
-    snprintf(cacheKey, sizeof(cacheKey), "fc:%.4f:%.4f:%s:%.1f:%.2f:%.2f:%.2f:%.2f:%.2f",
+    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f",
+             now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
              cfg.latitude, cfg.longitude, cfg.region,
-             cfg.solarAreaM2, cfg.solarEfficiency, cfg.consumptionKwh,
-             cfg.gridFee_low, cfg.gridFee_normal, cfg.gridFee_high);
+             cfg.solarAreaM2);
+
+    // Smart cache invalidation: Check if input data (weather/prices) has been updated.
+    // If yes, invalidate ALL forecast caches (not just this user's) to prevent race conditions.
+    // This is safe because we only invalidate when data actually changes (not on every request).
+    // Uses process-shared lastDataUpdateCheck to ensure only one worker thread invalidates per update.
+    pthread_mutex_lock(&app->updateCheckMutex);
+    time_t last_data_update = read_last_data_update();
+
+    if (last_data_update > 0 && last_data_update > app->lastDataUpdateCheck)
+    {
+        LOG_INFO("ClientHandler: New data detected (timestamp %ld), invalidating ALL forecast caches", last_data_update);
+        SharedCache_InvalidateAll(&app->forecastCache);
+        app->lastDataUpdateCheck = last_data_update;
+    }
+    pthread_mutex_unlock(&app->updateCheckMutex);
 
     char cachedJson[SHARED_CACHE_DATA_MAX];
     if (SharedCache_Lookup(&app->forecastCache, cacheKey, cachedJson, sizeof(cachedJson)) == 0)
