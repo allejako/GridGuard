@@ -44,7 +44,14 @@ $(SRC)/config/RuntimeConfig.c $(SRC)/config/ConfigParser.c
 
 ### `test-pipeline` borttaget från standard-`test`-målet
 
-Pipeline-integrationstestet hade instabilitet relaterad till de saknade beroendena ovan. Temporärt uteslutet från `make test` tills det är stabilt igen.
+`test-pipeline` är ett integrationstest som kräver att hela systemet (watchdog + fetcher + parser) körs. `GridGuard_Initiate` försöker öppna `/tmp/gridguard_requests.fifo` för skrivning — en FIFO som watchdog skapar och som fetcher-processen lyssnar på. Utan en levande fetcher på andra sidan blockerar eller failar `open(O_WRONLY)` direkt.
+
+Testet kan inte köras fristående och är därför uteslutet från `make test`. Det kan fortfarande köras manuellt mot ett levande system:
+
+```bash
+make dev          # Starta systemet
+make test-pipeline  # Kör i separat terminal
+```
 
 ---
 
