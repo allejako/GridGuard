@@ -59,12 +59,56 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/forecast
 make stop
 ```
 
-## Miljövariabler
+## Konfiguration
+
+GridGuard använder en flexibel konfigurationslösning med tre nivåer:
+
+1. **Config-fil** (`config/gridguard.conf`) - INI-format, valfri
+2. **Miljövariabler** - Överskrider config-filen
+3. **Compile-time defaults** - Fallback om inget annat anges
+
+### Config-fil (rekommenderat)
+
+Redigera `config/gridguard.conf`:
+
+```ini
+[server]
+port=8080
+
+[database]
+db_path=gridguard.db
+
+[jwt]
+jwt_secret=your_secret_here
+
+[network]
+timeout=30
+max_retries=3
+
+[cache]
+weather_ttl=900
+price_ttl=3600
+forecast_ttl=1800
+```
+
+Ange custom config-fil:
+```bash
+bin/GridGuard-watchdog --config /path/to/config.conf
+```
+
+Hot-reload config utan omstart:
+```bash
+kill -SIGHUP $(cat /tmp/gridguard.pid)
+```
+
+### Miljövariabler
 
 | Variabel | Beskrivning | Standard |
 |---|---|---|
 | `GRIDGUARD_JWT_SECRET` | Hemlig nyckel för JWT-validering | — (obligatorisk) |
 | `GRIDGUARD_DB_PATH` | Sökväg till gridguard.db | Löses automatiskt |
+
+Se `docs/CONFIG_DESIGN.md` för fullständig dokumentation.
 
 ## API
 
