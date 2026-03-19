@@ -1,5 +1,5 @@
-#ifndef PIDFILE_H
-#define PIDFILE_H
+#ifndef _PIDFILE_H_
+#define _PIDFILE_H_
 
 #include <sys/types.h>
 
@@ -17,4 +17,4 @@ int PidFile_Remove(const char *path);
 // Check if the process in PID file is still running. Returns 1 if running, 0 if not.
 int PidFile_IsRunning(const char *path);
 
-#endif // PIDFILE_H
+#endif // _PIDFILE_H_

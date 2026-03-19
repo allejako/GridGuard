@@ -3,30 +3,30 @@
 
 int main(void)
 {
-    // Init logger - skriver till både konsol och fil
+    // Init logger - writes to both console and file
     if (Logger_Initiate("test.log", LOG_LEVEL_DEBUG) != 0) {
         printf("Failed to init logger\n");
         return 1;
     }
 
-    // Testa alla loggnivåer
-    LOG_DEBUG("Detta är ett debug-meddelande");
-    LOG_INFO("Server startad på port %d", 8080);
-    LOG_WARNING("Varning: cache är %d%% full", 85);
-    LOG_ERROR("Kunde inte ansluta till klient: %s", "timeout");
-    LOG_FATAL("Kritiskt fel!");
+    // Test all log levels
+    LOG_DEBUG("This is a debug message");
+    LOG_INFO("Server started on port %d", 8080);
+    LOG_WARNING("Warning: cache is %d%% full", 85);
+    LOG_ERROR("Could not connect to client: %s", "timeout");
+    LOG_FATAL("Critical error!");
 
-    // Testa att ändra nivå
-    printf("\n--- Ändrar till WARNING-nivå ---\n\n");
+    // Test changing log level
+    printf("\n--- Changing to WARNING level ---\n\n");
     Logger_SetLevel(LOG_LEVEL_WARNING);
 
-    LOG_DEBUG("Detta ska INTE synas");
-    LOG_INFO("Detta ska INTE heller synas");
-    LOG_WARNING("Detta SKA synas");
-    LOG_ERROR("Detta SKA också synas");
+    LOG_DEBUG("This should NOT appear");
+    LOG_INFO("This should NOT appear either");
+    LOG_WARNING("This SHOULD appear");
+    LOG_ERROR("This SHOULD also appear");
 
     Logger_Shutdown();
 
-    printf("\n--- Kolla test.log för filutdata ---\n");
+    printf("\n--- Check test.log for file output ---\n");
     return 0;
 }

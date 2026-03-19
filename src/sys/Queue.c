@@ -111,19 +111,26 @@ void Queue_Shutdown(Queue *queue)
         }
     }
 
-    // Wake up all waiting threads
+    // Wake all threads blocked on Queue_Pop or Queue_Push.
+    // They will observe isShutdown==true, release the mutex, and return -1.
     pthread_cond_broadcast(&queue->notEmpty);
     pthread_cond_broadcast(&queue->notFull);
     pthread_mutex_unlock(&queue->mutex);
 
-    // Grace period: allow woken threads to exit before destroying synchronization primitives
-    // This prevents use-after-free if a thread wakes up and tries to lock the mutex
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000 };  // 100 ms
-    nanosleep(&ts, NULL);
+    // NOTE: Do NOT destroy mutex/cond here — threads may still hold the mutex
+    // as they return from pthread_cond_wait. Call Queue_Destroy() only after
+    // all consumer/producer threads have been joined (pthread_join).
+    LOG_INFO("Queue shutdown signalled");
+}
+
+void Queue_Destroy(Queue *queue)
+{
+    if (!queue)
+        return;
 
     pthread_mutex_destroy(&queue->mutex);
     pthread_cond_destroy(&queue->notEmpty);
     pthread_cond_destroy(&queue->notFull);
 
-    LOG_INFO("Queue shutdown");
+    LOG_INFO("Queue destroyed");
 }

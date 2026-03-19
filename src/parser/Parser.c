@@ -21,7 +21,6 @@
 #include <sys/un.h>
 #include <time.h>
 #include <math.h>
-#include <errno.h>
 
 // Parse ISO 8601 timestamp till time_t (UTC).
 // Hanterar tre format:
@@ -39,16 +38,10 @@ time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
     int tzHour = 0, tzMin = 0;
     char tzSign = 'Z';
 
-    int parsed = sscanf(timeStr, "%d-%d-%dT%d:%d:%d%c%d:%d",
-                       &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-                       &tm.tm_hour, &tm.tm_min, &tm.tm_sec,
-                       &tzSign, &tzHour, &tzMin);
+    int parsed = sscanf(timeStr, "%d-%d-%dT%d:%d:%d%c%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec, &tzSign, &tzHour, &tzMin);
 
-    if (parsed < 6) {
-        sscanf(timeStr, "%d-%d-%dT%d:%d:%d",
-               &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-               &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
-    }
+    if (parsed < 6)
+        sscanf(timeStr, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
 
     tm.tm_year -= 1900;
     tm.tm_mon -= 1;
@@ -58,12 +51,14 @@ time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
     time_t result = timegm(&tm);
 
     // Explicit timezone in string? (e.g., "+01:00")
-    if (parsed >= 9 && (tzSign == '+' || tzSign == '-')) {
+    if (parsed >= 9 && (tzSign == '+' || tzSign == '-'))
+    {
         int tzOffset = tzHour * 3600 + tzMin * 60;
         result = (tzSign == '+') ? result - tzOffset : result + tzOffset;
     }
     // No explicit timezone? Apply API-provided offset
-    else if (utc_offset_seconds != 0) {
+    else if (utc_offset_seconds != 0)
+    {
         result -= utc_offset_seconds;
     }
 
@@ -80,7 +75,7 @@ static time_t normalize_to_15min_utc(time_t timestamp)
     return (timestamp / 900) * 900;
 }
 
-// Bygg forecast data genom att matcha OpenMeteoResponse med ElprisetResponse baserat på timestamp
+// Build forecast data by matching OpenMeteoResponse with ElprisetResponse based on timestamp
 static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetResponse *elpriset, const char *region __attribute__((unused)), ForecastData *forecast)
 {
     memset(forecast, 0, sizeof(ForecastData));
@@ -89,7 +84,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
     LOG_INFO("ParserProcess: build_forecast_data() called with om->count=%d, elpriset->count=%d", om->count, elpriset->count);
 
     int count = 0;
-    for (int i = 0; i < om->count && count < 192; i++)  // 48h = 192 quarters
+    for (int i = 0; i < om->count && count < 192; i++) // 48h = 192 quarters
     {
         const OpenMeteoEntry *src = &om->entries[i];
         ForecastEntry *entry = &forecast->entries[count];
@@ -131,9 +126,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         {
             struct tm weatherTime;
             gmtime_r(&entry->timestamp, &weatherTime);
-            LOG_WARNING("ParserProcess: No price match for %04d-%02d-%02d %02d:%02d UTC (ts=%ld, quarter=%ld)",
-                       weatherTime.tm_year + 1900, weatherTime.tm_mon + 1, weatherTime.tm_mday,
-                       weatherTime.tm_hour, weatherTime.tm_min, (long)entry->timestamp, (long)weatherQuarter);
+            LOG_WARNING("ParserProcess: No price match for %04d-%02d-%02d %02d:%02d UTC (ts=%ld, quarter=%ld)", weatherTime.tm_year + 1900, weatherTime.tm_mon + 1, weatherTime.tm_mday, weatherTime.tm_hour, weatherTime.tm_min, (long)entry->timestamp, (long)weatherQuarter);
         }
 
         entry->valid = true;
@@ -144,18 +137,20 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
 
     // Log matching statistics for production monitoring
     int matched = 0, unmatched = 0;
-    for (int i = 0; i < count; i++) {
-        if (forecast->entries[i].spotPriceSek > 0.0) matched++;
-        else unmatched++;
+    for (int i = 0; i < count; i++)
+    {
+        if (forecast->entries[i].spotPriceSek > 0.0)
+            matched++;
+        else
+            unmatched++;
     }
 
     LOG_INFO("ParserProcess: Built forecast with %d quarters (%.1f hours)", count, count / 4.0);
-    LOG_INFO("ParserProcess: Price matching → %d matched, %d unmatched (%.1f%% coverage)",
-             matched, unmatched, matched * 100.0 / count);
+    LOG_INFO("ParserProcess: Price matching → %d matched, %d unmatched (%.1f%% coverage)", matched, unmatched, matched * 100.0 / count);
 
-    if (unmatched > count / 2) {
-        LOG_WARNING("ParserProcess: >50%% prices missing! Check timezone: OpenMeteo=%s (UTC%+d)",
-                   om->timezone, om->utc_offset_seconds / 3600);
+    if (unmatched > count / 2)
+    {
+        LOG_WARNING("ParserProcess: >50%% prices missing! Check timezone: OpenMeteo=%s (UTC%+d)", om->timezone, om->utc_offset_seconds / 3600);
     }
 }
 
@@ -169,7 +164,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     strncpy(proc->socketPath, socketPath, sizeof(proc->socketPath) - 1);
     strncpy(proc->notifyPath, notifyPath, sizeof(proc->notifyPath) - 1);
 
-    // Allokera APIParser service
+    // Allocate APIParser service
     proc->parser = calloc(1, sizeof(APIParser));
     if (!proc->parser)
     {
@@ -184,7 +179,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Öppna FIFO för läsning, blockerar tills fetch-processen öppnar write end
+    // Open FIFO for reading, blocks until the fetch process opens the write end
     proc->fifoFd = open(fifoPath, O_RDONLY);
     if (proc->fifoFd < 0)
     {
@@ -194,7 +189,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Skapa Unix domain socket server för att kommunicera med Compute-tråden
+    // Create Unix domain socket server to communicate with the Compute thread
     proc->serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
     if (proc->serverSocket < 0)
     {
@@ -209,9 +204,9 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, socketPath, sizeof(addr.sun_path) - 1);
 
-    unlink(socketPath); // Ta bort gammal socket om den finns
+    unlink(socketPath); // Remove old socket if it exists
 
-    if (bind(proc->serverSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    if (bind(proc->serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
         LOG_ERROR("ParserProcess: Failed to bind Unix socket to %s", socketPath);
         close(proc->fifoFd);
@@ -232,8 +227,8 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Skapa notify FIFO för att signalera Compute när data är redo
-    unlink(notifyPath); // Ta bort gammal FIFO om den finns
+    // Create notify FIFO to signal Compute when data is ready
+    unlink(notifyPath); // Remove old FIFO if it exists
     if (mkfifo(notifyPath, 0600) < 0 && errno != EEXIST)
     {
         LOG_ERROR("ParserProcess: Failed to create notify FIFO %s: %s", notifyPath, strerror(errno));
@@ -245,7 +240,7 @@ int ParserProcess_Initiate(ParserProcess *proc, const char *fifoPath, const char
         return -1;
     }
 
-    // Öppna notify FIFO för skrivning (will block until ComputeWorker opens read end)
+    // Open notify FIFO for writing (will block until ComputeWorker opens read end)
     // This synchronizes Parser and ComputeWorker startup
     LOG_INFO("ParserProcess: Waiting for ComputeWorker to open notify FIFO %s", notifyPath);
     proc->notifyFd = open(notifyPath, O_WRONLY);
@@ -334,7 +329,7 @@ int ParserProcess_Run(ParserProcess *proc)
             // Read entire struct in chunks (handles large structs > PIPE_BUF)
             while (totalRead < expectedSize)
             {
-                ssize_t bytesRead = read(proc->fifoFd, ((char*)&fetchResult) + totalRead, expectedSize - totalRead);
+                ssize_t bytesRead = read(proc->fifoFd, ((char *)&fetchResult) + totalRead, expectedSize - totalRead);
 
                 if (bytesRead == 0)
                 {
@@ -361,7 +356,7 @@ int ParserProcess_Run(ParserProcess *proc)
 
             LOG_INFO("ParserProcess: Processing FetchResult for %s/%s", fetchResult.userId, fetchResult.region);
 
-            // Parsa JSON data från FetchResult
+            // Parse JSON data from FetchResult
             OpenMeteoResponse omData = {0};
             ElprisetResponse elprisetData = {0};
             bool omParsed = false;

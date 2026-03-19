@@ -24,8 +24,7 @@ static void *Daemon_HeartbeatLoop(void *arg)
 {
     (void)arg;
 
-    LOG_INFO("Daemon: Heartbeat thread started (fd=%d, interval=%ds)",
-             heartbeat_fd, HEARTBEAT_INTERVAL_SEC);
+    LOG_INFO("Daemon: Heartbeat thread started (fd=%d, interval=%ds)", heartbeat_fd, HEARTBEAT_INTERVAL_SEC);
 
     while (heartbeat_running)
     {

@@ -1,5 +1,5 @@
-#ifndef SHARED_CACHE_H
-#define SHARED_CACHE_H
+#ifndef _SHARED_CACHE_H_
+#define _SHARED_CACHE_H_
 
 // Process-shared cache using POSIX shared memory and pthread_rwlock.
 // Thread-safe and process-safe. 16 entries max, 32KB per entry, LRU eviction.
@@ -88,4 +88,4 @@ void SharedCache_Cleanup(SharedCache *cache);
 void SharedCache_Shutdown(SharedCache *cache);
 
 
-#endif // SHARED_CACHE_H
+#endif // _SHARED_CACHE_H_

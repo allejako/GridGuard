@@ -95,8 +95,7 @@ void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...
     // Print to file without colors
     if (logFile != NULL) {
         va_start(args, fmt);
-        fprintf(logFile, "[%s] %-5s %s:%d: ", 
-                timestamp, levelStrings[level], filename, line);
+        fprintf(logFile, "[%s] %-5s %s:%d: ", timestamp, levelStrings[level], filename, line);
         vfprintf(logFile, fmt, args);
         fprintf(logFile, "\n");
         fflush(logFile);

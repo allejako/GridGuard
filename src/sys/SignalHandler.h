@@ -1,5 +1,5 @@
-#ifndef SIGNAL_HANDLER_H
-#define SIGNAL_HANDLER_H
+#ifndef _SIGNAL_HANDLER_H_
+#define _SIGNAL_HANDLER_H_
 
 #include <signal.h>
 
@@ -14,4 +14,4 @@ void SignalHandler_SetServerFd(int fd);
 // Check and clear the reload_config flag. Returns 1 if SIGHUP was received.
 int SignalHandler_CheckReload(void);
 
-#endif // SIGNAL_HANDLER_H
+#endif // _SIGNAL_HANDLER_H_

@@ -211,10 +211,7 @@ int HTTPClient_Initiate(HTTPClient *client)
         }
     }
 
-    if (mbedtls_ssl_config_defaults(&client->sslConf,
-                                    MBEDTLS_SSL_IS_CLIENT,
-                                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0)
+    if (mbedtls_ssl_config_defaults(&client->sslConf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) != 0)
     {
         mbedtls_x509_crt_free(&client->cacert);
         mbedtls_ctr_drbg_free(&client->ctrDrbg);

@@ -7,19 +7,19 @@
 
 time_t parse_iso8601(const char *timeStr, int utc_offset_seconds);
 
-// Dedikerad parse-process som körs som egen executable via exec().
-// Läser FetchResult från FIFO (named pipe från Fetch process).
-// Serverar Unix domain socket där Compute-tråden connectar som client.
-// Skickar ParseResult till Compute via socket.
+// Dedicated parser process that runs as its own executable via exec().
+// Reads FetchResult from FIFO (named pipe from Fetch process).
+// Serves a Unix domain socket where the Compute thread connects as client.
+// Sends ParseResult to Compute via socket.
 
 typedef struct
 {
-    int fifoFd;              // Read end av FIFO från fetch process
+    int fifoFd;              // Read end of FIFO from fetch process
     int serverSocket;        // Unix domain socket server
-    int notifyFd;            // Write end av notify FIFO till Compute
-    char fifoPath[256];      // Path till FIFO-filen
-    char socketPath[256];    // Path till Unix socket
-    char notifyPath[256];    // Path till notify FIFO
+    int notifyFd;            // Write end of notify FIFO to Compute
+    char fifoPath[256];      // Path to FIFO file
+    char socketPath[256];    // Path to Unix socket
+    char notifyPath[256];    // Path to notify FIFO
     void *parser;            // Parser service (opaque pointer)
     bool isRunning;
 } ParserProcess;

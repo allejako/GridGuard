@@ -6,15 +6,15 @@
 #include <string.h>
 #include <time.h>
 
-int RestartPolicy_Initiate(RestartPolicy *rp, int max_restarts, int window_sec, int base_backoff_sec)
+int RestartPolicy_Initiate(RestartPolicy *rp, int maxRestarts, int windowSec, int baseBackoffSec)
 {
     if (!rp)
         return -1;
 
     memset(rp, 0, sizeof(RestartPolicy));
-    rp->max_restarts     = max_restarts;
-    rp->window_sec       = window_sec;
-    rp->base_backoff_sec = base_backoff_sec;
+    rp->maxRestarts     = maxRestarts;
+    rp->windowSec       = windowSec;
+    rp->baseBackoffSec  = baseBackoffSec;
 
     return 0;
 }
@@ -29,13 +29,13 @@ int RestartPolicy_CanRestart(RestartPolicy *rp)
 {
     time_t now = time(NULL);
 
-    if (rp->count > 0 && difftime(now, rp->first_restart) > rp->window_sec)
+    if (rp->count > 0 && difftime(now, rp->firstRestart) > rp->windowSec)
     {
         LOG_INFO("Watchdog: Restart window expired, resetting counter");
         rp->count = 0;
     }
 
-    return rp->count < rp->max_restarts;
+    return rp->count < rp->maxRestarts;
 }
 
 void RestartPolicy_RecordRestart(RestartPolicy *rp)
@@ -43,9 +43,9 @@ void RestartPolicy_RecordRestart(RestartPolicy *rp)
     time_t now = time(NULL);
 
     if (rp->count == 0)
-        rp->first_restart = now;
+        rp->firstRestart = now;
 
-    if (rp->count < rp->max_restarts)
+    if (rp->count < rp->maxRestarts)
         rp->timestamps[rp->count] = now;
 
     rp->count++;
@@ -53,7 +53,7 @@ void RestartPolicy_RecordRestart(RestartPolicy *rp)
 
 int RestartPolicy_GetBackoffDelay(const RestartPolicy *rp)
 {
-    int delay = rp->base_backoff_sec;
+    int delay = rp->baseBackoffSec;
     for (int i = 0; i < rp->count - 1 && delay < 32; i++)
         delay *= 2;
     return delay;
@@ -66,5 +66,5 @@ int RestartPolicy_GetCount(const RestartPolicy *rp)
 
 int RestartPolicy_GetMax(const RestartPolicy *rp)
 {
-    return rp->max_restarts;
+    return rp->maxRestarts;
 }

@@ -1,5 +1,5 @@
-#ifndef RUNTIME_CONFIG_H
-#define RUNTIME_CONFIG_H
+#ifndef _RUNTIME_CONFIG_H_
+#define _RUNTIME_CONFIG_H_
 
 #include "config/ConfigParser.h"
 
@@ -9,10 +9,11 @@ typedef struct pthread_rwlock_t_wrapper *pthread_rwlock_ptr_t;
 // Thread-safe runtime configuration system
 // Loads config from file and provides read/write-locked access
 
-typedef struct {
+typedef struct
+{
     ConfigParser parser;
-    void *lock;  // pthread_rwlock_t* (opaque to avoid header issues)
-    int initialized;
+    void        *lock;        // pthread_rwlock_t* (opaque to avoid header issues)
+    int          initialized;
 } RuntimeConfig;
 
 // Global config instance (defined in RuntimeConfig.c)
@@ -37,4 +38,4 @@ int RuntimeConfig_Reload(void);
 // Free all resources
 void RuntimeConfig_Shutdown(void);
 
-#endif // RUNTIME_CONFIG_H
+#endif // _RUNTIME_CONFIG_H_

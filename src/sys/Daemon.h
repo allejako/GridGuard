@@ -1,5 +1,5 @@
-#ifndef DAEMON_H
-#define DAEMON_H
+#ifndef _DAEMON_H_
+#define _DAEMON_H_
 
 // Daemonize the current process using the classic 7-step Unix procedure:
 // 1. fork() - parent exits
@@ -26,4 +26,4 @@ void Daemon_StopHeartbeat(void);
 // Clean up daemon resources (remove PID file). Call during shutdown.
 void Daemon_Shutdown(void);
 
-#endif // DAEMON_H
+#endif // _DAEMON_H_

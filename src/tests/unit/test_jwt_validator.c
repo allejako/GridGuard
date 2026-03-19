@@ -79,37 +79,37 @@ static void test_valid_token(void)
 
 static void test_expired_token(void)
 {
-    print_section("Utgången JWT");
+    print_section("Expired JWT");
     setenv("GRIDGUARD_JWT_SECRET", SECRET, 1);
 
     JWTClaims claims;
     int result = JWT_Validate(TOKEN_EXPIRED, &claims);
 
-    ASSERT("JWT_Validate returnerar -1 vid utgången token", result == -1);
+    ASSERT("JWT_Validate returns -1 for expired token", result == -1);
 }
 
 static void test_wrong_secret(void)
 {
-    print_section("Fel hemlig nyckel");
+    print_section("Wrong secret key");
     setenv("GRIDGUARD_JWT_SECRET", SECRET, 1);
 
     JWTClaims claims;
     int result = JWT_Validate(TOKEN_WRONG_SECRET, &claims);
 
-    ASSERT("JWT_Validate returnerar -1 vid fel signatur", result == -1);
+    ASSERT("JWT_Validate returns -1 for wrong signature", result == -1);
 }
 
 static void test_missing_secret_env(void)
 {
-    print_section("Saknad GRIDGUARD_JWT_SECRET");
+    print_section("Missing GRIDGUARD_JWT_SECRET");
     unsetenv("GRIDGUARD_JWT_SECRET");
 
     JWTClaims claims;
     int result = JWT_Validate(TOKEN_VALID, &claims);
 
-    ASSERT("JWT_Validate returnerar -1 om env var saknas", result == -1);
+    ASSERT("JWT_Validate returns -1 when env var is missing", result == -1);
 
-    // Återställ för följande tester
+    // Restore for subsequent tests
     setenv("GRIDGUARD_JWT_SECRET", SECRET, 1);
 }
 
@@ -126,20 +126,20 @@ static void test_wrong_algorithm(void)
 
 static void test_malformed_token(void)
 {
-    print_section("Missformade tokens");
+    print_section("Malformed tokens");
     setenv("GRIDGUARD_JWT_SECRET", SECRET, 1);
 
     JWTClaims claims;
 
-    ASSERT("Tom sträng returnerar -1",
+    ASSERT("Empty string returns -1",
            JWT_Validate("", &claims) == -1);
-    ASSERT("Ingen punkt returnerar -1",
+    ASSERT("No dots returns -1",
            JWT_Validate("nodots", &claims) == -1);
-    ASSERT("Bara en punkt returnerar -1",
+    ASSERT("Only one dot returns -1",
            JWT_Validate("header.payload", &claims) == -1);
-    ASSERT("NULL-token returnerar -1",
+    ASSERT("NULL token returns -1",
            JWT_Validate(NULL, &claims) == -1);
-    ASSERT("NULL-claims returnerar -1",
+    ASSERT("NULL claims returns -1",
            JWT_Validate(TOKEN_VALID, NULL) == -1);
 }
 
@@ -148,11 +148,11 @@ static void test_malformed_token(void)
 // ---------------------------------------------------------------------------
 int main(void)
 {
-    // Tysta loggaren — vi bryr oss bara om test-output
+    // Silence the logger — we only care about test output
     Logger_Initiate("logs/test_jwt.log", LOG_LEVEL_WARNING);
 
     printf("=========================================\n");
-    printf("       JWTValidator — Enhetstester\n");
+    printf("       JWTValidator — Unit Tests\n");
     printf("=========================================\n");
 
     test_valid_token();
@@ -163,7 +163,7 @@ int main(void)
     test_malformed_token();
 
     printf("\n=========================================\n");
-    printf("Resultat: %d/%d tester godkända\n", g_tests_passed, g_tests_run);
+    printf("Results: %d/%d tests passed\n", g_tests_passed, g_tests_run);
     printf("=========================================\n");
 
     Logger_Shutdown();

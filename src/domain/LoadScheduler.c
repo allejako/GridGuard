@@ -3,11 +3,7 @@
 
 #include <float.h>
 
-int LoadScheduler_FindWindow(
-    const SchedulerEntry *entries, int count,
-    int durationMinutes, double powerKw,
-    time_t deadline, time_t nowTime,
-    ScheduleWindow *out)
+int LoadScheduler_FindWindow(const SchedulerEntry *entries, int count, int durationMinutes, double powerKw, time_t deadline, time_t nowTime, ScheduleWindow *out)
 {
     if (!entries || count <= 0 || durationMinutes <= 0 || powerKw <= 0.0 || !out)
         return -1;

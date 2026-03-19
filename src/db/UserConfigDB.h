@@ -1,5 +1,5 @@
-#ifndef USER_CONFIG_DB_H
-#define USER_CONFIG_DB_H
+#ifndef _USER_CONFIG_DB_H_
+#define _USER_CONFIG_DB_H_
 
 #include "db/ClientDB.h"
 #include "domain/UserConfig.h"
@@ -12,4 +12,4 @@ int UserConfigDB_Get(ClientDB *db, const char *userId, UserConfig *out);
 // Returns  0 = ok,  -1 = error.
 int UserConfigDB_Upsert(ClientDB *db, const UserConfig *config);
 
-#endif // USER_CONFIG_DB_H
+#endif // _USER_CONFIG_DB_H_

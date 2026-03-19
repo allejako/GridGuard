@@ -107,7 +107,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    // Öppna shared memory caches (skapade av main process)
+    // Open shared memory caches (created by main process)
     proc->weatherCache = calloc(1, sizeof(SharedCache));
     proc->priceCache = calloc(1, sizeof(SharedCache));
 
@@ -121,7 +121,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    // Attach till befintliga shared memory segments
+    // Attach to existing shared memory segmentss
     if (SharedCache_Initiate((SharedCache *)proc->weatherCache, "/gridguard_weather", 900 /* 15 min */) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to weather cache");
@@ -143,7 +143,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    // Öppna request FIFO för läsning (blockerar tills server öppnar write end)
+    // Open request FIFO for reading (blocks until server opens write end)
     proc->requestFifoFd = open(requestFifoPath, O_RDONLY);
     if (proc->requestFifoFd < 0)
     {
@@ -157,7 +157,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    // Öppna result FIFO för skrivning (blockerar tills parse-processen öppnar read end)
+    // Open result FIFO for writing (blocks until the parser process opens the read end)
     proc->resultFifoFd = open(resultFifoPath, O_WRONLY);
     if (proc->resultFifoFd < 0)
     {
@@ -181,8 +181,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
 
     proc->isRunning = true;
 
-    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s, Weather interval: %ds, Price fetch: daily at 13:00 CET)",
-             getpid(), requestFifoPath, resultFifoPath, proc->weatherIntervalSeconds);
+    LOG_INFO("FetcherProcess: Initialized (PID %d, Request FIFO %s, Result FIFO %s, Weather interval: %ds, Price fetch: daily at 13:00 CET)", getpid(), requestFifoPath, resultFifoPath, proc->weatherIntervalSeconds);
     return 0;
 }
 
@@ -230,15 +229,13 @@ int FetcherProcess_Run(FetcherProcess *proc)
             struct tm now_tm_stockholm;
             {
                 // Force Europe/Stockholm timezone for this conversion
-                char *old_tz = getenv("TZ");
+                const char *_tmp_tz = getenv("TZ");
+                char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
                 setenv("TZ", "Europe/Stockholm", 1);
                 tzset();
                 localtime_r(&now, &now_tm_stockholm);
-                // Restore original timezone
-                if (old_tz)
-                    setenv("TZ", old_tz, 1);
-                else
-                    unsetenv("TZ");
+                if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); }
+                else          unsetenv("TZ");
                 tzset();
             }
 
@@ -283,14 +280,13 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 tomorrow.tm_mday += 1;
                 tomorrow.tm_isdst = -1;
                 {
-                    char *old_tz = getenv("TZ");
+                    const char *_tmp_tz = getenv("TZ");
+                    char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
                     setenv("TZ", "Europe/Stockholm", 1);
                     tzset();
                     mktime(&tomorrow);  // normalise overflow (e.g. mday=32 → next month)
-                    if (old_tz)
-                        setenv("TZ", old_tz, 1);
-                    else
-                        unsetenv("TZ");
+                    if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); }
+                    else          unsetenv("TZ");
                     tzset();
                 }
 
@@ -298,10 +294,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 {
                     const char *region = regions[r];
                     char priceKey[256];
-                    snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d",
-                             region,
-                             today.tm_year + 1900, today.tm_mon + 1, today.tm_mday,
-                             tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
+                    snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d", region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday, tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
 
                     // Invalidate old cache to force fresh fetch
                     SharedCache_Invalidate(priceCache, priceKey);
@@ -395,8 +388,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
                 }
 
-                LOG_INFO("FetcherProcess: Price fetch complete — %d regions with tomorrow, %d today-only, %d failed",
-                         tomorrowFetched, fetched - tomorrowFetched, skipped);
+                LOG_INFO("FetcherProcess: Price fetch complete — %d regions with tomorrow, %d today-only, %d failed", tomorrowFetched, fetched - tomorrowFetched, skipped);
 
                 // Signal that fresh price data is available (for cache invalidation)
                 if (fetched > 0)
@@ -453,7 +445,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
 
         LOG_INFO("FetcherProcess: Processing request for %s/%s", request.userId, request.region);
 
-        // Förbered resultat
+        // Prepare result
         FetchResult result = {0};
         strncpy(result.userId, request.userId, sizeof(result.userId) - 1);
         strncpy(result.location, request.location, sizeof(result.location) - 1);
@@ -467,7 +459,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
 
         time_t now; // For circuit breaker timing
 
-        // Hämta väderdata med caching
+        // Fetch weather data with caching
         char weatherKey[256];
         snprintf(weatherKey, sizeof(weatherKey), "openmeteo_%s_%s", request.lat, request.lon);
 
@@ -522,15 +514,16 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
         }
 
-        // Hämta price data (dagens + morgondagens priser för 48h forecast)
-        // Cache key format: "SE3_2026-03-17+2026-03-18" för combined 48h data
+        // Fetch price data (today's + tomorrow's prices for 48h forecast)
+        // Cache key format: "SE3_2026-03-17+2026-03-18" for combined 48h data
         char priceKey[256];
         now = time(NULL);
         struct tm today, tomorrow;
         // Use Stockholm TZ for both cache key and API URLs so they always match
         // the background-fetch keys, even when the server runs in UTC or another TZ.
         {
-            char *old_tz = getenv("TZ");
+            const char *_tmp_tz = getenv("TZ");
+            char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
             setenv("TZ", "Europe/Stockholm", 1);
             tzset();
             localtime_r(&now, &today);
@@ -538,14 +531,11 @@ int FetcherProcess_Run(FetcherProcess *proc)
             tomorrow.tm_mday += 1;
             tomorrow.tm_isdst = -1;
             mktime(&tomorrow);  // normalise + handle DST spring-forward
-            if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+            if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); } else unsetenv("TZ");
             tzset();
         }
 
-        snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d",
-                 request.region,
-                 today.tm_year + 1900, today.tm_mon + 1, today.tm_mday,
-                 tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
+        snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d", request.region, today.tm_year + 1900, today.tm_mon + 1, today.tm_mday, tomorrow.tm_year + 1900, tomorrow.tm_mon + 1, tomorrow.tm_mday);
 
         if (SharedCache_Lookup(priceCache, priceKey, result.priceJson, sizeof(result.priceJson)) == 0)
         {

@@ -1,5 +1,5 @@
-#ifndef JWT_VALIDATOR_H
-#define JWT_VALIDATOR_H
+#ifndef _JWT_VALIDATOR_H_
+#define _JWT_VALIDATOR_H_
 
 // Maximum length for the subject (user_id) extracted from JWT.
 #define JWT_SUBJECT_MAX 128
@@ -16,4 +16,4 @@ typedef struct
 // Returns 0 and fills *claims on success, -1 on any failure.
 int JWT_Validate(const char *token, JWTClaims *claims);
 
-#endif // JWT_VALIDATOR_H
+#endif // _JWT_VALIDATOR_H_

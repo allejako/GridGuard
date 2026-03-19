@@ -30,8 +30,8 @@ static void print_section(const char *title)
 }
 
 // ---------------------------------------------------------------------------
-// Hjälpfunktion: skriver en HTTP-förfrågan till en fd och returnerar
-// läs-änden av ett socketpar — simulerar en riktig TCP-anslutning.
+// Helper: writes an HTTP request to a fd and returns
+// the read end of a socket pair — simulates a real TCP connection.
 // ---------------------------------------------------------------------------
 static int write_request_to_socket(const char *raw, int *read_fd_out)
 {
@@ -39,9 +39,9 @@ static int write_request_to_socket(const char *raw, int *read_fd_out)
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0)
         return -1;
 
-    // Skriv hela HTTP-strängen till skriv-änden, stäng sedan
+    // Write the full HTTP string to the write end, then close
     write(fds[1], raw, strlen(raw));
-    close(fds[1]);   // signalerar EOF → HTTPRequest_Parse avslutar läsning
+    close(fds[1]);   // signals EOF → HTTPRequest_Parse stops reading
 
     *read_fd_out = fds[0];
     return 0;
@@ -53,7 +53,7 @@ static int write_request_to_socket(const char *raw, int *read_fd_out)
 
 static void test_parse_health_request(void)
 {
-    print_section("Parsning: GET /health");
+    print_section("Parse: GET /health");
 
     const char *raw =
         "GET /health HTTP/1.1\r\n"
@@ -63,7 +63,7 @@ static void test_parse_health_request(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -72,15 +72,15 @@ static void test_parse_health_request(void)
     int result = HTTPRequest_Parse(fd, &req);
     close(fd);
 
-    ASSERT("HTTPRequest_Parse returnerar 0",  result == 0);
-    ASSERT("method == \"GET\"",               strcmp(req.method, "GET") == 0);
-    ASSERT("path == \"/health\"",             strcmp(req.path, "/health") == 0);
-    ASSERT("authorization är tom",            req.authorization[0] == '\0');
+    ASSERT("HTTPRequest_Parse returns 0",  result == 0);
+    ASSERT("method == \"GET\"",            strcmp(req.method, "GET") == 0);
+    ASSERT("path == \"/health\"",          strcmp(req.path, "/health") == 0);
+    ASSERT("authorization is empty",       req.authorization[0] == '\0');
 }
 
 static void test_parse_forecast_with_auth(void)
 {
-    print_section("Parsning: GET /forecast med Authorization-header");
+    print_section("Parse: GET /forecast with Authorization header");
 
     const char *raw =
         "GET /forecast HTTP/1.1\r\n"
@@ -92,7 +92,7 @@ static void test_parse_forecast_with_auth(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -101,15 +101,15 @@ static void test_parse_forecast_with_auth(void)
     int result = HTTPRequest_Parse(fd, &req);
     close(fd);
 
-    ASSERT("HTTPRequest_Parse returnerar 0", result == 0);
-    ASSERT("method == \"GET\"",              strcmp(req.method, "GET") == 0);
-    ASSERT("path == \"/forecast\"",          strcmp(req.path, "/forecast") == 0);
-    ASSERT("authorization är ifylld",        req.authorization[0] != '\0');
+    ASSERT("HTTPRequest_Parse returns 0", result == 0);
+    ASSERT("method == \"GET\"",           strcmp(req.method, "GET") == 0);
+    ASSERT("path == \"/forecast\"",       strcmp(req.path, "/forecast") == 0);
+    ASSERT("authorization is populated", req.authorization[0] != '\0');
 }
 
 static void test_get_bearer_token_valid(void)
 {
-    print_section("GetBearerToken: giltig Bearer-header");
+    print_section("GetBearerToken: valid Bearer header");
 
     const char *raw =
         "GET /forecast HTTP/1.1\r\n"
@@ -119,7 +119,7 @@ static void test_get_bearer_token_valid(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -130,14 +130,14 @@ static void test_get_bearer_token_valid(void)
 
     const char *token = HTTPRequest_GetBearerToken(&req);
 
-    ASSERT("GetBearerToken returnerar icke-NULL",        token != NULL);
+    ASSERT("GetBearerToken returns non-NULL",             token != NULL);
     ASSERT("Token == \"mytoken123\"",
            token != NULL && strcmp(token, "mytoken123") == 0);
 }
 
 static void test_get_bearer_token_missing(void)
 {
-    print_section("GetBearerToken: saknad Authorization-header");
+    print_section("GetBearerToken: missing Authorization header");
 
     const char *raw =
         "GET /forecast HTTP/1.1\r\n"
@@ -147,7 +147,7 @@ static void test_get_bearer_token_missing(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -158,12 +158,12 @@ static void test_get_bearer_token_missing(void)
 
     const char *token = HTTPRequest_GetBearerToken(&req);
 
-    ASSERT("GetBearerToken returnerar NULL om Authorization saknas", token == NULL);
+    ASSERT("GetBearerToken returns NULL if Authorization is missing", token == NULL);
 }
 
 static void test_get_bearer_token_wrong_scheme(void)
 {
-    print_section("GetBearerToken: Basic-schema (inte Bearer)");
+    print_section("GetBearerToken: Basic scheme (not Bearer)");
 
     const char *raw =
         "GET /forecast HTTP/1.1\r\n"
@@ -173,7 +173,7 @@ static void test_get_bearer_token_wrong_scheme(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -184,12 +184,12 @@ static void test_get_bearer_token_wrong_scheme(void)
 
     const char *token = HTTPRequest_GetBearerToken(&req);
 
-    ASSERT("GetBearerToken returnerar NULL för Basic-schema", token == NULL);
+    ASSERT("GetBearerToken returns NULL for Basic scheme", token == NULL);
 }
 
 static void test_parse_post_with_body(void)
 {
-    print_section("Parsning: POST /forecast med body");
+    print_section("Parse: POST /forecast with body");
 
     const char *raw =
         "POST /forecast HTTP/1.1\r\n"
@@ -201,7 +201,7 @@ static void test_parse_post_with_body(void)
     int fd;
     if (write_request_to_socket(raw, &fd) != 0)
     {
-        printf("  [FAIL] socketpair misslyckades\n");
+        printf("  [FAIL] socketpair failed\n");
         g_tests_run++;
         return;
     }
@@ -210,9 +210,9 @@ static void test_parse_post_with_body(void)
     int result = HTTPRequest_Parse(fd, &req);
     close(fd);
 
-    ASSERT("HTTPRequest_Parse returnerar 0",  result == 0);
-    ASSERT("method == \"POST\"",              strcmp(req.method, "POST") == 0);
-    ASSERT("path == \"/forecast\"",           strcmp(req.path, "/forecast") == 0);
+    ASSERT("HTTPRequest_Parse returns 0",  result == 0);
+    ASSERT("method == \"POST\"",           strcmp(req.method, "POST") == 0);
+    ASSERT("path == \"/forecast\"",        strcmp(req.path, "/forecast") == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ static void test_parse_post_with_body(void)
 int main(void)
 {
     printf("=========================================\n");
-    printf("       HTTPRequest — Enhetstester\n");
+    printf("       HTTPRequest — Unit Tests\n");
     printf("=========================================\n");
 
     test_parse_health_request();
@@ -232,7 +232,7 @@ int main(void)
     test_parse_post_with_body();
 
     printf("\n=========================================\n");
-    printf("Resultat: %d/%d tester godkända\n", g_tests_passed, g_tests_run);
+    printf("Results: %d/%d tests passed\n", g_tests_passed, g_tests_run);
     printf("=========================================\n");
 
     return (g_tests_passed == g_tests_run) ? 0 : 1;

@@ -1,6 +1,5 @@
-
-#ifndef __TCPServer_h_
-#define __TCPServer_h_
+#ifndef _TCP_SERVER_H_
+#define _TCP_SERVER_H_
 
 #include <stdio.h>
 #include <string.h>
@@ -15,15 +14,11 @@
 
 typedef struct
 {
-	int listen_fd;
-
+    int listen_fd;
 } TCPServer;
 
+int  TCPServer_Initiate(TCPServer *server, const char *port);
+int  TCPServer_Accept(TCPServer *server);
+void TCPServer_Shutdown(TCPServer *server);
 
-int TCPServer_Initiate(TCPServer* server, const char* port);
-
-int TCPServer_Accept(TCPServer* server);
-
-void TCPServer_Shutdown(TCPServer* server);
-
-#endif //__TCPServer_h_
+#endif // _TCP_SERVER_H_

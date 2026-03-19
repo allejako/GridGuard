@@ -98,15 +98,11 @@ static void HandleRoot(int fd)
         "\n"
         "  <span class='section-title'>QUICK START</span>\n"
         "\n"
-        "    <span class='comment'># Automated demo (recommended)</span>\n"
-        "    make dev\n"
+        "    <span class='comment'># Start server + live dashboard (recommended)</span>\n"
+        "    make client\n"
         "\n"
-        "    <span class='comment'># Manual setup</span>\n"
-        "    python3 scripts/seed_platform.py platform.db\n"
-        "    python3 scripts/seed_client.py gridguard.db\n"
-        "    export GRIDGUARD_JWT_SECRET=\"gridguard-test-secret\"\n"
-        "    export TOKEN=$(python3 scripts/generate_jwt.py platform.db test_user)\n"
-        "    curl -H \"Authorization: Bearer $TOKEN\" http://localhost:8080/forecast\n"
+        "    <span class='comment'># Dashboard refreshes every 60s automatically</span>\n"
+        "    <span class='comment'># Custom interval: GridGuard-client forecast --watch --interval 30</span>\n"
         "\n"
         "\n"
         "  <span class='section-title'>DOCUMENTATION</span>\n"
@@ -152,33 +148,33 @@ static void HandleMetrics(int fd)
 
     // Watchdog info
     cJSON *watchdog = cJSON_AddObjectToObject(root, "watchdog");
-    cJSON_AddNumberToObject(watchdog, "uptime_seconds", (double)difftime(now, metrics->watchdog_start_time));
-    cJSON_AddNumberToObject(watchdog, "restart_count", metrics->restart_count);
-    cJSON_AddNumberToObject(watchdog, "max_restarts", metrics->max_restarts);
-    cJSON_AddNumberToObject(watchdog, "restart_window_seconds", metrics->restart_window_sec);
+    cJSON_AddNumberToObject(watchdog, "uptime_seconds", (double)difftime(now, metrics->watchdogStartTime));
+    cJSON_AddNumberToObject(watchdog, "restart_count", metrics->restartCount);
+    cJSON_AddNumberToObject(watchdog, "max_restarts", metrics->maxRestarts);
+    cJSON_AddNumberToObject(watchdog, "restart_window_seconds", metrics->restartWindowSec);
 
-    if (metrics->last_restart_time > 0)
+    if (metrics->lastRestartTime > 0)
     {
-        cJSON_AddNumberToObject(watchdog, "last_restart_seconds_ago", (double)difftime(now, metrics->last_restart_time));
+        cJSON_AddNumberToObject(watchdog, "last_restart_seconds_ago", (double)difftime(now, metrics->lastRestartTime));
     }
 
     // Fetcher process
     cJSON *fetcher = cJSON_AddObjectToObject(root, "fetcher");
-    cJSON_AddNumberToObject(fetcher, "pid", (int)metrics->fetcher_pid);
-    cJSON_AddNumberToObject(fetcher, "uptime_seconds", (double)difftime(now, metrics->fetcher_start_time));
-    cJSON_AddNumberToObject(fetcher, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->fetcher_last_heartbeat));
+    cJSON_AddNumberToObject(fetcher, "pid", (int)metrics->fetcherPid);
+    cJSON_AddNumberToObject(fetcher, "uptime_seconds", (double)difftime(now, metrics->fetcherStartTime));
+    cJSON_AddNumberToObject(fetcher, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->fetcherLastHeartbeat));
 
     // Parser process
     cJSON *parser = cJSON_AddObjectToObject(root, "parser");
-    cJSON_AddNumberToObject(parser, "pid", (int)metrics->parser_pid);
-    cJSON_AddNumberToObject(parser, "uptime_seconds", (double)difftime(now, metrics->parser_start_time));
-    cJSON_AddNumberToObject(parser, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->parser_last_heartbeat));
+    cJSON_AddNumberToObject(parser, "pid", (int)metrics->parserPid);
+    cJSON_AddNumberToObject(parser, "uptime_seconds", (double)difftime(now, metrics->parserStartTime));
+    cJSON_AddNumberToObject(parser, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->parserLastHeartbeat));
 
     // Server process
     cJSON *server = cJSON_AddObjectToObject(root, "server");
-    cJSON_AddNumberToObject(server, "pid", (int)metrics->server_pid);
-    cJSON_AddNumberToObject(server, "uptime_seconds", (double)difftime(now, metrics->server_start_time));
-    cJSON_AddNumberToObject(server, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->server_last_heartbeat));
+    cJSON_AddNumberToObject(server, "pid", (int)metrics->serverPid);
+    cJSON_AddNumberToObject(server, "uptime_seconds", (double)difftime(now, metrics->serverStartTime));
+    cJSON_AddNumberToObject(server, "last_heartbeat_seconds_ago", (double)difftime(now, metrics->serverLastHeartbeat));
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -218,10 +214,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     gmtime_r(&now, &now_tm);
 
     char cacheKey[SHARED_CACHE_KEY_MAX];
-    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f",
-             now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
-             cfg.latitude, cfg.longitude, cfg.region,
-             cfg.solarAreaM2);
+    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f", now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday, cfg.latitude, cfg.longitude, cfg.region, cfg.solarAreaM2);
 
     // Smart cache invalidation: Check if input data (weather/prices) has been updated.
     // If yes, invalidate ALL forecast caches (not just this user's) to prevent race conditions.
@@ -415,8 +408,7 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         return;
     }
 
-    LOG_INFO("ClientHandler: Saved config for user=%s lat=%.4f lon=%.4f region=%s",
-             cfg.userId, cfg.latitude, cfg.longitude, cfg.region);
+    LOG_INFO("ClientHandler: Saved config for user=%s lat=%.4f lon=%.4f region=%s", cfg.userId, cfg.latitude, cfg.longitude, cfg.region);
     HTTPResponse_SendJson(fd, "{\"status\":\"ok\"}");
 }
 

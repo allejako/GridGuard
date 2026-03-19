@@ -319,8 +319,7 @@ void *ComputeWorker_Run(void *arg)
         }
 
         EnergyData plan;
-        int rc = Compute_GenerateEnergyPlan(compute, &result.forecastData, result.solarAreaM2, result.solarEfficiency,
-                                            result.consumptionKwh, result.gridFee_low, result.gridFee_normal, result.gridFee_high, &plan);
+        int rc = Compute_GenerateEnergyPlan(compute, &result.forecastData, result.solarAreaM2, result.solarEfficiency, result.consumptionKwh, result.gridFee_low, result.gridFee_normal, result.gridFee_high, &plan);
 
         if (rc != 0)
         {

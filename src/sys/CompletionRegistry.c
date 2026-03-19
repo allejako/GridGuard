@@ -24,7 +24,7 @@ void RegisterCompletion(const char *userId, WorkCompletion *completion)
 
     pthread_mutex_lock(&g_mutex);
 
-    // Hitta första lediga slot
+    // Find first free slot
     for (int i = 0; i < MAX_COMPLETIONS; i++)
     {
         if (!g_registry[i].active)
@@ -50,7 +50,7 @@ WorkCompletion *FindCompletionByUserId(const char *userId)
 
     pthread_mutex_lock(&g_mutex);
 
-    // Sök efter userId i registry och returnera WorkCompletion
+    // Search for userId in registry and return WorkCompletion
     for (int i = 0; i < MAX_COMPLETIONS; i++) 
     {
         if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0) 

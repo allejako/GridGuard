@@ -54,8 +54,7 @@ int ScheduleDB_Insert(ClientDB *db, const ScheduleEntry *entry)
     return 0;
 }
 
-int ScheduleDB_GetByUser(ClientDB *db, const char *userId,
-                         ScheduleEntry *out, int maxCount, int *count)
+int ScheduleDB_GetByUser(ClientDB *db, const char *userId, ScheduleEntry *out, int maxCount, int *count)
 {
     if (!db || !db->initialized || !userId || !out || maxCount <= 0 || !count)
         return -1;

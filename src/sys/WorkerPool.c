@@ -47,8 +47,7 @@ int WorkerPool_Start(WorkerPool *pool)
     for (int i = 0; i < pool->numWorkers; i++)
     {
         pool->workers[i].isRunning = true;
-        if (pthread_create(&pool->workers[i].thread, NULL,
-                           pool->threadFunc, &pool->workers[i]) != 0)
+        if (pthread_create(&pool->workers[i].thread, NULL, pool->threadFunc, &pool->workers[i]) != 0)
         {
             LOG_FATAL("WorkerPool: Failed to create thread %d", i);
 

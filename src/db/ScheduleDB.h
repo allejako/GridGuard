@@ -1,5 +1,5 @@
-#ifndef SCHEDULE_DB_H
-#define SCHEDULE_DB_H
+#ifndef _SCHEDULE_DB_H_
+#define _SCHEDULE_DB_H_
 
 #include "db/ClientDB.h"
 #include <time.h>
@@ -33,4 +33,4 @@ int ScheduleDB_GetByUser(ClientDB *db, const char *userId, ScheduleEntry *out, i
 // Returns 0 on success, 1 if not found, -1 on DB error.
 int ScheduleDB_Delete(ClientDB *db, const char *scheduleId, const char *userId);
 
-#endif // SCHEDULE_DB_H
+#endif // _SCHEDULE_DB_H_

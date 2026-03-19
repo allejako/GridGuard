@@ -1,5 +1,5 @@
-#ifndef COMPUTE_WORKER_H
-#define COMPUTE_WORKER_H
+#ifndef _COMPUTE_WORKER_H_
+#define _COMPUTE_WORKER_H_
 
 #include <stdbool.h>
 
@@ -17,4 +17,4 @@ typedef struct
 
 void *ComputeWorker_Run(void *arg);
 
-#endif // COMPUTE_WORKER_H
+#endif // _COMPUTE_WORKER_H_

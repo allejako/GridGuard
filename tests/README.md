@@ -15,19 +15,31 @@ GridGuard is not a typical web service - it's a **resilient distributed system**
 
 ```
 tests/
-├── unit/                           # Unit tests with Google Test
-│   ├── test_logger_gtest.cpp      # Basic infrastructure
+├── unit/                                   # Unit tests with Google Test
+│   ├── test_logger_gtest.cpp              # Basic infrastructure
 │   ├── test_http_request_gtest.cpp
 │   ├── test_http_response_gtest.cpp
+│   ├── test_config_parser_gtest.cpp
 │   │
-│   ├── test_restart_policy_gtest.cpp    # WATCHDOG RESILIENCE
-│   ├── test_scheduler_gtest.cpp         # ENERGY OPTIMIZATION
-│   └── test_queue_concurrent_gtest.cpp  # CONCURRENCY STRESS
+│   ├── test_restart_policy_gtest.cpp      # WATCHDOG RESILIENCE
+│   ├── test_scheduler_gtest.cpp           # ENERGY OPTIMIZATION
+│   ├── test_queue_concurrent_gtest.cpp    # CONCURRENCY STRESS
+│   │
+│   ├── test_jwt_gtest.cpp                 # TOKEN LIFECYCLE
+│   ├── test_runtime_config_gtest.cpp      # CONFIG FALLBACK CHAIN
+│   ├── test_api_endpoints_gtest.cpp       # URL CONSTRUCTION
+│   ├── test_compute_gtest.cpp             # BUY/SELL/AVOID/IDLE SIGNALS
+│   ├── test_work_completion_gtest.cpp     # SYNC PRIMITIVE
+│   ├── test_heartbeat_gtest.cpp           # WATCHDOG IPC
+│   ├── test_schedule_db_gtest.cpp         # SQLITE PERSISTENCE
+│   └── test_user_config_db_gtest.cpp      # SQLITE PERSISTENCE
 │
-├── integration/                    # Legacy C integration tests
-│   ├── test_api_fetch.c
-│   ├── test_openmeteo_parser.c
-│   └── test_pipeline.c
+├── integration/                    # Integration & chaos tests
+│   ├── test_process_pipeline_gtest.cpp   # MULTI-PROCESS IPC
+│   ├── test_chaos_watchdog_gtest.cpp     # SIGKILL CHAOS
+│   ├── test_api_fetch.c                  # Legacy C: API live calls
+│   ├── test_openmeteo_parser.c           # Legacy C: parser
+│   └── test_pipeline.c                  # Legacy C: in-process pipeline
 │
 └── benchmarks/                     # Performance benchmarks
     ├── bench_compute.c
@@ -109,6 +121,115 @@ Tests GridGuard's **thread-safe work distribution** under load:
 TEST_F(QueueConcurrentTest, RealisticGridGuardWorkload)
 ```
 
+### 4. JWT Tests (`test_jwt_gtest.cpp`)
+
+Tests the full token lifecycle: create → validate → reject.
+
+**Test Coverage**:
+- ✓ Valid token accepted
+- ✓ Expired token rejected
+- ✓ Wrong secret rejected
+- ✓ Missing `GRIDGUARD_JWT_SECRET` env var
+- ✓ Unsupported algorithm (RS256) rejected
+- ✓ Malformed/null inputs
+
+### 5. RuntimeConfig Tests (`test_runtime_config_gtest.cpp`)
+
+Tests the three-level fallback chain: config file → env var → default.
+
+**Test Coverage**:
+- ✓ Values read from config file
+- ✓ Env var override when file is absent
+- ✓ Defaults applied when neither source is present
+- ✓ Invalid values handled gracefully
+
+### 6. API Endpoint URL Builder Tests (`test_api_endpoints_gtest.cpp`)
+
+Verifies that URL construction produces well-formed strings for both the Elpriset and Open-Meteo APIs.
+
+**Test Coverage**:
+- ✓ Correct date formatting (today/tomorrow)
+- ✓ Region codes embedded correctly (SE1–SE4)
+- ✓ Latitude/longitude in Open-Meteo URL
+- ✓ Edge cases: midnight, DST boundaries, year rollover
+
+### 7. Compute Signal Tests (`test_compute_gtest.cpp`)
+
+Tests the BUY/SELL/AVOID/IDLE signal generation under controlled price and solar conditions.
+
+**Design**: All grid fees set to 0 so total cost = (spot + 0.40 tax) × 1.25 VAT — makes thresholds deterministic.
+
+**Test Coverage**:
+- ✓ BUY signal at low spot price
+- ✓ SELL signal at high spot price with available solar
+- ✓ IDLE when price is mid-range
+- ✓ Solar-only output (no grid needed)
+- ✓ Zero solar edge case
+
+### 8. WorkCompletion Tests (`test_work_completion_gtest.cpp`)
+
+Tests the one-shot signal/wait synchronization primitive used to notify the main thread when async work finishes.
+
+**Test Coverage**:
+- ✓ Signal delivered before wait returns
+- ✓ Wait blocks until signal is sent
+- ✓ Thread-safe signalling from worker thread
+
+### 9. Heartbeat Tests (`test_heartbeat_gtest.cpp`)
+
+Tests the pipe-based health-check primitive used by the watchdog to detect unresponsive child processes.
+
+**Test Coverage**:
+- ✓ Beat written successfully
+- ✓ Watchdog detects missing beat (timeout)
+- ✓ Repeated beats don't overflow pipe buffer
+- ✓ Heartbeat stops after pipe close
+
+### 10. ScheduleDB Tests (`test_schedule_db_gtest.cpp`)
+
+Tests SQLite-backed schedule persistence using an in-memory database so no disk state leaks between tests.
+
+**Test Coverage**:
+- ✓ Insert and retrieve schedule entries
+- ✓ Update existing entry
+- ✓ Delete entry
+- ✓ Empty result on unknown user
+
+### 12. Process Pipeline Integration Tests (`test_process_pipeline_gtest.cpp`)
+
+Tests the full multi-process IPC boundary at the `fork()`/`exec()` level — the architecture that makes GridGuard distinct from a simple monolith.
+
+**Test Coverage**:
+- ✓ Child sends heartbeat beat → parent `Heartbeat_Check` returns success
+- ✓ Dead process (closed pipe) detected via `Heartbeat_Check` returning EOF
+- ✓ Frozen process (pipe open, no beat) detected via timeout
+- ✓ Spawn and wait for three simultaneous processes (server/fetcher/parser)
+- ✓ Kill → restart cycle with `RestartPolicy` tracking
+- ✓ Watchdog monitors three processes via independent heartbeat pipes
+
+### 13. Chaos Engineering Tests (`test_chaos_watchdog_gtest.cpp`)
+
+Tests worst-case crash scenarios — kernel-level kills that give processes no chance to clean up — and verifies the watchdog responds correctly.
+
+**Test Coverage**:
+- ✓ `SIGKILL` cannot be ignored (unlike `SIGTERM`)
+- ✓ `SIGKILL` terminates immediately (`waitpid` confirms, `kill(pid, 0)` → `ESRCH`)
+- ✓ Heartbeat pipe closed on `SIGKILL` (kernel auto-closes all fds)
+- ✓ Five-crash `SIGKILL` storm hits rate limit
+- ✓ Exponential backoff progression after repeated `SIGKILL` crashes
+- ✓ Simultaneous kill of all three processes (server + fetcher + parser)
+- ✓ Full crash → restart → crash cycle with heartbeat validation
+
+### 11. UserConfigDB Tests (`test_user_config_db_gtest.cpp`)
+
+Tests SQLite-backed user config persistence (lat/lon, region, solar area/efficiency) using an in-memory database.
+
+**Test Coverage**:
+- ✓ Upsert creates new row
+- ✓ Upsert updates existing row
+- ✓ Retrieved values match stored values
+- ✓ Missing user returns default/null config
+
 ## Build System
 
 ### CMake Configuration
@@ -144,6 +265,9 @@ CMAKE_CXX_FLAGS_DEBUG += -fsanitize=address -fsanitize=undefined
 make test-gtest          # Run all Google Tests with ASAN/UBSAN
 make build-gtest         # Build tests without running
 make clean-gtest         # Clean CMake build directory
+make test-valgrind       # Run unit tests under Valgrind memcheck
+make test-tsan           # Build and run all tests with ThreadSanitizer
+make clean-tsan          # Clean TSan build directory
 ```
 
 ### CMake Direct
@@ -169,13 +293,24 @@ cd build && ctest --verbose
 ## Test Metrics
 
 ```
-Total Tests: 69
-├── Logger:           7 tests
-├── HTTPRequest:      8 tests
-├── HTTPResponse:    13 tests
-├── RestartPolicy:   11 tests  ← Watchdog resilience
-├── LoadScheduler:   14 tests  ← Energy optimization
-└── Queue:           16 tests  ← Concurrency stress
+Total Tests: 163
+├── Logger:              7 tests
+├── HTTPRequest:         8 tests
+├── HTTPResponse:       13 tests
+├── ConfigParser:        5 tests
+├── RestartPolicy:      11 tests  ← Watchdog resilience
+├── LoadScheduler:      14 tests  ← Energy optimization
+├── Queue:              16 tests  ← Concurrency stress
+├── JWT:                11 tests  ← Token lifecycle
+├── RuntimeConfig:       9 tests  ← Config fallback chain
+├── APIEndpoints:       15 tests  ← URL construction
+├── Compute:             9 tests  ← BUY/SELL/AVOID/IDLE signals
+├── WorkCompletion:      5 tests  ← Sync primitive
+├── Heartbeat:           8 tests  ← Watchdog IPC
+├── ScheduleDB:          8 tests  ← SQLite persistence
+├── UserConfigDB:        7 tests  ← SQLite persistence
+├── ProcessPipeline:     8 tests  ← Multi-process IPC integration
+└── ChaosWatchdog:       9 tests  ← SIGKILL chaos engineering
 ```
 
 **Code Coverage**:
@@ -195,12 +330,11 @@ Total Tests: 69
 
 ## Future Improvements
 
-- [ ] Integration tests for full watchdog → server → fetcher → parser pipeline
-- [ ] Chaos engineering: `SIGKILL` processes and verify watchdog recovery
-- [ ] Heartbeat monitoring tests (pipe-based IPC)
+- [x] Integration tests for full watchdog → server → fetcher → parser pipeline (`test_process_pipeline_gtest.cpp`)
+- [x] Chaos engineering: `SIGKILL` processes and verify watchdog recovery (`test_chaos_watchdog_gtest.cpp`)
 - [ ] Performance benchmarks with Google Benchmark
-- [ ] Valgrind integration in Makefile (`make test-valgrind`)
-- [ ] ThreadSanitizer tests (`make test-tsan`)
+- [x] Valgrind integration in Makefile (`make test-valgrind`)
+- [x] ThreadSanitizer tests (`make test-tsan`)
 
 ## Contributing
 
@@ -214,6 +348,6 @@ When adding tests:
 
 ---
 
-**Test Suite Version**: 1.0.0
-**Last Updated**: 2026-03-10
+**Test Suite Version**: 1.2.0
+**Last Updated**: 2026-03-20
 **Maintainer**: GridGuard Team

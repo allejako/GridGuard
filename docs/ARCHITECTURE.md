@@ -15,6 +15,26 @@ bin/GridGuard             (launcher — execv:ar watchdog direkt)
                 └── [thread] ComputeWorker
 ```
 
+```mermaid
+flowchart TD
+    L["bin/GridGuard\n(launcher)"]
+    WD["bin/GridGuard-watchdog\n(supervisor)"]
+    FE["bin/GridGuard-fetcher\n(hämtar väder + spotprisdata)"]
+    PA["bin/GridGuard-parser\n(validerar och strukturerar rådata)"]
+    SV["bin/GridGuard-server\n(HTTP API + energiberäkningar)"]
+    CW["[tråd] ComputeWorker\n(energiberäkning)"]
+
+    L -->|execv — ersätter sig själv| WD
+    WD -->|fork + exec| FE
+    WD -->|fork + exec| PA
+    WD -->|fork + exec| SV
+    SV -->|pthread_create| CW
+
+    WD -.->|heartbeat-pipe| FE
+    WD -.->|heartbeat-pipe| PA
+    WD -.->|heartbeat-pipe| SV
+```
+
 **Launcher** (`src/main.c`) är en tunn wrapper som gör `execv` direkt på watchdog — den ersätter sig själv utan att lämna en extra process i trädet.
 
 **Watchdog** är systemets rotprocess. Den:
@@ -285,7 +305,7 @@ Tre SharedCache-instanser används för att dela data mellan processer utan att 
 | Namn (shm) | Innehåll | Producent | Konsument | TTL (default) |
 |---|---|---|---|---|
 | `/gridguard_weather` | Väderdata (JSON, TTL-baserad) | Fetcher | Parser | 900s (15 min, konfigurerbar) |
-| `/gridguard_price` | Spotprisdata (JSON, TTL-baserad) | Fetcher | Parser | 3600s (60 min, konfigurerbar) |
+| `/gridguard_price` | Spotprisdata (JSON, TTL-baserad) | Fetcher | Parser | 43200s (12 h, konfigurerbar) |
 | `/gridguard_forecast` | Beräknad energiprognos (JSON) | ComputeWorker | Server (HTTP-svar) | 1800s (30 min, konfigurerbar) |
 | `/gridguard_watchdog_metrics` | Processtatistik | Watchdog | Server (`/metrics`) | N/A |
 
@@ -335,9 +355,225 @@ shm-segment (/dev/shm/gridguard_weather):
 
 Implementering: `src/cache/SharedCache.c` (rad 45-60 för rwlock init)
 
+### Cache HIT/MISS-flöde
+
+```mermaid
+flowchart TD
+    REQ["GET /forecast\n(HTTP-request)"]
+    CHK{"SharedCache_Lookup()\nforecast-cache"}
+
+    HIT["Cache HIT\nReturnera cachat JSON\ndirekt till klient"]
+    MISS["Cache MISS"]
+
+    WC["WorkCompletion_Initiate()\nRegistrera userId i CompletionRegistry"]
+    WFIFO["Skriv WorkRequest till FIFO\n→ Fetcher"]
+
+    subgraph ASYNC ["Asynkron pipeline (parallellt)"]
+        direction LR
+        FE_W["Fetcher\nkontrollerar sub-cacher"]
+
+        FE_WC{"weather-cache\ngiltig? (TTL 900s)"}
+        FE_PC{"price-cache\ngiltig? (TTL 43200s)"}
+
+        FE_FETCH_W["Hämtar väder\nfrån Open-Meteo"]
+        FE_FETCH_P["Hämtar spotpriser\nfrån elprisetjustnu"]
+
+        FE_W --> FE_WC
+        FE_W --> FE_PC
+        FE_WC -->|Miss| FE_FETCH_W
+        FE_WC -->|Hit| PA
+        FE_PC -->|Miss| FE_FETCH_P
+        FE_PC -->|Hit| PA
+        FE_FETCH_W --> PA
+        FE_FETCH_P --> PA
+
+        PA["Parser\nValiderar + strukturerar data"]
+        CW["ComputeWorker\nBeräknar 48h energiplan\n(192 kvartar × 15 min)"]
+        SC["SharedCache_Store()\nforecast-cache (TTL 1800s)"]
+
+        PA --> CW --> SC
+    end
+
+    WAIT["WorkCompletion_Wait()\npthread_cond_timedwait() 30s"]
+    SIGNAL["WorkCompletion_Signal()\n(från ComputeWorker)"]
+    RESP["Returnera energiplan JSON"]
+    TIMEOUT["HTTP 504 Gateway Timeout"]
+
+    REQ --> CHK
+    CHK -->|HIT| HIT
+    CHK -->|MISS| MISS
+    MISS --> WC --> WFIFO --> FE_W
+    WFIFO --> WAIT
+    SC --> SIGNAL --> WAIT
+    WAIT -->|Signal mottagen| RESP
+    WAIT -->|Timeout 30s| TIMEOUT
+```
+
+### Event-driven cache-invalidering
+
+Systemet är designat för att en inloggad användare **alltid** ska få en prognos baserad på senaste data — utan att behöva veta om ny data har kommit in.
+
+```mermaid
+sequenceDiagram
+    participant FE as Fetcher
+    participant TS as /tmp/gridguard_last_data_update
+    participant CH as ClientHandler
+    participant FC as forecastCache
+
+    Note over FE: 13:00 CET — ny prisdata hämtad
+    FE->>TS: signal_data_updated()\nskriver unix-timestamp
+
+    Note over CH: Användare gör GET /forecast
+    CH->>TS: read_last_data_update()
+    CH->>CH: timestamp > lastDataUpdateCheck?
+    CH->>FC: SharedCache_InvalidateAll()
+    Note over FC: All gammal forecast-cache rensad
+    CH->>CH: Cache MISS → kör pipeline\nmed färsk pris- och väderdata
+```
+
+Fetcher skriver en timestamp-fil (`/tmp/gridguard_last_data_update`) varje gång ny pris- eller väderdata hämtas. ClientHandler läser filen vid varje `/forecast`-request och jämför mot sin `lastDataUpdateCheck`. Om ny data har anlänt sedan sist invalideras **hela** forecast-cachen — alla användares gamla prognoser — och nästa request kör en färsk pipeline.
+
+**Designval:** Compute sker inte proaktivt vid exakt 13:00 utan triggas av den första förfrågan efteråt. För en kontinuerligt övervakad anläggning som Saab Arena — där dashboarden körs i `--watch`-läge dygnet runt — innebär det i praktiken att ny prognos alltid finns redo inom ett refresh-intervall efter att ny prisdata publicerats.
+
+### Prisdata och imorgondagens priser
+
+Elprisetjustnu publicerar imorgondagens priser kring **13:00–14:00 CET**. Fetcher hanterar detta med en `tomorrowPricesFetched`-flagga:
+
+```
+Om klockan >= 13:00 CET och tomorrowPricesFetched == false:
+    Försök hämta imorgondagens priser (SE1–SE4)
+    Vid framgång: tomorrowPricesFetched = true
+    Vid misslyckande: försök igen om 5 minuter
+Om klockan < 13:00 CET:
+    tomorrowPricesFetched = false (nollställs vid midnatt)
+```
+
+Priscachen har en TTL på **43200s (12 h)** — tillräckligt lång för att täcka ett helt dygns priser utan onödiga API-anrop, men kortare än 24 h för att undvika att gammal prisdata används vid midnattsövergång.
+
 ---
 
-## 8. Server-intern pipeline (per HTTP-request)
+## 8. Auth-arkitektur — Simulerad plattforms-DB och tokenflöde
+
+GridGuard simulerar ett verkligt produktionsscenario där en molnplattform och en lokal enhet delar en hemlig nyckel men aldrig kommunicerar direkt med varandra.
+
+### Systemets tre aktörer
+
+```mermaid
+flowchart LR
+    subgraph CLOUD ["Plattform (simulerad)"]
+        PDB[("platform.db\nAnvändarregister")]
+        JWT_I["JWT Issuer\nscripts/generate_jwt.py"]
+    end
+
+    subgraph USER_SPACE ["Användare"]
+        CLI["GridGuard CLI\nbin/GridGuard-client"]
+        TOKEN["~/.gridguard/token\n(sparad JWT)"]
+    end
+
+    subgraph DEVICE ["GridGuard Enhet"]
+        VAL["JWTValidator\n(HS256, mbedTLS)"]
+        LCONF[("gridguard.db\nLokal konfiguration")]
+        PIPELINE["Fetch → Parse → Compute"]
+    end
+
+    PDB --> JWT_I
+    JWT_I -->|"Signerad JWT"| CLI
+    CLI --> TOKEN
+    TOKEN -->|"Authorization: Bearer"| VAL
+    VAL -->|"userId (sub)"| LCONF
+    LCONF --> PIPELINE
+
+    CLOUD ~~~ DEVICE
+```
+
+**Plattformen och enheten kommunicerar aldrig direkt.** Det enda de delar är `GRIDGUARD_JWT_SECRET` — den hemliga nyckeln som används för att signera och verifiera JWT:ar.
+
+### Hur en användare får sin token
+
+```mermaid
+sequenceDiagram
+    participant PDB as platform.db<br/>(Simulerad plattform)
+    participant GEN as generate_jwt.py
+    participant CLI as GridGuard CLI
+    participant DEV as GridGuard Enhet
+
+    Note over PDB,GEN: Offline — körs av administratör / make dev
+    GEN->>PDB: Hämtar userId för testanvändare
+    GEN->>GEN: Signerar JWT med GRIDGUARD_JWT_SECRET<br/>Payload: sub=userId, exp=2030-01-01
+    GEN-->>CLI: Skriver ut JWT-token
+
+    Note over CLI: gridguard login <token>
+    CLI->>CLI: Sparar token i ~/.gridguard/token
+
+    Note over CLI,DEV: Online — vid varje forecast-anrop
+    CLI->>DEV: GET /forecast<br/>Authorization: Bearer <token>
+    DEV->>DEV: JWT_Validate()<br/>1. Avkoda header.payload.signature<br/>2. Beräkna HMAC-SHA256(header.payload, secret)<br/>3. Jämför med signature (constant-time)<br/>4. Kontrollera exp-fältet
+    DEV->>DEV: Slå upp sub (userId) i gridguard.db
+    DEV-->>CLI: Energiplan (JSON)
+```
+
+### Simulerad plattforms-DB (`platform.db`)
+
+I ett riktigt system skulle plattformen vara en molntjänst. Här simuleras den med en lokal SQLite-databas:
+
+```
+make dev
+  └── scripts/seed_platform.py   → Skapar platform.db med testanvändare
+  └── scripts/generate_jwt.py    → Frågar platform.db, utfärdar signerad JWT
+  └── bin/GridGuard-client login  → Sparar JWT till ~/.gridguard/token
+```
+
+`platform.db` innehåller bara `userId` (och eventuell kontaktinfo). Den vet ingenting om solpaneler, GPS-koordinater eller energiförbrukning — det lagras uteslutande på enheten.
+
+**Implementation:** `src/auth/JWTValidator.c`, `src/auth/JWTIssuer.c`, `src/auth/PlatformDB.c`
+
+---
+
+## 9. Dataintegritet — Användardata lämnar aldrig enheten
+
+GridGuard är designat enligt **privacy-by-architecture**: känslig information om var användaren bor och hur de konsumerar energi lagras aldrig på en central server.
+
+```mermaid
+flowchart TB
+    subgraph CLOUD ["Plattform (simulerad molntjänst)"]
+        direction LR
+        PDB[("platform.db\nuser_id TEXT PRIMARY KEY\nemail TEXT")]
+        NOTE["Vet INGENTING om:\n· Hemadress / GPS\n· Solpanelsstorlek\n· Energiförbrukning\n· Tariffer"]
+    end
+
+    subgraph DEVICE ["GridGuard Enhet (lokal SQLite)"]
+        direction LR
+        GDB[("gridguard.db\nuser_id TEXT PRIMARY KEY\nlatitude REAL\nlongitude REAL\nregion TEXT\nsolar_area_m2 REAL\nsolar_efficiency REAL\nconsumption_kwh REAL\nupdated_at INTEGER")]
+        SHM["SharedCache\n(POSIX shm)\nVäder- och prisdata\n(rådata, ej personlig)"]
+    end
+
+    CLOUD -->|"JWT (userId)"| DEVICE
+    CLOUD x--x|"Ingen direkt kommunikation"| DEVICE
+
+    style CLOUD fill:#1a1a2e,stroke:#e94560,color:#fff
+    style DEVICE fill:#0f3460,stroke:#16213e,color:#fff
+```
+
+**Vad lagras var:**
+
+| Data | Plattform | Enhet |
+|---|---|---|
+| `userId` (JWT `sub`) | Ja | Ja (primärnyckel) |
+| E-post / kontaktinfo | Ja | Nej |
+| GPS-koordinater | Nej | Ja (`gridguard.db`) |
+| Solpanelsstorlek | Nej | Ja (`gridguard.db`) |
+| Elregion / tariffer | Nej | Ja (`gridguard.db`) |
+| Väderdata | Nej | Temporärt (SharedCache, TTL 15 min) |
+| Spotpriser | Nej | Temporärt (SharedCache, TTL 12 h) |
+| Energiplaner / BUY/SELL | Nej | Temporärt (SharedCache, TTL 30 min) |
+
+**Konsekvens:** Även om plattformen komprometteras exponeras inga GPS-koordinater, inga förbrukningsprofiler och inga energimönster. En angripare med tillgång till `platform.db` får bara en lista med user-ID:n.
+
+**Konfiguration via HTTP (PUT /user/config):** Användaren sätter sin konfiguration direkt mot enheten via JWT-autentiserad HTTP. Plattformen är aldrig inblandad i det steget.
+
+---
+
+## 10. Server-intern pipeline (per HTTP-request)
 
 ```
 HTTP-request (/forecast)
@@ -361,6 +597,36 @@ ClientHandler::HandleForecast()
 ```
 
 **Trådmodell:** Servern hanterar varje HTTP-klient i en separat tråd (ThreadPool). ComputeWorker är en dedikerad bakgrundstråd som lyssnar på Parser-notifieringar. `CompletionRegistry` är en mutex-skyddad map `userId → WorkCompletion*` som kopplar ihop HTTP-tråden med ComputeWorker-tråden.
+
+### End-to-end dataflöde med transformationer
+
+```mermaid
+flowchart LR
+    subgraph SV_PROC ["Server-process"]
+        HTTP["HTTP-tråd\nGET /forecast"]
+        WR["WorkRequest\n─────────────\nuserId: char[64]\nlat: double\nlon: double\nregion: char[8]"]
+    end
+
+    subgraph FE_PROC ["Fetcher-process"]
+        FR["FetchResult\n─────────────\nweatherJson: char[]\npriceJson: char[]\nstatus: int"]
+    end
+
+    subgraph PA_PROC ["Parser-process"]
+        PR["ParseResult\n─────────────\nOpenMeteoResponse\nElprisetResponse\ncount: int"]
+    end
+
+    subgraph CW_PROC ["ComputeWorker (tråd)"]
+        ED["EnergyData\n─────────────\nQuarterEntry[192] (48h)\n  timestamp: time_t\n  productionKwh: double\n  consumptionKwh: double\n  spotPrice: double\n  totalCostSek: double\n  action: BUY/SELL/AVOID/IDLE\n  priceVsAvgPct: double"]
+        JSON["JSON-svar\n48h energiplan\n192 kvartar × 15 min\n~8 KB"]
+    end
+
+    HTTP -->|"FIFO (binär struct)"| WR
+    WR -->|"HTTPS GET ×2"| FR
+    FR -->|"FIFO (binär struct)"| PR
+    PR -->|"Unix socket\n+ FIFO notify"| ED
+    ED -->|"SharedCache_Store()"| JSON
+    JSON -->|"HTTP 200 JSON"| HTTP
+```
 
 ---
 
@@ -444,7 +710,195 @@ Implementering: `src/sys/WorkCompletion.c`, `src/sys/CompletionRegistry.c`
 
 ---
 
-## 11. C++ Client — RAII och STL
+## 11. Från Scheduler till WorkCompletion — Designevolution
+
+### Ursprunglig design (februari 2026): tråd-baserad pipeline med Scheduler
+
+Systemet började som en **single-process, tråd-baserad pipeline**. Varje steg körde i en dedikerad tråd och kommunicerade via mutex-skyddade köer:
+
+```mermaid
+flowchart LR
+    HTTP["HTTP-tråd\n(20 workers)"]
+    FQ["FetchQueue\n(mutex + cond)"]
+    FT["FetchThread"]
+    PQ["ParseQueue\n(mutex + cond)"]
+    PT["ParseThread"]
+    CQ["ComputeQueue\n(mutex + cond)"]
+    CT["ComputeThread"]
+    RESP["HTTP-svar"]
+
+    HTTP --> FQ --> FT --> PQ --> PT --> CQ --> CT --> RESP
+```
+
+I planeringsstadiets changelog (2026-02-12) identifierades **en Scheduler-abstraktion** som önskvärd — en centraliserad komponent för task distribution, work stealing och lastbalansering mellan workers. Scheduler låg aldrig inblandad som mottagare av arbete utan som *koordinator* som bestämde *var* arbetet skulle hamna.
+
+### Varför Scheduler aldrig implementerades
+
+Arkitekturen migrerades i mars 2026 till **separata processer** (fork + exec), vilket krävdes för att täcka kursmålen om IPC (FIFO, Unix sockets, shared memory). I en multi-process-design med FIFOs och Unix sockets som transportlager finns det inget gemensamt adressrymd att schedulera arbete i — varje process äger sin egen exekvering.
+
+```mermaid
+flowchart TB
+    subgraph BEFORE ["Tråd-baserat (feb 2026)"]
+        direction LR
+        T1["FetchThread"] --> Q["Queue"] --> T2["ParseThread"] --> Q2["Queue"] --> T3["ComputeThread"]
+        SCHED["Scheduler\n(planerad, aldrig\nimplementerad)"]
+        SCHED -.->|"task distribution"| Q
+        SCHED -.->|"load balancing"| Q2
+    end
+
+    subgraph AFTER ["Process-baserat (mar 2026)"]
+        direction LR
+        P1["GridGuard-fetcher\n(separat process)"] -->|"FIFO"| P2["GridGuard-parser\n(separat process)"] -->|"Unix socket"| P3["ComputeWorker\n(tråd i server)"]
+    end
+
+    BEFORE --> AFTER
+```
+
+### Vad WorkCompletion löser istället
+
+Scheduler-problemet (hur dispatch:ar vi arbete till rätt worker?) ersattes av ett **annat och svårare problem**: hur vet en HTTP-tråd när *just dess* request är klar, när beräkningen sker asynkront i en separat process?
+
+`WorkCompletion` + `CompletionRegistry` löser exakt det:
+
+| Komponent | Ansvar |
+|---|---|
+| `WorkCompletion` | Linux completion-mönster: HTTP-tråden väntar via `pthread_cond_timedwait()` |
+| `CompletionRegistry` | Mutex-skyddad array: `userId → WorkCompletion*` — kopplar ihop HTTP-tråd med ComputeWorker |
+
+```mermaid
+flowchart LR
+    subgraph SCHEDULER_PROBLEM ["Schedulerns problem (löst av FIFOs/sockets)"]
+        direction TB
+        S["Hur distribuerar vi\narbete till rätt tråd/process?"]
+        S --> FIFO["FIFO → Fetcher\nUnix socket → Parser\n(IPC-protokoll)"]
+    end
+
+    subgraph COMPLETION_PROBLEM ["WorkCompletions problem (nytt)"]
+        direction TB
+        C["Hur vet HTTP-tråd X att\nresultat för userId Y är klart?"]
+        C --> REG["CompletionRegistry\nuserId → WorkCompletion*\n\nHTTP-tråd: cond_wait()\nComputeWorker: FindCompletion() → Signal()"]
+    end
+
+    SCHEDULER_PROBLEM --> COMPLETION_PROBLEM
+```
+
+**Scheduler dispatchar arbete *framåt* i pipelinen. WorkCompletion kopplar ihop resultatet *bakåt* till ursprungsbegäran.** De löser komplementära problem, och den multi-process-arkitektur som gjorde Scheduler onödig skapade exakt det synkroniseringsproblem som WorkCompletion behövdes för.
+
+---
+
+## 12. Beslutlogik — BUY / SELL / AVOID / IDLE
+
+För varje 15-minuterskvart i den 48-timmarslånga prognosen (192 kvartar) klassificerar ComputeWorker situationen i ett av fyra tillstånd. Beslutet baseras på **totalkostnad** (spotpris + nättariff + energiskatt + moms) relativt percentilgränser, samt aktuell solcellsproduktion.
+
+### Kvalitetsgränser (percentiler över 48h)
+
+```
+p33 = 33:e percentilen av alla kvartskostnader → billigaste tredjedelens gräns
+p70 = 70:e percentilen av alla kvartskostnader → dyraste tredjelens gräns
+
+Kvalitetsfilter: BUY kräver ≥ 8% rabatt mot median
+                 AVOID kräver ≥ 8% premie mot median
+```
+
+### Beslutflöde (prioritetsordning)
+
+```mermaid
+flowchart TD
+    START["Beräkna för kvart Q\n(15 minuter)"]
+
+    NODATA{"Prisdata\nsaknas?"}
+    IDLE0["IDLE\n(ingen data)"]
+
+    NEG{"Negativt\nspotpris?"}
+    BUY_NEG["BUY\nNegativt pris — elnätet\nbetalar för förbrukning"]
+
+    CHEAP{"totalkostnad\n≤ p33?"}
+    BUY["BUY\nBilligaste 33% — ladda\nbatteri / kör tunga laster"]
+
+    SURPLUS{"nettoproduktion\n> 0,5 kWh OCH\ntotalkostnad ≥ p70?"}
+    SELL["SELL\nSolöverskott under dyr period\n— exportera till nätet"]
+
+    EXPENSIVE{"totalkostnad\n≥ p70?"}
+    AVOID["AVOID\nDyraste 30% — minimera\nförbrukning"]
+
+    IDLE["IDLE\nMittenzon — normal\nförbrukning"]
+
+    START --> NODATA
+    NODATA -->|Ja| IDLE0
+    NODATA -->|Nej| NEG
+    NEG -->|Ja| BUY_NEG
+    NEG -->|Nej| CHEAP
+    CHEAP -->|Ja| BUY
+    CHEAP -->|Nej| SURPLUS
+    SURPLUS -->|Ja| SELL
+    SURPLUS -->|Nej| EXPENSIVE
+    EXPENSIVE -->|Ja| AVOID
+    EXPENSIVE -->|Nej| IDLE
+
+    style SELL fill:#2d6a4f,color:#fff
+    style BUY fill:#1d3557,color:#fff
+    style BUY_NEG fill:#1d3557,color:#fff
+    style AVOID fill:#e63946,color:#fff
+    style IDLE fill:#457b9d,color:#fff
+    style IDLE0 fill:#457b9d,color:#fff
+```
+
+### Tillståndssammanfattning
+
+| Prioritet | Tillstånd | Villkor | Rekommendation |
+|---|---|---|---|
+| 1 | **IDLE** | Prisdata saknas | Ingen åtgärd möjlig |
+| 2 | **BUY** | Negativt spotpris | Maximera förbrukning — elnätet betalar |
+| 3 | **BUY** | `totalkostnad ≤ p33` (billigaste 33%) | Ladda batteri, kör tvättmaskin/diskmaskin |
+| 4 | **SELL** | `netto > 0,5 kWh` **OCH** `totalkostnad ≥ p70` | Exportera solöverskott — sälj enbart under dyra perioder |
+| 5 | **AVOID** | `totalkostnad ≥ p70` (dyraste 30%) | Minimera förbrukning, skjut upp laster |
+| 6 | **IDLE** | Annars (mittenzon) | Normal förbrukning |
+
+**Viktigt:** SELL triggas **inte** enbart för att det finns solöverskott — det krävs även att priset är högt (≥ p70). Under billiga perioder med solöverskott väljs BUY (ladda batteri) framför SELL.
+
+### Bästa laddningsfönster (bestBuyWindow)
+
+Utöver per-kvart-signaler beräknar ComputeWorker det **praktiskt bästa sammanhängande BUY-blocket** för flexibla laster (tvättmaskin, diskmaskin, elbilsladdning). Algoritmen väger besparingar mot tid på dygnet:
+
+```
+Kvällar 17–22: faktor 1,5× (bäst — hemma och vaken)
+Nätter 22–07:  faktor 1,0× (acceptabelt — tidsinställning)
+Dagtid 07–17:  faktor 0,5× (sämst — ofta borta)
+```
+
+**Implementering:** `src/compute/Compute.c` — `Compute_GenerateEnergyPlan()`
+
+### Smart signal-filtrering — från 192 kvartar till actionabla fönster
+
+ComputeWorker transformerar de 192 råkvartsarna till ett kompakt JSON-format för dashboarden. IDLE-signaler filtreras bort helt — de är brus, inte information.
+
+```mermaid
+flowchart LR
+    RAW["EnergyData\n192 kvartar × 15 min\nBUY/SELL/AVOID/IDLE"]
+
+    FILTER["Smart filtrering\nComputeWorker.c"]
+
+    subgraph OUT ["JSON-output (days[])"]
+        D1["2026-03-19\n  BUY  08:00–09:30  (90 min)\n  AVOID 17:00–19:00 (120 min)\n  SELL 13:00–14:00  (60 min)"]
+        D2["2026-03-20\n  BUY  02:00–05:00 (180 min)\n  AVOID 18:00–20:00 (120 min)"]
+    end
+
+    RAW --> FILTER --> OUT
+```
+
+**Algoritmen:**
+1. Iterera över alla kvartar och detektera *signalövergångar* (t.ex. IDLE→BUY, BUY→AVOID)
+2. Varje sammanhängande block av samma signal (exkl. IDLE) grupperas till ett *fönster*
+3. Fönstret emitteras med `start`, `end`, `duration_minutes`, pris, sol- och förbrukningsdata
+4. IDLE-kvartar hoppar över — de genererar inget fönster
+
+**Resultat:** 192 råentries komprimeras till typiskt **50–100 actionabla fönster**, grupperade per dag. Dashboarden visar enbart BUY/SELL/AVOID — användaren ser direkt *när* och *hur länge* utan att behöva filtrera bort irrelevant data själv.
+
+**Implementering:** `src/compute/ComputeWorker.c:102–180`
+
+---
+
+## 13. C++ Client — RAII och STL
 
 GridGuard-klienten är implementerad i C++ och demonstrerar RAII (Resource Acquisition Is Initialization), STL-användning och exception-säker kod.
 
@@ -514,7 +968,7 @@ Implementering: `src/client/HttpClient.cpp`, `src/client/GridGuardClient.cpp`, `
 
 ---
 
-## 12. Designbeslut och avvägningar
+## 14. Designbeslut och avvägningar
 
 ### Varför separata processer istället för trådar för Fetcher/Parser?
 
@@ -551,7 +1005,7 @@ shm-segment layout:
 
 ---
 
-## 10. Loggning
+## 15. Loggning
 
 Varje process loggar till sin egen fil:
 
@@ -566,7 +1020,7 @@ Loggnivåer: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `FATAL`. Nivå sätts vid `Log
 
 ---
 
-## 11. Konfigurationssystem
+## 16. Konfigurationssystem
 
 GridGuard använder ett runtime konfigurationssystem med tre nivåer (fallback chain):
 
@@ -625,7 +1079,7 @@ Se `docs/CONFIG_DESIGN.md` för fullständig designdokumentation.
 
 ---
 
-## 12. Binärer och byggsystem
+## 17. Binärer och byggsystem
 
 ```
 bin/

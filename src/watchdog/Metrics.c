@@ -48,7 +48,7 @@ int Metrics_Initiate(void)
 
     // Zero out metrics and record startup time
     memset(metrics_ptr, 0, sizeof(WatchdogMetrics));
-    metrics_ptr->watchdog_start_time = time(NULL);
+    metrics_ptr->watchdogStartTime = time(NULL);
 
     LOG_INFO("WatchdogMetrics: Shared memory created at %s", WATCHDOG_METRICS_SHM_NAME);
     return 0;
@@ -106,20 +106,24 @@ void Metrics_Close(WatchdogMetrics *metrics)
 
 // Update all process metrics from watchdog monitoring loop
 // Called after heartbeat checks to keep metrics current for /metrics endpoint
-void Metrics_Update(WatchdogMetrics *metrics, pid_t fetcher_pid, time_t fetcher_hb, pid_t parser_pid, time_t parser_hb, pid_t server_pid, time_t server_hb, int restart_count, int max_restarts)
+void Metrics_Update(WatchdogMetrics *metrics,
+                    pid_t fetcherPid, time_t fetcherHb,
+                    pid_t parserPid,  time_t parserHb,
+                    pid_t serverPid,  time_t serverHb,
+                    int restartCount, int maxRestarts)
 {
     if (!metrics)
         return;
 
-    metrics->fetcher_pid = fetcher_pid;
-    metrics->fetcher_last_heartbeat = fetcher_hb;
+    metrics->fetcherPid           = fetcherPid;
+    metrics->fetcherLastHeartbeat = fetcherHb;
 
-    metrics->parser_pid = parser_pid;
-    metrics->parser_last_heartbeat = parser_hb;
+    metrics->parserPid            = parserPid;
+    metrics->parserLastHeartbeat  = parserHb;
 
-    metrics->server_pid = server_pid;
-    metrics->server_last_heartbeat = server_hb;
+    metrics->serverPid            = serverPid;
+    metrics->serverLastHeartbeat  = serverHb;
 
-    metrics->restart_count = restart_count;
-    metrics->max_restarts = max_restarts;
+    metrics->restartCount         = restartCount;
+    metrics->maxRestarts          = maxRestarts;
 }

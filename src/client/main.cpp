@@ -452,8 +452,10 @@ int main(int argc, char* argv[]) {
 
     auto flags = parseArgs(rawArgs);
 
-    std::string host  = getArg(flags, "--host", "localhost");
-    int         port  = std::stoi(getArg(flags, "--port", "8080"));
+    std::string host = getArg(flags, "--host", "localhost");
+    int port = 8080;
+    try { port = std::stoi(getArg(flags, "--port", "8080")); }
+    catch (...) { std::cerr << c(RD, "error: --port must be a number") << "\n"; return 1; }
 
     std::string token = getArg(flags, "--token");
     if (token.empty()) {
@@ -491,7 +493,9 @@ int main(int argc, char* argv[]) {
         }
 
         bool watch_mode   = flags.find("--watch") != flags.end();
-        int  interval_sec = std::stoi(getArg(flags, "--interval", "60"));
+        int  interval_sec = 60;
+        try { interval_sec = std::stoi(getArg(flags, "--interval", "60")); }
+        catch (...) { std::cerr << c(RD, "error: --interval must be a number") << "\n"; return 1; }
 
         if (watch_mode) {
             // Each spinner frame is 3 UTF-8 bytes
@@ -554,15 +558,25 @@ int main(int argc, char* argv[]) {
             std::string lonStr = getArg(flags, "--lon");
             std::string region = getArg(flags, "--region",      "SE3");
             std::string loc    = getArg(flags, "--location",    "");
-            double area = std::stod(getArg(flags, "--solar-area",  "0.0"));
-            double eff  = std::stod(getArg(flags, "--solar-eff",   "0.0"));
-            double load = std::stod(getArg(flags, "--consumption", "0.5"));
 
             if (latStr.empty() || lonStr.empty()) {
                 std::cerr << c(RD, "error: --lat and --lon are required") << "\n";
                 return 1;
             }
-            if (client.setUserConfig(std::stod(latStr), std::stod(lonStr),
+
+            double lat, lon, area, eff, load;
+            try {
+                lat  = std::stod(latStr);
+                lon  = std::stod(lonStr);
+                area = std::stod(getArg(flags, "--solar-area",  "0.0"));
+                eff  = std::stod(getArg(flags, "--solar-eff",   "0.0"));
+                load = std::stod(getArg(flags, "--consumption", "0.5"));
+            } catch (...) {
+                std::cerr << c(RD, "error: numeric argument is not a valid number") << "\n";
+                return 1;
+            }
+
+            if (client.setUserConfig(lat, lon,
                                      region, loc, area, eff, load))
                 std::cout << c(GN, "✓ config saved") << "\n";
             else {
@@ -586,10 +600,18 @@ int main(int argc, char* argv[]) {
             showSchedules(client.getSchedules());
         }
         else if (subcommand == "add") {
-            std::string loadId   = getArg(flags, "--load");
-            int         duration = std::stoi(getArg(flags, "--duration", "0"));
-            double      power    = std::stod(getArg(flags, "--power",    "0"));
-            long        deadline = std::stol(getArg(flags, "--deadline", "0"));
+            std::string loadId = getArg(flags, "--load");
+            int    duration = 0;
+            double power    = 0.0;
+            long   deadline = 0;
+            try {
+                duration = std::stoi(getArg(flags, "--duration", "0"));
+                power    = std::stod(getArg(flags, "--power",    "0"));
+                deadline = std::stol(getArg(flags, "--deadline", "0"));
+            } catch (...) {
+                std::cerr << c(RD, "error: numeric argument is not a valid number") << "\n";
+                return 1;
+            }
 
             if (loadId.empty() || duration <= 0 || power <= 0.0) {
                 std::cerr << c(RD, "error: --load, --duration and --power required") << "\n";

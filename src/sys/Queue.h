@@ -37,9 +37,16 @@ typedef struct
     bool isShutdown;
 } Queue;
 
-int Queue_Initiate(Queue *queue);
-int Queue_Push(Queue *queue, void *data, size_t size, int type);
-int Queue_Pop(Queue *queue, QueueItem *item);
+int  Queue_Initiate(Queue *queue);
+int  Queue_Push(Queue *queue, void *data, size_t size, int type);
+int  Queue_Pop(Queue *queue, QueueItem *item);
+
+// Signal shutdown: set flag, broadcast to wake blocked threads, free pending items.
+// Does NOT destroy mutex/cond — call Queue_Destroy after all consumers have exited.
 void Queue_Shutdown(Queue *queue);
+
+// Destroy mutex and condition variables. Must only be called after all threads
+// that were blocked on Queue_Pop/Queue_Push have exited (e.g. after pthread_join).
+void Queue_Destroy(Queue *queue);
 
 #endif // _QUEUE_H_

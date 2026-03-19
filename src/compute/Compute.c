@@ -32,8 +32,8 @@
 #define MIN_PRICE_TO_SELL_SEK 0.01   // Avoid exporting at negative prices
 
 // Swedish time-of-use tariffs: typical elbolag structure
-// - Lågtid (night):  00:00-06:00 daily
-// - Högtid (peak):   17:00-21:00 weekdays only
+// - Low tariff (night):  00:00-06:00 daily
+// - Peak tariff (peak):  17:00-21:00 weekdays only
 // - Normaltid (day): all other periods
 static double get_grid_fee_for_hour(int hour, int weekday, double low, double normal, double high)
 {
@@ -69,10 +69,10 @@ static double get_consumption_pattern_quarter(int hour, int minute)
     if (hour == 6 && minute >= 30) minute_factor = 1.4;
     if (hour == 7 && minute < 15)  minute_factor = 1.5;
 
-    // Middag: 12:00-12:30
+    // Lunch: 12:00-12:30
     if (hour == 12 && minute < 30) minute_factor = 1.3;
 
-    // Kvällsmatlagning: 17:00-19:00
+    // Evening cooking: 17:00-19:00
     if (hour == 17)
     {
         if (minute < 15)      minute_factor = 1.3;
@@ -121,8 +121,7 @@ int Compute_Initiate(Compute *compute)
     return 0;
 }
 
-int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh,
-                               double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan)
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh, double gridFee_low, double gridFee_normal, double gridFee_high, EnergyData *plan)
 {
     if (!compute || !forecast || !plan)
         return -1;
@@ -142,9 +141,9 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         return -1;
     }
 
-    // Calculate hourly costs for threshold determination
-    // Spot prices are per hour, so sample one quarter per hour (every 4th entry)
-    // Quarter-hour cost calculation: spot price + tariff + tax + VAT
+    // Calculate total cost per 15-minute quarter for threshold determination
+    // Elprisetjustnu provides quarter-hour spot prices in SEK/kWh; we add grid fees, energy tax, and VAT to get the true cost to the consumer.
+    // Quarter cost = spot price + grid fee + energy tax + VAT
     // Percentile thresholds computed at 15-minute resolution for accurate signal generation
     double actual_costs[MAX_QUARTERS];
     double sorted_costs[MAX_QUARTERS];
@@ -225,15 +224,11 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     LOG_INFO("Compute: 48-HOUR FORECAST ANALYSIS");
     LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
     LOG_INFO("Compute: Quarters analyzed: %d (%.1f hours)", valid_quarters, valid_quarters / 4.0);
-    LOG_INFO("Compute: Price range: %.3f - %.3f kr/kWh (spread: %.0f%%)",
-             sorted_costs[0], sorted_costs[valid_quarters-1],
-             (sorted_costs[valid_quarters-1] - sorted_costs[0]) / sorted_costs[0] * 100.0);
+    LOG_INFO("Compute: Price range: %.3f - %.3f kr/kWh (spread: %.0f%%)", sorted_costs[0], sorted_costs[valid_quarters-1], (sorted_costs[valid_quarters-1] - sorted_costs[0]) / sorted_costs[0] * 100.0);
     LOG_INFO("Compute: Decision thresholds:");
-    LOG_INFO("Compute:   → BUY window:   ≤ %.3f kr/kWh (cheapest %d quarters ≈ %.1fh)",
-             cheap_threshold, num_buy, num_buy / 4.0);
+    LOG_INFO("Compute:   → BUY window:   ≤ %.3f kr/kWh (cheapest %d quarters ≈ %.1fh)", cheap_threshold, num_buy, num_buy / 4.0);
     LOG_INFO("Compute:   → MEDIAN price:   %.3f kr/kWh", median_price);
-    LOG_INFO("Compute:   → AVOID window: ≥ %.3f kr/kWh (most expensive %d quarters ≈ %.1fh)",
-             expensive_threshold, num_avoid, num_avoid / 4.0);
+    LOG_INFO("Compute:   → AVOID window: ≥ %.3f kr/kWh (most expensive %d quarters ≈ %.1fh)", expensive_threshold, num_avoid, num_avoid / 4.0);
     LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
 
     // Signal generation loop: evaluate each 15-minute period independently
@@ -264,8 +259,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         if (temp_efficiency < 0.70) temp_efficiency = 0.70;
         if (temp_efficiency > 1.10) temp_efficiency = 1.10;
 
-        double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency *
-                                   SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
+        double quarter_production = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * temp_efficiency * 0.25;
 
         // Load profile application
         double quarter_consumption = (consumptionKwh * get_consumption_pattern_quarter(hour_of_day, minute_of_hour)) * 0.25;
@@ -292,9 +286,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             recommendation = ACTION_BUY_FROM_GRID;
             if (buy_logged < 5)
             {
-                LOG_INFO("Compute: [%02d:%02d] ✓ BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)",
-                         hour_of_day, minute_of_hour, quarter_cost, cheap_threshold,
-                         (quarter_cost / median_price) * 100.0, net_energy);
+                LOG_INFO("Compute: [%02d:%02d] ✓ BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)", hour_of_day, minute_of_hour, quarter_cost, cheap_threshold, (quarter_cost / median_price) * 100.0, net_energy);
                 buy_logged++;
             }
         }
@@ -304,8 +296,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             total_export += net_energy;
             if (sell_logged < 3)
             {
-                LOG_INFO("Compute: [%02d:%02d] ⚡ SELL → %.1f kWh surplus @ %.3f kr/kWh (expensive period)",
-                         hour_of_day, minute_of_hour, net_energy, quarter_cost);
+                LOG_INFO("Compute: [%02d:%02d] ⚡ SELL → %.1f kWh surplus @ %.3f kr/kWh (expensive period)", hour_of_day, minute_of_hour, net_energy, quarter_cost);
                 sell_logged++;
             }
         }
@@ -314,9 +305,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             recommendation = ACTION_AVOID_HIGH_PRICE;
             if (avoid_logged < 3)
             {
-                LOG_INFO("Compute: [%02d:%02d] ⚠ AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)",
-                         hour_of_day, minute_of_hour, quarter_cost, expensive_threshold,
-                         (quarter_cost / median_price) * 100.0);
+                LOG_INFO("Compute: [%02d:%02d] ⚠ AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)", hour_of_day, minute_of_hour, quarter_cost, expensive_threshold, (quarter_cost / median_price) * 100.0);
                 avoid_logged++;
             }
         }
@@ -362,10 +351,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         for (int i = 0; i <= num_quarters; i++)
         {
             // Only consider quarters with actual price data for BUY window
-            bool is_cheap_quarter = (i < num_quarters &&
-                                    plan->entries[i].valid &&
-                                    forecast->entries[i].hasPriceData &&
-                                    plan->entries[i].action == ACTION_BUY_FROM_GRID);
+            bool is_cheap_quarter = (i < num_quarters && plan->entries[i].valid && forecast->entries[i].hasPriceData && plan->entries[i].action == ACTION_BUY_FROM_GRID);
 
             if (is_cheap_quarter)
             {
@@ -430,8 +416,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         LOG_INFO("Compute: No clear cheap window (flat prices or solar covers everything)");
     }
 
-    LOG_INFO("Compute: Forecast complete → %d quarters (%.1f hours), import %.2f kWh, export %.2f kWh, cost %.2f SEK",
-             num_quarters, num_quarters / 4.0, total_import, total_export, total_cost);
+    LOG_INFO("Compute: Forecast complete → %d quarters (%.1f hours), import %.2f kWh, export %.2f kWh, cost %.2f SEK", num_quarters, num_quarters / 4.0, total_import, total_export, total_cost);
 
     return 0;
 }

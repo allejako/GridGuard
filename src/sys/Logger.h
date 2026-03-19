@@ -1,5 +1,5 @@
-#ifndef LOGGER_H
-#define LOGGER_H
+#ifndef _LOGGER_H_
+#define _LOGGER_H_
 
 #include <stdio.h>
 
@@ -39,4 +39,4 @@ void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...
 }
 #endif
 
-#endif // LOGGER_H
+#endif // _LOGGER_H_

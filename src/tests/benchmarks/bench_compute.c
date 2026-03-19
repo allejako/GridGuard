@@ -22,7 +22,7 @@
 #include "domain/Energy.h"
 #include "sys/Logger.h"
 
-/* Under Valgrind: färre iterationer (10–50x långsammare) */
+/* Under Valgrind: fewer iterations (10–50x slower) */
 #ifdef VALGRIND_RUN
 #  define ITERATIONS      50
 #  define WARMUP_ITERS     5
@@ -139,7 +139,7 @@ int main(void)
     }
 
     ForecastData forecast;
-    EnergyData   plan;
+    EnergyData   plan = {0};
     double      *samples = malloc(ITERATIONS * sizeof(double));
     if (!samples) { fprintf(stderr, "malloc failed\n"); return 1; }
 
@@ -154,14 +154,12 @@ int main(void)
 
     /* warm-up: fills branch predictor & instruction cache */
     for (int i = 0; i < WARMUP_ITERS; i++)
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
 
     for (int i = 0; i < ITERATIONS; i++)
     {
         double t0 = now_ns();
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
         samples[i] = now_ns() - t0;
     }
     print_stats("Scenario 1: realistic forecast (solar peaks + price surge)", samples, ITERATIONS);
@@ -170,14 +168,12 @@ int main(void)
     fill_forecast_worst(&forecast);
 
     for (int i = 0; i < WARMUP_ITERS; i++)
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
 
     for (int i = 0; i < ITERATIONS; i++)
     {
         double t0 = now_ns();
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 20.0, 0.20, 1.5, 0.08, 0.12, 0.20, &plan);
         samples[i] = now_ns() - t0;
     }
     print_stats("Scenario 2: worst-case (max-spread prices, full array)", samples, ITERATIONS);
@@ -186,14 +182,12 @@ int main(void)
     fill_forecast_realistic(&forecast);
 
     for (int i = 0; i < WARMUP_ITERS; i++)
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   100.0, 0.22, 0.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 100.0, 0.22, 0.5, 0.08, 0.12, 0.20, &plan);
 
     for (int i = 0; i < ITERATIONS; i++)
     {
         double t0 = now_ns();
-        Compute_GenerateEnergyPlan(&compute, &forecast,
-                                   100.0, 0.22, 0.5, 0.08, 0.12, 0.20, &plan);
+        Compute_GenerateEnergyPlan(&compute, &forecast, 100.0, 0.22, 0.5, 0.08, 0.12, 0.20, &plan);
         samples[i] = now_ns() - t0;
     }
     print_stats("Scenario 3: large solar array (heavy SELL path)", samples, ITERATIONS);
@@ -206,10 +200,7 @@ int main(void)
     printf("  gridExport   : %.4f kWh\n", plan.totalGridExportKwh);
     if (plan.hasBuyWindow)
     {
-        printf("  buyWindow    : %d min, avg %.4f SEK/kWh, saves %.4f SEK\n",
-               plan.bestBuyWindow.durationMinutes,
-               plan.bestBuyWindow.avgCostSek,
-               plan.bestBuyWindow.savingsSek);
+        printf("  buyWindow    : %d min, avg %.4f SEK/kWh, saves %.4f SEK\n", plan.bestBuyWindow.durationMinutes, plan.bestBuyWindow.avgCostSek, plan.bestBuyWindow.savingsSek);
     }
     printf("============================================================\n");
 

@@ -21,7 +21,7 @@ int test_spot_prices(HTTPFetcher *fetcher, APIParser *parser)
     char url[256];
     if (BuildSpotPriceApiUrl(url, sizeof(url), SPOTPRICE_REGION, NULL) != 0)
     {
-        printf("ERROR: Kunde inte bygga spotpris-URL\n");
+        printf("ERROR: Could not build spot price URL\n");
         return -1;
     }
 
@@ -30,33 +30,33 @@ int test_spot_prices(HTTPFetcher *fetcher, APIParser *parser)
     HTTPFetchResponse response = {0};
     if (HTTPFetcher_Fetch(fetcher, url, &response) != 0)
     {
-        printf("ERROR: Kunde inte hämta spotpriser\n");
+        printf("ERROR: Could not fetch spot prices\n");
         return -1;
     }
 
     printf("HTTP Status: %d\n", response.status);
-    printf("Response storlek: %zu bytes\n", strlen(response.data));
+    printf("Response size: %zu bytes\n", strlen(response.data));
 
-    // Parsa JSON
+    // Parse JSON
     ElprisetResponse spotData = {0};
     if (APIParser_ParseElpriset(parser, response.data, &spotData) != 0)
     {
-        printf("ERROR: Kunde inte parsa spotpriser\n");
+        printf("ERROR: Could not parse spot prices\n");
         HTTPFetcher_FreeResponse(&response);
         return -1;
     }
 
-    printf("Antal priser: %d\n\n", spotData.count);
+    printf("Price count: %d\n\n", spotData.count);
 
-    // Visa de första 5 priserna
-    printf("%-20s %-12s\n", "Tid", "SEK/kWh");
+    // Show the first 5 prices
+    printf("%-20s %-12s\n", "Time", "SEK/kWh");
     printf("%-20s %-12s\n", "---", "-------");
 
     int showCount = spotData.count < 5 ? spotData.count : 5;
     for (int i = 0; i < showCount; i++)
     {
         ElprisetEntry *p = &spotData.entries[i];
-        // Visa bara första 16 tecken av tidsstämpeln (utan timezone)
+        // Show only the first 16 characters of the timestamp (without timezone)
         char timeStr[17];
         strncpy(timeStr, p->time_start, 16);
         timeStr[16] = '\0';
@@ -70,12 +70,12 @@ int test_spot_prices(HTTPFetcher *fetcher, APIParser *parser)
 
 int test_weather(HTTPFetcher *fetcher, APIParser *parser)
 {
-    print_separator("VÄDERDATA (Open-Meteo)");
+    print_separator("WEATHER DATA (Open-Meteo)");
 
     char url[512];
     if (BuildOpenMeteoApiUrl(url, sizeof(url), WEATHER_LAT, WEATHER_LON) != 0)
     {
-        printf("ERROR: Kunde inte bygga väder-URL\n");
+        printf("ERROR: Could not build weather URL\n");
         return -1;
     }
 
@@ -84,26 +84,26 @@ int test_weather(HTTPFetcher *fetcher, APIParser *parser)
     HTTPFetchResponse response = {0};
     if (HTTPFetcher_Fetch(fetcher, url, &response) != 0)
     {
-        printf("ERROR: Kunde inte hämta väderdata\n");
+        printf("ERROR: Could not fetch weather data\n");
         return -1;
     }
 
     printf("HTTP Status: %d\n", response.status);
-    printf("Response storlek: %zu bytes\n", strlen(response.data));
+    printf("Response size: %zu bytes\n", strlen(response.data));
 
-    // Parsa JSON
+    // Parse JSON
     OpenMeteoResponse forecast = {0};
     if (APIParser_ParseOpenMeteo(parser, response.data, &forecast) != 0)
     {
-        printf("ERROR: Kunde inte parsa väderdata\n");
+        printf("ERROR: Could not parse weather data\n");
         HTTPFetcher_FreeResponse(&response);
         return -1;
     }
 
-    printf("Antal prognoser: %d\n\n", forecast.count);
+    printf("Forecast count: %d\n\n", forecast.count);
 
-    // Visa de första 5 prognoserna
-    printf("%-20s %-8s %-8s %-12s\n", "Tid", "Temp", "Moln%", "Sol W/m²");
+    // Show the first 5 forecasts
+    printf("%-20s %-8s %-8s %-12s\n", "Time", "Temp", "Cloud%", "Solar W/m2");
     printf("%-20s %-8s %-8s %-12s\n", "---", "----", "-----", "--------");
 
     int showCount = forecast.count < 5 ? forecast.count : 5;
@@ -115,7 +115,7 @@ int test_weather(HTTPFetcher *fetcher, APIParser *parser)
     }
 
     HTTPFetcher_FreeResponse(&response);
-    printf("\nVäderdata OK!\n");
+    printf("\nWeather data OK!\n");
     return 0;
 }
 
@@ -124,23 +124,23 @@ int main(void)
     printf("GridGuard API Test\n");
     printf("==================\n");
 
-    // Initiera komponenter
+    // Initialize components
     HTTPFetcher fetcher = {0};
     if (HTTPFetcher_Initiate(&fetcher) != 0)
     {
-        printf("ERROR: Kunde inte initiera Fetcher\n");
+        printf("ERROR: Could not initialize Fetcher\n");
         return 1;
     }
 
     APIParser parser = {0};
     if (APIParser_Initiate(&parser) != 0)
     {
-        printf("ERROR: Kunde inte initiera Parser\n");
+        printf("ERROR: Could not initialize Parser\n");
         HTTPFetcher_Shutdown(&fetcher);
         return 1;
     }
 
-    // Kör tester
+    // Run tests
     int spotResult = test_spot_prices(&fetcher, &parser);
     int weatherResult = test_weather(&fetcher, &parser);
 
@@ -148,10 +148,10 @@ int main(void)
     APIParser_Shutdown(&parser);
     HTTPFetcher_Shutdown(&fetcher);
 
-    // Sammanfattning
-    print_separator("RESULTAT");
-    printf("Spotpriser:  %s\n", spotResult == 0 ? "OK" : "FAILED");
-    printf("Väderdata:   %s\n", weatherResult == 0 ? "OK" : "FAILED");
+    // Summary
+    print_separator("RESULTS");
+    printf("Spot prices: %s\n", spotResult == 0 ? "OK" : "FAILED");
+    printf("Weather:     %s\n", weatherResult == 0 ? "OK" : "FAILED");
 
     printf("\nAll tests passed!\n");
     return (spotResult == 0 && weatherResult == 0) ? 0 : 1;

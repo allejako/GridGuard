@@ -1,5 +1,5 @@
-#ifndef PARSE_RESULT_H
-#define PARSE_RESULT_H
+#ifndef _PARSE_RESULT_H_
+#define _PARSE_RESULT_H_
 
 #include "domain/Forecast.h"
 
@@ -18,4 +18,4 @@ typedef struct
     ForecastData forecastData;
 } ParseResult;
 
-#endif // PARSE_RESULT_H
+#endif // _PARSE_RESULT_H_

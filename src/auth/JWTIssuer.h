@@ -1,5 +1,5 @@
-#ifndef JWT_ISSUER_H
-#define JWT_ISSUER_H
+#ifndef _JWT_ISSUER_H_
+#define _JWT_ISSUER_H_
 
 #include <time.h>
 
@@ -10,4 +10,4 @@
 // Returns  0 = ok,  -1 = error.
 int JWTIssuer_CreateToken(const char *userId, const char *email, const char *planType, char *tokenOut);
 
-#endif // JWT_ISSUER_H
+#endif // _JWT_ISSUER_H_

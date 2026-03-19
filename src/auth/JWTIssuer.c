@@ -50,12 +50,7 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
     // Build header JSON
     const char *headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
     char headerB64[256];
-    int headerB64Len = base64url_encode(
-        (const unsigned char *)headerJson,
-        strlen(headerJson),
-        headerB64,
-        sizeof(headerB64)
-    );
+    int headerB64Len = base64url_encode((const unsigned char *)headerJson, strlen(headerJson), headerB64, sizeof(headerB64));
     if (headerB64Len < 0)
     {
         LOG_ERROR("JWTIssuer: Failed to encode header");
@@ -67,18 +62,10 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
     time_t expiresAt = now + TOKEN_LIFETIME_SECONDS;
 
     char payloadJson[512];
-    snprintf(payloadJson, sizeof(payloadJson),
-        "{\"sub\":\"%s\",\"email\":\"%s\",\"plan\":\"%s\",\"exp\":%ld}",
-        userId, email, planType, (long)expiresAt
-    );
+    snprintf(payloadJson, sizeof(payloadJson), "{\"sub\":\"%s\",\"email\":\"%s\",\"plan\":\"%s\",\"exp\":%ld}", userId, email, planType, (long)expiresAt);
 
     char payloadB64[1024];
-    int payloadB64Len = base64url_encode(
-        (const unsigned char *)payloadJson,
-        strlen(payloadJson),
-        payloadB64,
-        sizeof(payloadB64)
-    );
+    int payloadB64Len = base64url_encode((const unsigned char *)payloadJson, strlen(payloadJson), payloadB64, sizeof(payloadB64));
     if (payloadB64Len < 0)
     {
         LOG_ERROR("JWTIssuer: Failed to encode payload");
@@ -92,14 +79,7 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
     // Compute HMAC-SHA256 signature
     unsigned char signature[32];
     const mbedtls_md_info_t *mdInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (mbedtls_md_hmac(
-        mdInfo,
-        (const unsigned char *)secret,
-        strlen(secret),
-        (const unsigned char *)signingInput,
-        strlen(signingInput),
-        signature
-    ) != 0)
+    if (mbedtls_md_hmac(mdInfo, (const unsigned char *)secret, strlen(secret), (const unsigned char *)signingInput, strlen(signingInput), signature) != 0)
     {
         LOG_ERROR("JWTIssuer: HMAC computation failed");
         return -1;
