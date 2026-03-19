@@ -1,172 +1,127 @@
-# GridGuard Konfigurationssystem — Design
+# Konfigurationssystem
 
 ## Översikt
 
-GridGuard använder ett runtime-konfigurationssystem som stödjer INI-format config-filer med en flexibel fallback-kedja. Detta möjliggör enkel deployment i olika miljöer utan omkompilering.
+Konfigurationen läses från en INI-fil vid uppstart, lagras i minnet och skyddas av en read/write-lock. Varje nyckel löses upp i tre steg — det första träffen vinner:
 
-## Arkitektur
+```
+config/gridguard.conf  →  miljövariabel  →  kompilerad default
+```
 
-### Komponenter
+Ingen config-fil krävs. Alla nycklar har fungerande defaults.
+
+---
+
+## Flöde
+
+```mermaid
+flowchart TD
+    A[bin/GridGuard-watchdog] -->|"RuntimeConfig_Load()"| B[config/gridguard.conf]
+    A -->|"setenv(GRIDGUARD_CONFIG_PATH)"| C[fork + execv]
+
+    C --> D[GridGuard-fetcher]
+    C --> E[GridGuard-parser]
+    C --> F[GridGuard-server]
+
+    D -->|"RuntimeConfig_Load(getenv(...))"| G[Läser config]
+    E -->|"RuntimeConfig_Load(getenv(...))"| G
+    F -->|"RuntimeConfig_Load(getenv(...))"| G
+
+    style A fill:#1a1a2e,color:#e0e0e0,stroke:#4a4a8a
+    style D fill:#16213e,color:#e0e0e0,stroke:#4a4a8a
+    style E fill:#16213e,color:#e0e0e0,stroke:#4a4a8a
+    style F fill:#16213e,color:#e0e0e0,stroke:#4a4a8a
+    style G fill:#0f3460,color:#e0e0e0,stroke:#4a4a8a
+```
+
+Watchdog laddar config-filen och skriver sökvägen till `GRIDGUARD_CONFIG_PATH`. Barnprocesserna (Fetcher, Parser, Server) ärver miljövariabeln via `fork()` och laddar config-filen själva direkt när de startar.
+
+---
+
+## Komponenter
 
 **ConfigParser** (`src/config/ConfigParser.c/h`)
-- Lättviktig INI-filparser
-- Stödjer sektioner, kommentarer och whitespace-trimning
-- Inga externa beroenden
-- Nycklar lagras som `section.key` internt
+- Lättviktig INI-parser — sektioner, `#`-kommentarer, whitespace-trimning
+- Nycklar lagras internt som `sektion.nyckel`
 
 **RuntimeConfig** (`src/config/RuntimeConfig.c/h`)
-- Trådsäker konfigurationsåtkomst via pthread_rwlock
-- Singleton-mönster med global `g_config`-instans
-- Stödjer hot-reload via SIGHUP-signal
-- Tre-nivås fallback-kedja för maximal flexibilitet
+- Singleton (`g_config`), trådsäker via `pthread_rwlock`
+- Stödjer hot-reload via SIGHUP utan omstart
 
-### Fallback-kedja
-
-Konfigurationsvärden löses upp i följande ordning:
-
-1. **Runtime config-fil** (`config/gridguard.conf`)
-2. **Miljövariabler** (t.ex. `GRIDGUARD_DB_PATH`)
-3. **Compile-time defaults** (`src/domain/Config.h`)
-
-Denna design säkerställer bakåtkompatibilitet samtidigt som den ger flexibilitet för olika deploymentscenarier.
+---
 
 ## Konfigurationsfilformat
 
-INI-stil konfiguration med sektioner:
-
 ```ini
-# Kommentarer börjar med #
-[section]
-key=value
-another_key=another_value
+# ── Server ────────────────────────────────────────────────────────────────────
+[server]
+port = 8080
 
-[other_section]
-numeric_value=123
+# ── Databas ───────────────────────────────────────────────────────────────────
+[database]
+# db_path = /var/lib/gridguard/gridguard.db
+
+# ── Cache TTL (sekunder) ──────────────────────────────────────────────────────
+[cache]
+weather_ttl  = 900
+price_ttl    = 43200
+forecast_ttl = 1800
+
+# ── Nätverk ───────────────────────────────────────────────────────────────────
+[network]
+timeout     = 30
+max_retries = 3
 ```
 
-### Stödda sektioner
+---
 
-**[server]**
-- `port` - TCP-lyssningsport (default: 8080)
-- `host` - Bindadress (default: localhost)
-- `log_level` - Loggningsnivå (default: INFO)
+## Nycklar
 
-**[database]**
-- `db_path` - Sökväg till gridguard.db (default: auto-upplöst)
-- `platform_db_path` - Sökväg till platform.db (default: platform.db)
+| Nyckel | Miljövariabel | Default | Beskrivning |
+|--------|--------------|---------|-------------|
+| `server.port` | — | `8080` | TCP-lyssningsport |
+| `database.db_path` | `GRIDGUARD_DB_PATH` | auto | Sökväg till gridguard.db |
+| `cache.weather_ttl` | — | `900` | Väder-cache, 15 min |
+| `cache.price_ttl` | — | `43200` | Priscache, 12 h |
+| `cache.forecast_ttl` | — | `1800` | Prognos-cache, 30 min |
+| `network.timeout` | — | `30` | HTTP-timeout i sekunder |
+| `network.max_retries` | — | `3` | Återförsök vid HTTP-fel |
 
-**[jwt]**
-- `jwt_secret` - JWT-signeringsnyckel (obligatorisk, ingen default)
+> **JWT-hemligheten lagras aldrig i config-filen.** Sätt den via miljövariabel:
+> ```bash
+> export GRIDGUARD_JWT_SECRET="din-hemlighet"
+> ```
 
-**[network]**
-- `timeout` - HTTP-request timeout i sekunder (default: 30)
-- `max_connections` - Maximalt antal samtidiga anslutningar (default: 100)
-- `max_retries` - HTTP-återförsök vid fel (default: 3)
+---
 
-**[cache]**
-- `weather_ttl` - Väder-cache TTL i sekunder (default: 900)
-- `price_ttl` - Pris-cache TTL i sekunder (default: 3600)
-- `forecast_ttl` - Prognos-cache TTL i sekunder (default: 1800)
+## Hot-reload
 
-## Användning
-
-### Ladda konfiguration
-
-Konfigurationen laddas automatiskt av Watchdog vid uppstart:
-
-```c
-// I watchdog/main.c
-RuntimeConfig_Load("config/gridguard.conf");
-```
-
-Överskrid via kommandorad:
-```bash
-bin/GridGuard-watchdog --config /path/to/custom.conf
-```
-
-### Åtkomst till konfigurationsvärden
-
-**Strängvärden:**
-```c
-const char *port = RuntimeConfig_Get("server.port", NULL, SERVER_PORT);
-```
-
-**Heltalsvärden:**
-```c
-int timeout = RuntimeConfig_GetInt("network.timeout", NULL, 30);
-```
-
-**Med miljövariabel-fallback:**
-```c
-const char *dbPath = RuntimeConfig_Get("database.db_path", "GRIDGUARD_DB_PATH", DB_PATH);
-```
-
-### Hot Reload (SIGHUP)
-
-Konfigurationen kan laddas om utan omstart:
+Ladda om config utan att starta om systemet:
 
 ```bash
-kill -SIGHUP $(cat /tmp/gridguard.pid)
+kill -SIGHUP $(cat /var/run/gridguard.pid)
 ```
 
-Servern kontrollerar SIGHUP i sin mainloop och anropar `RuntimeConfig_Reload()` automatiskt.
+Watchdog fångar signalen och anropar `RuntimeConfig_Reload()`. Barnprocesserna påverkas inte — starta om dem om config-ändringar ska nå Fetcher, Parser eller Server.
+
+Anpassad config-sökväg:
+
+```bash
+bin/GridGuard-watchdog --config /path/to/gridguard.conf
+```
+
+---
 
 ## Trådsäkerhet
 
-All config-åtkomst skyddas av `pthread_rwlock`:
-- Flera trådar kan läsa config samtidigt
-- Skriv-operationer (reload) blockerar tills alla läsare är klara
-- Ingen prestandapåverkan under normal drift
+Alla läsningar tar `pthread_rdlock` — flera trådar kan läsa samtidigt utan att blockera varandra. Reload tar `pthread_wrlock` och väntar tills aktiva läsare är klara. Overhead per läsning är försumbar.
 
-## Integrationspunkter
+---
 
-### Watchdog (`src/watchdog/main.c`)
-- Laddar config vid uppstart innan child-processer spawnas
-- Skickar config via arv (barn använder samma globala config)
+## Tester
 
-### Server (`src/server/GridGuard.c`, `src/server/Server.c`)
-- Databassökvägar
-- TCP-portbindning
-- Cache TTL-värden
+```bash
+make test-gtest
+```
 
-### Fetcher (`src/net/HTTPFetcher.c`)
-- HTTP-timeout
-- Retry-logik
-
-### Framtida utökningar
-
-Konfigurationssystemet är designat för att enkelt utökas:
-
-1. Lägg till ny sektion/nyckel i `config/gridguard.conf`
-2. Åtkomst via `RuntimeConfig_Get()` eller `RuntimeConfig_GetInt()`
-3. Inga kodändringar behövs - fallback till defaults automatiskt
-
-## Testning
-
-Enhetstester: `tests/unit/test_config_parser_gtest.cpp`
-- 13 testfall som täcker parsing, hämtning och edge cases
-- Kör med: `./tests/test_config_parser_gtest`
-
-## Prestandaöverväganden
-
-- Config-fil parsas en gång vid uppstart
-- Lagras i minnet (key-value par)
-- Read-lock overhead: försumbar (<1µs)
-- Reload-tid: <10ms för typiska config-filer
-
-## Säkerhetsnoteringar
-
-- JWT-hemlighet ska aldrig committas till versionshantering
-- Använd miljövariabler eller säker config-hantering för produktion
-- Config-filen bör ha begränsade rättigheter (0600 rekommenderas)
-
-## Bakåtkompatibilitet
-
-Fallback-kedjan säkerställer att befintliga deployments fortsätter fungera:
-- System som använder miljövariabler: Ingen ändring behövs
-- System som använder compile-time defaults: Ingen ändring behövs
-- Nya deployments kan valfritt använda config-filer
-
-## Exempelkonfiguration
-
-Se `config/gridguard.conf` för ett komplett exempel med alla tillgängliga alternativ.
+`tests/unit/test_config_parser_gtest.cpp` — 13 testfall för parsing, sektionshämtning, fallback-kedja och edge cases.

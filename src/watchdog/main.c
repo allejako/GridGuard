@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +56,9 @@ int main(int argc, char *argv[])
     {
         LOG_WARNING("Watchdog: Could not load config from %s, using defaults", configPath);
     }
+
+    // Pass config path to child processes — fork() inherits the env.
+    setenv("GRIDGUARD_CONFIG_PATH", configPath, 1);
 
     if (daemon_mode)
     {

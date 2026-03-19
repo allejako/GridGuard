@@ -122,7 +122,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
     }
 
     // Attach till befintliga shared memory segments
-    if (SharedCache_Initiate((SharedCache *)proc->weatherCache, "/gridguard_weather", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->weatherCache, "/gridguard_weather", 900 /* 15 min */) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to weather cache");
         HTTPFetcher_Shutdown((HTTPFetcher *)proc->fetcher);
@@ -132,7 +132,7 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
         return -1;
     }
 
-    if (SharedCache_Initiate((SharedCache *)proc->priceCache, "/gridguard_price", 900) != 0)
+    if (SharedCache_Initiate((SharedCache *)proc->priceCache, "/gridguard_price", 43200 /* 12 h — prices published once per day */) != 0)
     {
         LOG_ERROR("FetcherProcess: Failed to attach to price cache");
         SharedCache_Shutdown((SharedCache *)proc->weatherCache);
@@ -175,8 +175,9 @@ int FetcherProcess_Initiate(FetcherProcess *proc, const char *requestFifoPath, c
     // Initialize separate timers for weather (15 min) and price (daily at 13:00)
     proc->weatherIntervalSeconds = 900;  // 15 minutes
     proc->lastWeatherFetch = time(NULL);
-    proc->lastPriceFetch = 0;  // Force immediate price fetch on startup
+    proc->lastPriceFetch = 0;       // Force immediate price fetch on startup
     proc->lastPriceFetchDate = 0;
+    proc->tomorrowPricesFetched = false;
 
     proc->isRunning = true;
 
@@ -242,34 +243,50 @@ int FetcherProcess_Run(FetcherProcess *proc)
             }
 
             // === PRICE FETCH: Daily at 13:00 CET (when tomorrow's prices are published) ===
-            // Check if: (1) we haven't fetched today yet, AND (2) it's after 13:00 Stockholm time
-            bool should_fetch_prices = false;
+            // Two cases:
+            //   (A) First fetch of the day  — triggers once after 13:00, no throttle
+            //   (B) Tomorrow retry          — elprisetjustnu may publish up to 14:00;
+            //       keep retrying every 5 minutes until tomorrow's prices arrive.
+            //       No hard stop: we keep trying until we succeed.
+            int today_date = (now_tm_stockholm.tm_year + 1900) * 10000 +
+                             (now_tm_stockholm.tm_mon + 1) * 100 +
+                             now_tm_stockholm.tm_mday;
 
-            // Get today's date in Stockholm timezone as YYYYMMDD for tracking
-            int today_date = (now_tm_stockholm.tm_year + 1900) * 10000 + (now_tm_stockholm.tm_mon + 1) * 100 + now_tm_stockholm.tm_mday;
+            bool first_fetch_today = (proc->lastPriceFetchDate != today_date &&
+                                      now_tm_stockholm.tm_hour >= 13);
 
-            if (proc->lastPriceFetchDate != today_date && now_tm_stockholm.tm_hour >= 13)
-            {
-                should_fetch_prices = true;
-                LOG_INFO("FetcherProcess: Price fetch triggered (daily 13:00+ Stockholm time, current hour: %02d:00)", now_tm_stockholm.tm_hour);
-            }
+            bool retry_for_tomorrow = (proc->lastPriceFetchDate == today_date &&
+                                       !proc->tomorrowPricesFetched &&
+                                       now_tm_stockholm.tm_hour >= 13 &&
+                                       (now - proc->lastPriceFetch) >= 300);  // 5-min throttle
+
+            bool should_fetch_prices = first_fetch_today || retry_for_tomorrow;
+
+            if (first_fetch_today)
+                LOG_INFO("FetcherProcess: Daily price fetch triggered (Stockholm %02d:00)", now_tm_stockholm.tm_hour);
+            else if (retry_for_tomorrow)
+                LOG_INFO("FetcherProcess: Retrying tomorrow's prices (not yet published at 13:00)");
 
             if (should_fetch_prices && now >= proc->priceBackoffUntil)
             {
                 // Fetch prices for all Swedish regions (SE1-SE4)
                 const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
                 int regions_count = 4;
-                int fetched = 0, skipped = 0;
+                int fetched = 0, skipped = 0, tomorrowFetched = 0;
 
                 // Use Stockholm timezone for today/tomorrow date calculation
                 struct tm today, tomorrow;
                 today = now_tm_stockholm;  // Already in Stockholm time
-                time_t tomorrowTime = now + (24 * 3600);
+                // Use mktime to advance by one calendar day in Stockholm TZ.
+                // Adding 86400 seconds fails on DST spring-forward nights (23 h day).
+                tomorrow = today;
+                tomorrow.tm_mday += 1;
+                tomorrow.tm_isdst = -1;
                 {
                     char *old_tz = getenv("TZ");
                     setenv("TZ", "Europe/Stockholm", 1);
                     tzset();
-                    localtime_r(&tomorrowTime, &tomorrow);
+                    mktime(&tomorrow);  // normalise overflow (e.g. mday=32 → next month)
                     if (old_tz)
                         setenv("TZ", old_tz, 1);
                     else
@@ -329,6 +346,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                                 SharedCache_Store(priceCache, priceKey, combinedJson);
                                 cJSON_free(combinedJson);
                                 fetched++;
+                                tomorrowFetched++;
                                 LOG_INFO("FetcherProcess: Cached %s prices (today+tomorrow)", region);
                             }
                         }
@@ -377,8 +395,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     if (tomorrowSuccess) HTTPFetcher_FreeResponse(&tomorrowResp);
                 }
 
-                LOG_INFO("FetcherProcess: Daily price fetch complete (13:00+) - fetched %d regions, skipped %d",
-                         fetched, skipped);
+                LOG_INFO("FetcherProcess: Price fetch complete — %d regions with tomorrow, %d today-only, %d failed",
+                         tomorrowFetched, fetched - tomorrowFetched, skipped);
 
                 // Signal that fresh price data is available (for cache invalidation)
                 if (fetched > 0)
@@ -387,7 +405,12 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 }
 
                 proc->lastPriceFetch = now;
-                proc->lastPriceFetchDate = today_date;  // Mark today as fetched
+                proc->lastPriceFetchDate = today_date;  // Always mark so retry throttle works
+                // tomorrowPricesFetched = true only when ALL regions got tomorrow's data.
+                // If any region is still missing tomorrow, keep retrying every 5 minutes.
+                proc->tomorrowPricesFetched = (tomorrowFetched == regions_count && skipped == 0);
+                if (!proc->tomorrowPricesFetched && fetched > 0)
+                    LOG_INFO("FetcherProcess: Tomorrow's prices not yet published — will retry in 5 min");
             }
 
             // === WEATHER CACHE INVALIDATION: Every 15 minutes ===
@@ -504,9 +527,20 @@ int FetcherProcess_Run(FetcherProcess *proc)
         char priceKey[256];
         now = time(NULL);
         struct tm today, tomorrow;
-        localtime_r(&now, &today);
-        time_t tomorrowTime = now + (24 * 3600);
-        localtime_r(&tomorrowTime, &tomorrow);
+        // Use Stockholm TZ for both cache key and API URLs so they always match
+        // the background-fetch keys, even when the server runs in UTC or another TZ.
+        {
+            char *old_tz = getenv("TZ");
+            setenv("TZ", "Europe/Stockholm", 1);
+            tzset();
+            localtime_r(&now, &today);
+            tomorrow = today;
+            tomorrow.tm_mday += 1;
+            tomorrow.tm_isdst = -1;
+            mktime(&tomorrow);  // normalise + handle DST spring-forward
+            if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+            tzset();
+        }
 
         snprintf(priceKey, sizeof(priceKey), "%s_%04d-%02d-%02d+%04d-%02d-%02d",
                  request.region,
@@ -532,7 +566,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 HTTPFetchResponse todayResp, tomorrowResp;
                 bool todaySuccess = false, tomorrowSuccess = false;
 
-                if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), request.region, NULL) == 0)
+                // Pass pre-computed Stockholm dates so URL and cache key always agree.
+                if (BuildSpotPriceApiUrl(todayUrl, sizeof(todayUrl), request.region, &today) == 0)
                 {
                     if (HTTPFetcher_Fetch(fetcher, todayUrl, &todayResp) == 0)
                     {
@@ -542,7 +577,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 }
 
                 // Fetch tomorrow's prices
-                if (BuildSpotPriceTomorrowUrl(tomorrowUrl, sizeof(tomorrowUrl), request.region) == 0)
+                if (BuildSpotPriceApiUrl(tomorrowUrl, sizeof(tomorrowUrl), request.region, &tomorrow) == 0)
                 {
                     if (HTTPFetcher_Fetch(fetcher, tomorrowUrl, &tomorrowResp) == 0)
                     {

@@ -61,52 +61,51 @@ make stop
 
 ## Konfiguration
 
-GridGuard använder en flexibel konfigurationslösning med tre nivåer:
+GridGuard löser konfigurationsvärden i tre steg:
 
-1. **Config-fil** (`config/gridguard.conf`) - INI-format, valfri
-2. **Miljövariabler** - Överskrider config-filen
-3. **Compile-time defaults** - Fallback om inget annat anges
+1. **Config-fil** (`config/gridguard.conf`) — INI-format, ignorerad av git
+2. **Miljövariabler** — överskrider config-filen
+3. **Compile-time defaults** — fallback om inget annat anges
 
-### Config-fil (rekommenderat)
+### Kom igång
 
-Redigera `config/gridguard.conf`:
-
-```ini
-[server]
-port=8080
-
-[database]
-db_path=gridguard.db
-
-[jwt]
-jwt_secret=your_secret_here
-
-[network]
-timeout=30
-max_retries=3
-
-[cache]
-weather_ttl=900
-price_ttl=3600
-forecast_ttl=1800
-```
-
-Ange custom config-fil:
 ```bash
-bin/GridGuard-watchdog --config /path/to/config.conf
+cp config/gridguard.conf.example config/gridguard.conf
 ```
 
-Hot-reload config utan omstart:
+Filen är förkommenterad — de flesta defaults fungerar direkt. Justera `db_path` om du vill lagra databasen utanför projektkatalogen.
+
+Custom config-sökväg:
 ```bash
-kill -SIGHUP $(cat /tmp/gridguard.pid)
+bin/GridGuard-watchdog --config /path/to/gridguard.conf
 ```
 
-### Miljövariabler
+Hot-reload utan omstart:
+```bash
+kill -SIGHUP $(cat /var/run/gridguard.pid)
+```
 
-| Variabel | Beskrivning | Standard |
-|---|---|---|
-| `GRIDGUARD_JWT_SECRET` | Hemlig nyckel för JWT-validering | — (obligatorisk) |
-| `GRIDGUARD_DB_PATH` | Sökväg till gridguard.db | Löses automatiskt |
+### Konfigurerbara nycklar
+
+| Nyckel | Miljövariabel | Default | Beskrivning |
+|---|---|---|---|
+| `server.port` | — | `8080` | HTTP-port |
+| `database.db_path` | `GRIDGUARD_DB_PATH` | auto | Sökväg till gridguard.db |
+| `cache.weather_ttl` | — | `900` | Väder-cache i sekunder (15 min) |
+| `cache.price_ttl` | — | `43200` | Priscache i sekunder (12 h) |
+| `cache.forecast_ttl` | — | `1800` | Forecast-cache i sekunder (30 min) |
+| `network.timeout` | — | `30` | HTTP-timeout i sekunder |
+| `network.max_retries` | — | `3` | Antal återförsök vid HTTP-fel |
+
+### JWT
+
+JWT-hemligheten hanteras **enbart via miljövariabel** — den lagras aldrig i config-filen.
+
+```bash
+export GRIDGUARD_JWT_SECRET="your-secret"
+```
+
+Hemligheten delas med plattformen som utfärdar tokens. Validering sker i `JWTValidator` via mbedTLS HS256.
 
 Se `docs/CONFIG_DESIGN.md` för fullständig dokumentation.
 

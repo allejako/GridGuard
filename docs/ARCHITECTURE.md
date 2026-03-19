@@ -1,6 +1,6 @@
 # GridGuard — Arkitektur och Systemdesign
 
-**Local Energy Optimization Platform (LEOP)**
+Smart energioptimering för svenska hushåll. GridGuard hämtar spotpriser och väderdata i realtid, beräknar förväntad solcellsproduktion och genererar en löpande energiplan — köp billigt, sälj överskott, undvik toppar.
 
 ---
 
@@ -23,7 +23,7 @@ bin/GridGuard             (launcher — execv:ar watchdog direkt)
 - Övervakar varje process via heartbeat-pipes
 - Startar om hela gruppen vid krasj (med exponentiell backoff)
 - Skriver processtatistik till POSIX shared memory (`/gridguard_watchdog_metrics`)
-- Skriver PID-fil (`/tmp/gridguard.pid`)
+- Skriver PID-fil (`/var/run/gridguard.pid`)
 
 **Server** äger inte längre sina child-processer — det gör Watchdog. Server initialiserar bara sin interna ComputeWorker-tråd och öppnar de IPC-resurser som Watchdog redan skapat.
 
@@ -271,9 +271,9 @@ flowchart TD
 | `SIGPIPE` | Ignoreras (för att undvika crash vid client disconnect) |
 
 ```bash
-kill -USR1 $(cat /tmp/gridguard.pid)   # Statusrapport i watchdog.log
-kill -USR2 $(cat /tmp/gridguard.pid)   # Manuell omstart
-kill -HUP $(cat /tmp/gridguard.pid)    # Reload config (alla processer)
+kill -USR1 $(cat /var/run/gridguard.pid)   # Statusrapport i watchdog.log
+kill -USR2 $(cat /var/run/gridguard.pid)   # Manuell omstart
+kill -HUP $(cat /var/run/gridguard.pid)    # Reload config (alla processer)
 ```
 
 ---
@@ -562,7 +562,7 @@ Varje process loggar till sin egen fil:
 | Fetcher | `logs/fetcher.log` |
 | Parser | `logs/parser.log` |
 
-Loggnivåer: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `FATAL`. Nivå sätts vid `Logger_Initiate()` och kan konfigureras via `config/gridguard.conf` (nyckel: `server.log_level`).
+Loggnivåer: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `FATAL`. Nivå sätts vid `Logger_Initiate()` per process.
 
 ---
 
@@ -583,7 +583,7 @@ GridGuard använder ett runtime konfigurationssystem med tre nivåer (fallback c
 bin/GridGuard-watchdog --config /path/to/custom.conf
 ```
 
-Watchdog laddar config före fork/exec av child-processer. Config ärvs automatiskt av alla processer via global singleton (`g_config`).
+Watchdog laddar config före fork/exec av child-processer och skriver sökvägen till `GRIDGUARD_CONFIG_PATH`. Varje barnprocess (Fetcher, Parser, Server) ärver miljövariabeln via `fork()` och anropar `RuntimeConfig_Load` direkt vid uppstart.
 
 **Hot-reload (SIGHUP):**
 ```bash
@@ -595,26 +595,24 @@ Server upptäcker SIGHUP i sin main loop och kallar `RuntimeConfig_Reload()`. Ny
 ### Konfigurerbara värden
 
 **[server]**
-- `port` — TCP listen port (default: 8080)
-- `host` — Bind address (default: localhost)
-- `log_level` — Logging verbosity (default: INFO)
+- `port` — TCP-lyssningsport (default: 8080)
 
 **[database]**
-- `db_path` — Path to gridguard.db (default: auto-resolved)
-- `platform_db_path` — Path to platform.db (default: platform.db)
-
-**[jwt]**
-- `jwt_secret` — JWT signing key (required)
+- `db_path` — Sökväg till gridguard.db (default: auto-upplöst, env: `GRIDGUARD_DB_PATH`)
 
 **[network]**
-- `timeout` — HTTP request timeout in seconds (default: 30)
-- `max_connections` — Max concurrent connections (default: 100)
-- `max_retries` — HTTP retry attempts (default: 3)
+- `timeout` — HTTP-timeout i sekunder (default: 30)
+- `max_retries` — Återförsök vid HTTP-fel (default: 3)
 
 **[cache]**
-- `weather_ttl` — Weather cache TTL (default: 900s)
-- `price_ttl` — Price cache TTL (default: 3600s)
-- `forecast_ttl` — Forecast cache TTL (default: 1800s)
+- `weather_ttl` — Väder-cache TTL (default: 900s)
+- `price_ttl` — Priscache TTL (default: 43200s)
+- `forecast_ttl` — Prognos-cache TTL (default: 1800s)
+
+JWT-hemligheten hanteras **enbart via miljövariabel** — lagras aldrig i config-filen:
+```bash
+export GRIDGUARD_JWT_SECRET="din-hemlighet"
+```
 
 ### Thread Safety
 

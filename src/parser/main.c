@@ -1,5 +1,6 @@
 #include "parser/Parser.h"
 #include "sys/Logger.h"
+#include "config/RuntimeConfig.h"
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
@@ -18,6 +19,7 @@ int main(int argc __attribute__((unused)), char *argv[])
     const char *socketPath = argv[2];
     const char *notifyPath = argv[3];
 
+    RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
     Logger_Initiate("logs/parser.log", LOG_LEVEL_DEBUG);
 
     signal(SIGTERM, signal_handler);

@@ -1,9 +1,25 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "api/APIEndpoints.h"
 #include "domain/Config.h"
+
+// Resolve current date in Europe/Stockholm timezone.
+// Elprisetjustnu prices are published and indexed by Swedish calendar date,
+// so using server-local time would yield wrong dates on UTC or other-TZ servers.
+static struct tm get_stockholm_date(time_t t)
+{
+    struct tm result;
+    char *old_tz = getenv("TZ");
+    setenv("TZ", "Europe/Stockholm", 1);
+    tzset();
+    localtime_r(&t, &result);
+    if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+    tzset();
+    return result;
+}
 
 int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const char *lon)
 {
@@ -42,9 +58,9 @@ int BuildSpotPriceApiUrl(char *buffer, size_t bufferSize, const char *region, co
     }
     else
     {
-        // Använd dagens datum
-        time_t now = time(NULL);
-        localtime_r(&now, &localDate);
+        // Always use Stockholm calendar date — elprisetjustnu URLs are indexed
+        // by Swedish date, not server-local date.
+        localDate = get_stockholm_date(time(NULL));
     }
 
     // Format: https://www.elprisetjustnu.se/api/v1/prices/2024/01-15_SE3.json
@@ -67,10 +83,21 @@ int BuildSpotPriceTomorrowUrl(char *buffer, size_t bufferSize, const char *regio
     if (!buffer || bufferSize < 128 || !region)
         return -1;
 
-    // Morgondagens datum
-    time_t tomorrow = time(NULL) + (24 * 3600);
-    struct tm tomorrowDate;
-    localtime_r(&tomorrow, &tomorrowDate);
+    // Compute tomorrow's date in Stockholm timezone using mktime so that DST
+    // transitions (e.g. the spring-forward night when the day is 23 h) are
+    // handled correctly.  Adding 86400 seconds can land on the same calendar
+    // date when the clock moves forward at 02:00 → 03:00.
+    struct tm tomorrowDate = get_stockholm_date(time(NULL));
+    tomorrowDate.tm_mday += 1;
+    tomorrowDate.tm_isdst = -1;  // let mktime determine DST for the new date
+    {
+        char *old_tz = getenv("TZ");
+        setenv("TZ", "Europe/Stockholm", 1);
+        tzset();
+        mktime(&tomorrowDate);  // normalise day/month/year overflow
+        if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+        tzset();
+    }
 
     return BuildSpotPriceApiUrl(buffer, bufferSize, region, &tomorrowDate);
 }
