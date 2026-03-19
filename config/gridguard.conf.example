@@ -36,4 +36,3 @@ forecast_ttl = 1800
 [network]
 timeout     = 30
 max_retries = 3
-F
