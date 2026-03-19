@@ -1,5 +1,5 @@
-#ifndef METRICS_H
-#define METRICS_H
+#ifndef _METRICS_H_
+#define _METRICS_H_
 
 #include <time.h>
 #include <sys/types.h>
@@ -8,24 +8,25 @@
 
 // Shared memory structure for watchdog metrics
 // Server reads this to expose status via API
-typedef struct {
-    time_t watchdog_start_time;
-    time_t last_restart_time;
-    int    restart_count;
-    int    max_restarts;
-    int    restart_window_sec;
+typedef struct
+{
+    time_t watchdogStartTime;
+    time_t lastRestartTime;
+    int    restartCount;
+    int    maxRestarts;
+    int    restartWindowSec;
 
-    pid_t  fetcher_pid;
-    time_t fetcher_start_time;
-    time_t fetcher_last_heartbeat;
+    pid_t  fetcherPid;
+    time_t fetcherStartTime;
+    time_t fetcherLastHeartbeat;
 
-    pid_t  parser_pid;
-    time_t parser_start_time;
-    time_t parser_last_heartbeat;
+    pid_t  parserPid;
+    time_t parserStartTime;
+    time_t parserLastHeartbeat;
 
-    pid_t  server_pid;
-    time_t server_start_time;
-    time_t server_last_heartbeat;
+    pid_t  serverPid;
+    time_t serverStartTime;
+    time_t serverLastHeartbeat;
 } WatchdogMetrics;
 
 // Watchdog side - creates shared memory
@@ -37,6 +38,10 @@ WatchdogMetrics *Metrics_GetWritable(void);
 WatchdogMetrics *Metrics_Open(void);
 void Metrics_Close(WatchdogMetrics *metrics);
 
-void Metrics_Update(WatchdogMetrics *metrics, pid_t fetcher_pid, time_t fetcher_hb, pid_t parser_pid, time_t parser_hb, pid_t server_pid, time_t server_hb, int restart_count, int max_restarts);
+void Metrics_Update(WatchdogMetrics *metrics,
+                    pid_t fetcherPid, time_t fetcherHb,
+                    pid_t parserPid,  time_t parserHb,
+                    pid_t serverPid,  time_t serverHb,
+                    int restartCount, int maxRestarts);
 
-#endif
+#endif // _METRICS_H_

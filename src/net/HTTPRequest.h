@@ -1,5 +1,5 @@
-#ifndef HTTP_REQUEST_H
-#define HTTP_REQUEST_H
+#ifndef _HTTP_REQUEST_H_
+#define _HTTP_REQUEST_H_
 
 #define HTTP_METHOD_SIZE       16
 #define HTTP_PATH_SIZE        256
@@ -24,4 +24,4 @@ int HTTPRequest_Parse(int fd, HTTPRequest *request);
 // Returns pointer into request->authorization, or NULL if not a Bearer token.
 const char *HTTPRequest_GetBearerToken(const HTTPRequest *request);
 
-#endif // HTTP_REQUEST_H
+#endif // _HTTP_REQUEST_H_

@@ -1,5 +1,5 @@
-#ifndef HTTP_CLIENT_H
-#define HTTP_CLIENT_H
+#ifndef _HTTP_CLIENT_H_
+#define _HTTP_CLIENT_H_
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -9,13 +9,15 @@
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/x509_crt.h>
 
-typedef struct {
+typedef struct
+{
     char  *body;
     size_t bodyLen;
     int    statusCode;
 } HTTPClientResponse;
 
-typedef struct {
+typedef struct
+{
     bool                     initialized;
     mbedtls_ssl_config       sslConf;
     mbedtls_entropy_context  entropy;
@@ -31,4 +33,4 @@ void HTTPClient_Shutdown(HTTPClient *client);
 int  HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *response, int timeoutSec);
 void HTTPClient_FreeResponse(HTTPClientResponse *response);
 
-#endif // HTTP_CLIENT_H
+#endif // _HTTP_CLIENT_H_

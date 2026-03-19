@@ -20,10 +20,10 @@ int Heartbeat_Initiate(Heartbeat *hb)
         return -1;
     }
 
-    hb->read_fd  = fds[0];
-    hb->write_fd = fds[1];
+    hb->readFd  = fds[0];
+    hb->writeFd = fds[1];
 
-    LOG_INFO("Heartbeat pipe created (read=%d, write=%d)", hb->read_fd, hb->write_fd);
+    LOG_INFO("Heartbeat pipe created (read=%d, write=%d)", hb->readFd, hb->writeFd);
     return 0;
 }
 
@@ -31,45 +31,45 @@ void Heartbeat_Shutdown(Heartbeat *hb)
 {
     if (!hb)
         return;
-    if (hb->read_fd >= 0)
-        close(hb->read_fd);
-    if (hb->write_fd >= 0)
-        close(hb->write_fd);
+    if (hb->readFd >= 0)
+        close(hb->readFd);
+    if (hb->writeFd >= 0)
+        close(hb->writeFd);
 }
 
 int Heartbeat_GetWriteFd(const Heartbeat *hb)
 {
-    return hb ? hb->write_fd : -1;
+    return hb ? hb->writeFd : -1;
 }
 
 int Heartbeat_CloseWriteFd(Heartbeat *hb)
 {
-    if (!hb || hb->write_fd < 0)
+    if (!hb || hb->writeFd < 0)
         return 0;
-    close(hb->write_fd);
-    hb->write_fd = -1;
+    close(hb->writeFd);
+    hb->writeFd = -1;
     return 0;
 }
 
 int Heartbeat_CloseReadFd(Heartbeat *hb)
 {
-    if (!hb || hb->read_fd < 0)
+    if (!hb || hb->readFd < 0)
         return 0;
-    close(hb->read_fd);
-    hb->read_fd = -1;
+    close(hb->readFd);
+    hb->readFd = -1;
     return 0;
 }
 
-int Heartbeat_Check(Heartbeat *hb, int timeout_sec)
+int Heartbeat_Check(Heartbeat *hb, int timeoutSec)
 {
-    if (!hb || hb->read_fd < 0)
+    if (!hb || hb->readFd < 0)
         return 1;
 
     struct pollfd pfd;
-    pfd.fd     = hb->read_fd;
+    pfd.fd     = hb->readFd;
     pfd.events = POLLIN;
 
-    int ret = poll(&pfd, 1, timeout_sec * 1000);
+    int ret = poll(&pfd, 1, timeoutSec * 1000);
 
     if (ret < 0)
     {
@@ -83,7 +83,7 @@ int Heartbeat_Check(Heartbeat *hb, int timeout_sec)
         return 0;
 
     char buf[64];
-    ssize_t n = read(hb->read_fd, buf, sizeof(buf));
+    ssize_t n = read(hb->readFd, buf, sizeof(buf));
     if (n <= 0)
         return -1;
 

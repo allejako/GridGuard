@@ -1,5 +1,5 @@
-#ifndef HTTP_RESPONSE_H
-#define HTTP_RESPONSE_H
+#ifndef _HTTP_RESPONSE_H_
+#define _HTTP_RESPONSE_H_
 
 #include <stddef.h>
 
@@ -32,4 +32,4 @@ int HTTPResponse_SendJson(int fd, const char *jsonBody);
 // Send JSON error with given status code.
 int HTTPResponse_SendError(int fd, HTTPStatusCode statusCode, const char *errorMessage);
 
-#endif // HTTP_RESPONSE_H
+#endif // _HTTP_RESPONSE_H_

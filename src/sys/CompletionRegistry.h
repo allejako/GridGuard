@@ -1,5 +1,5 @@
-#ifndef _COMPLETION_REGISTRY_H
-#define _COMPLETION_REGISTRY_H
+#ifndef _COMPLETION_REGISTRY_H_
+#define _COMPLETION_REGISTRY_H_
 
 #include "sys/WorkCompletion.h"
 
@@ -11,4 +11,4 @@ void RegisterCompletion(const char *userId, WorkCompletion *completion);
 WorkCompletion *FindCompletionByUserId(const char *userId);
 void UnregisterCompletion(const char *userId);
 
-#endif // _COMPLETION_REGISTRY_H
+#endif // _COMPLETION_REGISTRY_H_

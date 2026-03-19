@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
@@ -128,6 +129,17 @@ static void ipcCleanup(void)
     unlink(PARSE_TO_COMPUTE_SOCK_PATH);
 }
 
+// Remove shared memory cache segments.
+// A crashed process may have left an rwlock in a locked or inconsistent state
+// inside the segment. Unlinking forces fresh initialization on next startup.
+// Safe to call when no processes are using the segments.
+static void shmCleanupCaches(void)
+{
+    shm_unlink("/gridguard_weather");
+    shm_unlink("/gridguard_price");
+    shm_unlink("/gridguard_forecast");
+}
+
 static volatile sig_atomic_t watchdogRunning = 1;
 static volatile sig_atomic_t logProcessStatus = 0;
 static volatile sig_atomic_t manualRestart = 0;
@@ -207,7 +219,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     WatchdogMetrics *metrics = Metrics_GetWritable();
     if (metrics)
     {
-        metrics->restart_window_sec = RESTART_WINDOW_SEC;
+        metrics->restartWindowSec = RESTART_WINDOW_SEC;
     }
 
     RestartPolicy policy;
@@ -221,6 +233,9 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
     ProcessGroup group;
     ProcessGroup_Initiate(&group, fetcherPath, parserPath, serverPath);
+
+    // Clear any stale SHM segments from a previous crash before spawning.
+    shmCleanupCaches();
 
     LOG_INFO("Starting all processes");
 
@@ -248,12 +263,12 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
     if (metrics)
     {
-        metrics->fetcher_pid = fetcherPid;
-        metrics->fetcher_start_time = processStartTime;
-        metrics->parser_pid = parserPid;
-        metrics->parser_start_time = processStartTime;
-        metrics->server_pid = serverPid;
-        metrics->server_start_time = processStartTime;
+        metrics->fetcherPid       = fetcherPid;
+        metrics->fetcherStartTime = processStartTime;
+        metrics->parserPid        = parserPid;
+        metrics->parserStartTime  = processStartTime;
+        metrics->serverPid        = serverPid;
+        metrics->serverStartTime  = processStartTime;
     }
 
     while (watchdogRunning)
@@ -412,8 +427,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
         RestartPolicy_RecordRestart(&policy);
         int backoff = RestartPolicy_GetBackoffDelay(&policy);
 
-        LOG_INFO("Restarting all processes in %d seconds (attempt %d/%d)",
-                 backoff, RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy));
+        LOG_INFO("Restarting all processes in %d seconds (attempt %d/%d)", backoff, RestartPolicy_GetCount(&policy), RestartPolicy_GetMax(&policy));
 
         for (int i = 0; i < backoff && watchdogRunning; i++)
             sleep(1);
@@ -423,6 +437,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
         ipcCleanup();
         ipcCreateFifos();
+        shmCleanupCaches();
 
         if (ProcessGroup_SpawnAll(&group) != 0)
         {
@@ -448,10 +463,10 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
 
         if (metrics)
         {
-            metrics->fetcher_start_time = restartTime;
-            metrics->parser_start_time = restartTime;
-            metrics->server_start_time = restartTime;
-            metrics->last_restart_time = restartTime;
+            metrics->fetcherStartTime  = restartTime;
+            metrics->parserStartTime   = restartTime;
+            metrics->serverStartTime   = restartTime;
+            metrics->lastRestartTime   = restartTime;
         }
     }
 
@@ -483,6 +498,7 @@ int Watchdog_Run(const char *fetcherPath, const char *parserPath, const char *se
     Metrics_Shutdown();
 
     ipcCleanup();
+    shmCleanupCaches();
     statusDestroy(status);
     LOG_INFO("Watchdog exiting");
     return 0;

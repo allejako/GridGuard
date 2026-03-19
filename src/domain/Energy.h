@@ -1,5 +1,5 @@
-#ifndef ENERGY_DATA_H
-#define ENERGY_DATA_H
+#ifndef _ENERGY_DATA_H_
+#define _ENERGY_DATA_H_
 
 #include <time.h>
 #include <stdbool.h>
@@ -62,4 +62,4 @@ static inline const char *EnergyAction_ToString(EnergyAction action)
     }
 }
 
-#endif // ENERGY_DATA_H
+#endif // _ENERGY_DATA_H_

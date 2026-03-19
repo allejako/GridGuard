@@ -1,5 +1,5 @@
-#ifndef WORK_REQUEST_H
-#define WORK_REQUEST_H
+#ifndef _WORK_REQUEST_H_
+#define _WORK_REQUEST_H_
 
 // WorkRequest: sent from HTTP handler → Fetcher process via anonymous pipe.
 typedef struct
@@ -17,4 +17,4 @@ typedef struct
     double gridFee_high;
 } WorkRequest;
 
-#endif // WORK_REQUEST_H
+#endif // _WORK_REQUEST_H_

@@ -25,4 +25,4 @@ int  HTTPFetcher_Fetch(HTTPFetcher *fetcher, const char *url, HTTPFetchResponse 
 void HTTPFetcher_FreeResponse(HTTPFetchResponse *response);
 void HTTPFetcher_Shutdown(HTTPFetcher *fetcher);
 
-#endif
+#endif // _HTTP_FETCHER_H_

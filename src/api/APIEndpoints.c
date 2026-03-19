@@ -12,11 +12,12 @@
 static struct tm get_stockholm_date(time_t t)
 {
     struct tm result;
-    char *old_tz = getenv("TZ");
+    const char *tmp = getenv("TZ");
+    char *old_tz = tmp ? strdup(tmp) : NULL;
     setenv("TZ", "Europe/Stockholm", 1);
     tzset();
     localtime_r(&t, &result);
-    if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+    if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); } else unsetenv("TZ");
     tzset();
     return result;
 }
@@ -35,10 +36,7 @@ int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const
         "&minutely_15=temperature_2m,relative_humidity_2m,cloud_cover,"
         "wind_speed_10m,shortwave_radiation"
         "&timezone=%s&forecast_minutely_15=192",
-        OPENMETEO_API_BASE_URL,
-        lat,
-        lon,
-        WEATHER_TIMEZONE);
+        OPENMETEO_API_BASE_URL, lat, lon, WEATHER_TIMEZONE);
 
     if (written < 0 || (size_t)written >= bufferSize)
         return -1;
@@ -64,13 +62,7 @@ int BuildSpotPriceApiUrl(char *buffer, size_t bufferSize, const char *region, co
     }
 
     // Format: https://www.elprisetjustnu.se/api/v1/prices/2024/01-15_SE3.json
-    int written = snprintf(buffer, bufferSize,
-        "%s/%04d/%02d-%02d_%s.json",
-        SPOTPRICE_API_BASE_URL,
-        localDate.tm_year + 1900,
-        localDate.tm_mon + 1,
-        localDate.tm_mday,
-        region);
+    int written = snprintf(buffer, bufferSize, "%s/%04d/%02d-%02d_%s.json", SPOTPRICE_API_BASE_URL, localDate.tm_year + 1900, localDate.tm_mon + 1, localDate.tm_mday, region);
 
     if (written < 0 || (size_t)written >= bufferSize)
         return -1;
@@ -91,11 +83,12 @@ int BuildSpotPriceTomorrowUrl(char *buffer, size_t bufferSize, const char *regio
     tomorrowDate.tm_mday += 1;
     tomorrowDate.tm_isdst = -1;  // let mktime determine DST for the new date
     {
-        char *old_tz = getenv("TZ");
+        const char *tmp = getenv("TZ");
+        char *old_tz = tmp ? strdup(tmp) : NULL;
         setenv("TZ", "Europe/Stockholm", 1);
         tzset();
         mktime(&tomorrowDate);  // normalise day/month/year overflow
-        if (old_tz) setenv("TZ", old_tz, 1); else unsetenv("TZ");
+        if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); } else unsetenv("TZ");
         tzset();
     }
 

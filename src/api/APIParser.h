@@ -21,4 +21,4 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
 // Parse raw JSON from Elpriset.se into ElprisetResponse.
 int APIParser_ParseElpriset(APIParser *parser, const char *jsonData, ElprisetResponse *response);
 
-#endif
+#endif // _API_PARSER_H_

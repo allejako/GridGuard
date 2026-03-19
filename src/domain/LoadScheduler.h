@@ -1,5 +1,5 @@
-#ifndef LOAD_SCHEDULER_H
-#define LOAD_SCHEDULER_H
+#ifndef _LOAD_SCHEDULER_H_
+#define _LOAD_SCHEDULER_H_
 
 #include <time.h>
 
@@ -27,4 +27,4 @@ typedef struct
 // scheduling. Returns 0 and fills *out on success, -1 if no valid window exists.
 int LoadScheduler_FindWindow(const SchedulerEntry *entries, int count, int durationMinutes, double powerKw, time_t deadline, time_t nowTime, ScheduleWindow *out);
 
-#endif // LOAD_SCHEDULER_H
+#endif // _LOAD_SCHEDULER_H_

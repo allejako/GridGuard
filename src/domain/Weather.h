@@ -4,19 +4,21 @@
 #include <time.h>
 #include <stdbool.h>
 
-typedef struct {
+typedef struct
+{
     time_t timestamp;
     double temperature;
     double humidity;
     double cloudCover;
     double windSpeed;
     double solarIrradiance;
-    bool valid;
+    bool   valid;
 } WeatherEntry;
 
-typedef struct {
+typedef struct
+{
     WeatherEntry entries[96];
-    int count;
+    int    count;
     time_t lastUpdated;
 } WeatherData;
 

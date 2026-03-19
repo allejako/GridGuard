@@ -16,8 +16,36 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <libgen.h>
+#include <time.h>
+#include <errno.h>
 
-// IPC paths - definierade här för att vara tillgängliga överallt
+// Open a write-end FIFO without blocking forever.
+// O_WRONLY on a named pipe blocks until someone opens the read end.
+// We retry with O_NONBLOCK (which gives ENXIO if no reader yet) until timeout.
+static int open_fifo_write(const char *path, int timeout_sec)
+{
+    struct timespec delay = { 0, 100 * 1000000L }; // 100 ms
+    int attempts = (timeout_sec * 1000) / 100;
+
+    for (int i = 0; i < attempts; i++)
+    {
+        int fd = open(path, O_WRONLY | O_NONBLOCK);
+        if (fd >= 0)
+        {
+            // Reader is there — drop O_NONBLOCK, writes should block normally
+            int flags = fcntl(fd, F_GETFL);
+            if (flags >= 0)
+                fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+            return fd;
+        }
+        if (errno != ENXIO)
+            return -1; // Unexpected error, don't retry
+        nanosleep(&delay, NULL);
+    }
+    return -1;
+}
+
+// IPC paths - defined here to be accessible everywhere
 static const char *FIFO_PATH = "/tmp/gridguard_fetch_to_parse.fifo";
 static const char *SOCKET_PATH = "/tmp/gridguard_parse_to_compute.sock";
 static const char *NOTIFY_PATH = "/tmp/gridguard_parse_to_compute.fifo";
@@ -70,7 +98,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    // Initialize Compute service, används utav våran compute worker thread som kommunicerar med Parse-processen via Unix socket
+    // Initialize Compute service, used by the compute worker thread that communicates with the Parser process via Unix socket
     if (Compute_Initiate(&app->compute) != 0)
     {
         LOG_ERROR("GridGuard: Failed to initiate Compute");
@@ -118,12 +146,12 @@ int GridGuard_Initiate(GridGuard *app)
     // Note: Watchdog creates all FIFOs before spawning processes
     LOG_INFO("Using FIFO created by Watchdog: %s", app->fifoPath);
 
-    // Open request FIFO for writing (Watchdog created this already)
-    // This will block until Fetcher process opens it for reading
-    app->requestPipeFd = open("/tmp/gridguard_requests.fifo", O_WRONLY);
+    // Open request FIFO for writing — Watchdog created it, Fetcher opens the read end.
+    // Retry for up to 10 seconds rather than blocking indefinitely.
+    app->requestPipeFd = open_fifo_write("/tmp/gridguard_requests.fifo", 10);
     if (app->requestPipeFd < 0)
     {
-        LOG_ERROR("GridGuard: Failed to open request FIFO for writing");
+        LOG_ERROR("GridGuard: Timed out waiting for Fetcher to open request FIFO");
         SharedCache_Shutdown(&app->forecastCache);
         SharedCache_Shutdown(&app->priceCache);
         SharedCache_Shutdown(&app->weatherCache);
@@ -133,7 +161,7 @@ int GridGuard_Initiate(GridGuard *app)
     }
     LOG_INFO("Opened request FIFO for writing");
 
-    // Starta Compute worker thread (Unix socket client)
+    // Start Compute worker thread (Unix socket client)
     ComputeWorker *computeWorker = calloc(1, sizeof(ComputeWorker));
     if (!computeWorker)
     {
@@ -147,10 +175,10 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    computeWorker->socketPath = app->socketPath; // Unix socket path för Parse → Compute
-    computeWorker->notifyPath = NOTIFY_PATH; // Notify FIFO path för Parse → Compute (för att signalera när data är klar)
-    computeWorker->compute = &app->compute; // Opaque pointer till Compute service
-    computeWorker->isRunning = true; // Kontrollflagga för ComputeWorker
+    computeWorker->socketPath = app->socketPath; // Unix socket path for Parse → Compute
+    computeWorker->notifyPath = NOTIFY_PATH; // Notify FIFO path for Parse → Compute (signals when data is ready)
+    computeWorker->compute = &app->compute; // Opaque pointer to Compute service
+    computeWorker->isRunning = true; // Control flag for ComputeWorker
 
     // Save reference to worker so we can signal shutdown later
     app->computeWorker = computeWorker;
@@ -180,10 +208,10 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request, WorkComp
     if (!app || !request || !completion)
         return -1;
 
-    // Registrera WorkCompletion så Compute-tråden kan hitta den via userId
+    // Register WorkCompletion so the Compute thread can find it by userId
     RegisterCompletion(request->userId, completion);
 
-    // Skriv request till pipe (HTTP → Fetch)
+    // Write request to pipe (HTTP → Fetch)
     pthread_mutex_lock(&app->mutex);
     ssize_t written = write(app->requestPipeFd, request, sizeof(WorkRequest));
     pthread_mutex_unlock(&app->mutex);
@@ -221,11 +249,10 @@ void GridGuard_Shutdown(GridGuard *app)
         app->computeWorker = NULL;
     }
 
-    // Terminera child-processer
     // Watchdog owns Fetcher and Parser processes, so we don't kill them here
     LOG_INFO("Server shutting down (Watchdog manages other processes)");
 
-    // Stäng pipe
+    // Close pipe
     if (app->requestPipeFd >= 0)
     {
         close(app->requestPipeFd);

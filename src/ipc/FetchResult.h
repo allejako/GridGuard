@@ -1,5 +1,5 @@
-#ifndef FETCH_RESULT_H
-#define FETCH_RESULT_H
+#ifndef _FETCH_RESULT_H_
+#define _FETCH_RESULT_H_
 
 // FetchResult: sent from Fetcher process → Parser process via named FIFO.
 typedef struct
@@ -17,4 +17,4 @@ typedef struct
     char   priceJson[32768];      // 48h price data (today + tomorrow, ~26KB for 192 quarters)
 } FetchResult;
 
-#endif // FETCH_RESULT_H
+#endif // _FETCH_RESULT_H_

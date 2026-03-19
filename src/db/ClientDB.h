@@ -1,5 +1,5 @@
-#ifndef CLIENT_DB_H
-#define CLIENT_DB_H
+#ifndef _CLIENT_DB_H_
+#define _CLIENT_DB_H_
 
 #include <sqlite3.h>
 #include <stdbool.h>
@@ -7,7 +7,8 @@
 // Client database: user config, schedules, energy data.
 // Stored ONLY on user's device — never sent to platform server.
 // Ensures privacy: all sensitive energy consumption data stays local.
-typedef struct {
+typedef struct
+{
     sqlite3 *db;
     bool     initialized;
 } ClientDB;
@@ -19,4 +20,4 @@ int ClientDB_Initiate(ClientDB *db, const char *path);
 // Close connection and cleanup.
 void ClientDB_Shutdown(ClientDB *db);
 
-#endif // CLIENT_DB_H
+#endif // _CLIENT_DB_H_

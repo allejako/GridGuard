@@ -15,4 +15,4 @@ int BuildSpotPriceApiUrl(char *buffer, size_t bufferSize, const char *region, co
 // Same as above but always builds the URL for tomorrow's prices.
 int BuildSpotPriceTomorrowUrl(char *buffer, size_t bufferSize, const char *region);
 
-#endif
+#endif // _API_ENDPOINTS_H_

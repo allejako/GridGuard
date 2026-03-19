@@ -440,6 +440,70 @@ clean-gtest:
 	@rm -rf $(CMAKE_BUILD_DIR)
 	@echo "CMake build directory cleaned"
 
+# ── Valgrind test target ───────────────────────────────────────────────────
+# Runs the fast unit tests (no network I/O) under Valgrind memcheck.
+# Integration tests (test-api, test-weather) are excluded — they make real
+# HTTPS calls which produce valgrind noise from mbedTLS/OpenSSL internals.
+VALGRIND = valgrind --error-exitcode=1 --leak-check=full \
+           --show-leak-kinds=all --track-origins=yes \
+           --suppressions=/usr/lib/valgrind/default.supp 2>/dev/null; \
+           valgrind --error-exitcode=1 --leak-check=full \
+           --show-leak-kinds=all --track-origins=yes
+
+.PHONY: test-valgrind
+test-valgrind: directories $(TEST_JWT_BIN) $(TEST_HTTP_REQ_BIN) $(TEST_HTTP_RESP_BIN) $(TEST_LOGGER_BIN)
+	@echo "======================================"
+	@echo "Running unit tests under Valgrind"
+	@echo "======================================"
+	@GRIDGUARD_JWT_SECRET=gridguard-test-secret \
+	    valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+	    --track-origins=yes $(TEST_JWT_BIN)
+	@valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+	    --track-origins=yes $(TEST_HTTP_REQ_BIN)
+	@valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+	    --track-origins=yes $(TEST_HTTP_RESP_BIN)
+	@echo "======================================"
+	@echo "Valgrind: all tests passed"
+	@echo "======================================"
+
+# ── ThreadSanitizer test target ────────────────────────────────────────────
+# Builds the Google Test suite with -fsanitize=thread and runs ctest.
+# Complementary to helgrind — catches data races at compile time via
+# instrumented thread library.
+#
+# Note: TSan requires matching libtsan for your GCC version.
+# Install with: sudo dnf install libtsan (Fedora) / libgcc-s1 (Ubuntu)
+TSAN_BUILD_DIR = build-tsan
+
+.PHONY: test-tsan clean-tsan
+test-tsan:
+	@if ! ldconfig -p 2>/dev/null | grep -q libtsan; then \
+	    echo ""; \
+	    echo "ERROR: libtsan not found (GCC 15 mismatch on this system)"; \
+	    echo ""; \
+	    echo "Install with:  sudo dnf install libtsan  (Fedora)"; \
+	    echo "               sudo apt install libtsan0  (Ubuntu/Debian)"; \
+	    echo ""; \
+	    echo "Alternative:   make helgrind  (same race detection via Valgrind)"; \
+	    echo ""; \
+	    exit 1; \
+	fi
+	@echo "Configuring CMake build with ThreadSanitizer..."
+	@cmake -S . -B $(TSAN_BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug \
+	    -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1 -fno-omit-frame-pointer" \
+	    -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1 -fno-omit-frame-pointer" \
+	    -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+	@echo "Building with TSan..."
+	@cmake --build $(TSAN_BUILD_DIR) -j$$(nproc)
+	@echo "======================================"
+	@echo "Running Google Tests with ThreadSanitizer"
+	@echo "======================================"
+	@cd $(TSAN_BUILD_DIR) && ctest --output-on-failure
+
+clean-tsan:
+	@rm -rf $(TSAN_BUILD_DIR)
+	@echo "TSan build directory cleaned"
+
 # ── Körning ────────────────────────────────────────────────────────────
 .PHONY: run-server server-run run-watchdog run-client start dev stop
 
@@ -660,6 +724,9 @@ help:
 	@echo "  build-gtest      Bygg Google Tests (CMake-baserade)"
 	@echo "  test-all         Kör alla tester (legacy + Google Test)"
 	@echo "  clean-gtest      Rensa CMake build-katalog"
+	@echo "  test-valgrind    Kör unit-tester under Valgrind memcheck"
+	@echo "  test-tsan        Bygg och kör Google Tests med ThreadSanitizer"
+	@echo "  clean-tsan       Rensa TSan build-katalog"
 	@echo ""
 	@echo "  start            Snabbstart med watchdog i foreground (development)"
 	@echo "  daemon           Starta watchdog i bakgrund (production)"
@@ -679,6 +746,6 @@ help:
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
 .PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
-.PHONY: build-gtest test-gtest clean-gtest test-all
+.PHONY: build-gtest test-gtest clean-gtest test-all test-valgrind test-tsan clean-tsan
 .PHONY: start daemon run-server server-run run-watchdog run-client dev stop
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help

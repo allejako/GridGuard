@@ -51,7 +51,7 @@ int HTTPFetcher_Fetch(HTTPFetcher *fetcher, const char *url, HTTPFetchResponse *
                 return 0;
             }
 
-            // 4xx — retry hjälper inte
+            // 4xx — retry won't help
             if (httpResp.statusCode < 500 || attemptCount == maxRetries)
             {
                 HTTPClient_FreeResponse(&httpResp);

@@ -92,11 +92,13 @@ int ThreadPool_Shutdown(ThreadPool *threadPool)
 
     LOG_INFO("ThreadPool: Shutting down...");
 
-    // Wake all workers blocked on Queue_Pop.
+    // Signal shutdown so threads unblock from Queue_Pop.
     Queue_Shutdown(&threadPool->workQueue);
 
-    // Join all worker threads.
+    // Wait for all threads to exit before destroying the queue's mutex/cond.
     WorkerPool_Shutdown(&threadPool->pool);
+
+    Queue_Destroy(&threadPool->workQueue);
 
     LOG_INFO("ThreadPool: Shutdown complete");
     return 0;

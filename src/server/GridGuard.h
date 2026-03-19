@@ -1,3 +1,12 @@
+/*
+ * GridGuard — Intelligent Energy Optimization Engine
+ *
+ * Built for the edge. Runs lean. Never sleeps.
+ * Real-time solar, spot price, and grid intelligence — delivered in microseconds.
+ *
+ * Copyright (c) 2026 GridGuard AB. All rights reserved.
+ */
+
 #ifndef _GRIDGUARD_H_
 #define _GRIDGUARD_H_
 
@@ -21,14 +30,14 @@ typedef struct GridGuard
     char fifoPath[256];       // Named pipe: Fetch → Parse
     char socketPath[256];     // Unix socket: Parse → Compute
 
-    // Compute worker thread (körs i main process, läser från Unix socket)
+    // Compute worker thread (runs in main process, reads from Unix socket)
     pthread_t computeThread;
     void *computeWorker;  // Pointer to ComputeWorker struct (opaque to avoid circular include)
 
     // Shared resources
-    Compute compute;              // Compute service (används av compute thread)
-    SharedCache weatherCache;     // shm_open/mmap - delad mellan processer
-    SharedCache priceCache;       // shm_open/mmap - delad mellan processer
+    Compute compute;              // Compute service (used by compute thread)
+    SharedCache weatherCache;     // shm_open/mmap - shared between processes
+    SharedCache priceCache;       // shm_open/mmap - shared between processes
     SharedCache forecastCache;    // shm_open/mmap - cache for complete forecast JSON
     ClientDB db;                  // Persistent user config
 

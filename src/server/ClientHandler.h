@@ -1,5 +1,5 @@
-#ifndef CLIENT_HANDLER_H
-#define CLIENT_HANDLER_H
+#ifndef _CLIENT_HANDLER_H_
+#define _CLIENT_HANDLER_H_
 
 struct GridGuard;
 
@@ -8,4 +8,4 @@ struct GridGuard;
 // Called by an HTTP worker thread. Blocks until response is sent.
 void Client_HandleRequest(int fd, struct GridGuard *app);
 
-#endif // CLIENT_HANDLER_H
+#endif // _CLIENT_HANDLER_H_

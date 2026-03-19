@@ -245,3 +245,39 @@ target_link_libraries(test_user_config_db_gtest
 )
 
 gtest_discover_tests(test_user_config_db_gtest)
+
+# ==============================================================================
+# Integration Tests (Multi-Process Pipeline & Chaos Engineering)
+# ==============================================================================
+
+# Process Pipeline Integration Tests
+# Tests the full fork()/exec() process boundary and heartbeat IPC
+add_executable(test_process_pipeline_gtest
+    integration/test_process_pipeline_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/watchdog/Heartbeat.c
+    ${CMAKE_SOURCE_DIR}/src/watchdog/RestartPolicy.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_process_pipeline_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_process_pipeline_gtest)
+
+# Chaos Engineering Tests
+# SIGKILL scenarios and watchdog recovery verification
+add_executable(test_chaos_watchdog_gtest
+    integration/test_chaos_watchdog_gtest.cpp
+    ${CMAKE_SOURCE_DIR}/src/watchdog/Heartbeat.c
+    ${CMAKE_SOURCE_DIR}/src/watchdog/RestartPolicy.c
+    ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
+)
+
+target_link_libraries(test_chaos_watchdog_gtest
+    GTest::gtest_main
+    Threads::Threads
+)
+
+gtest_discover_tests(test_chaos_watchdog_gtest)

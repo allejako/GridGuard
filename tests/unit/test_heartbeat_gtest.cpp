@@ -11,15 +11,15 @@ extern "C" {
 TEST(HeartbeatTest, InitiateCreatesPipe) {
     Heartbeat hb;
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
-    EXPECT_GE(hb.read_fd,  0);
-    EXPECT_GE(hb.write_fd, 0);
+    EXPECT_GE(hb.readFd,  0);
+    EXPECT_GE(hb.writeFd, 0);
     Heartbeat_Shutdown(&hb);
 }
 
 TEST(HeartbeatTest, GetWriteFdMatchesStruct) {
     Heartbeat hb;
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
-    EXPECT_EQ(Heartbeat_GetWriteFd(&hb), hb.write_fd);
+    EXPECT_EQ(Heartbeat_GetWriteFd(&hb), hb.writeFd);
     Heartbeat_Shutdown(&hb);
 }
 
@@ -29,7 +29,7 @@ TEST(HeartbeatTest, CheckReturnsTrueAfterWrite) {
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
 
     char beat = 1;
-    write(hb.write_fd, &beat, 1);
+    write(hb.writeFd, &beat, 1);
 
     EXPECT_EQ(Heartbeat_Check(&hb, 1), 1);
     Heartbeat_Shutdown(&hb);
@@ -50,10 +50,10 @@ TEST(HeartbeatTest, CloseWriteFdSetsMinusOne) {
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
 
     EXPECT_EQ(Heartbeat_CloseWriteFd(&hb), 0);
-    EXPECT_EQ(hb.write_fd, -1);
+    EXPECT_EQ(hb.writeFd, -1);
 
     // Only read_fd remains open; clean up manually
-    close(hb.read_fd);
+    close(hb.readFd);
 }
 
 // CloseReadFd must set read_fd to -1
@@ -62,9 +62,9 @@ TEST(HeartbeatTest, CloseReadFdSetsMinusOne) {
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
 
     EXPECT_EQ(Heartbeat_CloseReadFd(&hb), 0);
-    EXPECT_EQ(hb.read_fd, -1);
+    EXPECT_EQ(hb.readFd, -1);
 
-    close(hb.write_fd);
+    close(hb.writeFd);
 }
 
 // After consuming a beat, the pipe is empty until another beat is written
@@ -73,14 +73,14 @@ TEST(HeartbeatTest, BeatIsConsumedOnRead) {
     ASSERT_EQ(Heartbeat_Initiate(&hb), 0);
 
     char beat = 1;
-    write(hb.write_fd, &beat, 1);
+    write(hb.writeFd, &beat, 1);
     EXPECT_EQ(Heartbeat_Check(&hb, 0), 1); // beat consumed
 
     // Pipe is now empty — second check must timeout
     EXPECT_EQ(Heartbeat_Check(&hb, 0), 0);
 
     // Write another beat; it must be detected
-    write(hb.write_fd, &beat, 1);
+    write(hb.writeFd, &beat, 1);
     EXPECT_EQ(Heartbeat_Check(&hb, 0), 1);
 
     Heartbeat_Shutdown(&hb);
