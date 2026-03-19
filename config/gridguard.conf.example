@@ -1,0 +1,39 @@
+# gridguard.conf
+#
+# Copy to config/gridguard.conf and adjust to your setup.
+# Reload without restart: kill -SIGHUP $(cat /var/run/gridguard.pid)
+#
+# Fallback chain for every key:  this file  →  env var  →  compiled default
+#
+# JWT secret is NOT stored here — use the environment variable:
+#   export GRIDGUARD_JWT_SECRET="your-secret"
+# Secrets in config files are a bad idea.
+
+# ── Server ────────────────────────────────────────────────────────────────────
+[server]
+port = 8080
+
+# ── Database ──────────────────────────────────────────────────────────────────
+[database]
+# Absolute path or relative to the working directory.
+# Default: auto-resolved next to the server binary.
+# db_path = /var/lib/gridguard/gridguard.db
+
+# ── Cache TTL (seconds) ───────────────────────────────────────────────────────
+[cache]
+# Weather — Open-Meteo publishes a new 15-min forecast every 15 minutes.
+weather_ttl = 900
+
+# Spot prices — elprisetjustnu publishes tomorrow's prices once per day
+# between 13:00 and 14:00 CET.  The background fetcher invalidates this
+# cache on its own, so a long TTL just prevents redundant API calls.
+price_ttl = 43200
+
+# Forecast — the computed energy plan, valid until the next price update.
+forecast_ttl = 1800
+
+# ── Network ───────────────────────────────────────────────────────────────────
+[network]
+timeout     = 30
+max_retries = 3
+F

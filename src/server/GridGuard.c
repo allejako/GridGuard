@@ -80,7 +80,7 @@ int GridGuard_Initiate(GridGuard *app)
 
     // Initialize shared memory caches with configurable TTL values
     int weatherTTL = RuntimeConfig_GetInt("cache.weather_ttl", NULL, 900);   // Default 15 min
-    int priceTTL = RuntimeConfig_GetInt("cache.price_ttl", NULL, 3600);      // Default 60 min
+    int priceTTL = RuntimeConfig_GetInt("cache.price_ttl", NULL, 43200);     // Default 12 h (prices published once per day)
     int forecastTTL = RuntimeConfig_GetInt("cache.forecast_ttl", NULL, 1800); // Default 30 min
 
     if (SharedCache_Initiate(&app->weatherCache, "/gridguard_weather", weatherTTL) != 0)

@@ -1,5 +1,6 @@
 #include "fetcher/Fetcher.h"
 #include "sys/Logger.h"
+#include "config/RuntimeConfig.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
@@ -24,6 +25,7 @@ int main(int argc, char *argv[])
     const char *requestFifoPath = argv[1];
     const char *resultFifoPath = argv[2];
 
+    RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
     Logger_Initiate("logs/fetcher.log", LOG_LEVEL_DEBUG);
 
     signal(SIGTERM, signal_handler);

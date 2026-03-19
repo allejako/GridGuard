@@ -25,7 +25,8 @@ typedef struct
     time_t lastWeatherFetch;
     time_t lastPriceFetch;
     int weatherIntervalSeconds;   // Default: 900 (15 minutes)
-    time_t lastPriceFetchDate;   // Track date of last price fetch (YYYY-MM-DD)
+    int lastPriceFetchDate;       // Date of last price fetch attempt (YYYYMMDD, Stockholm TZ)
+    bool tomorrowPricesFetched;   // false if only today's prices available (13:00-14:00 window)
 
     // Circuit breaker state for weather API
     int weatherFailures;

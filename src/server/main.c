@@ -8,6 +8,7 @@
 #include "server/Server.h"
 #include "sys/Logger.h"
 #include "sys/Daemon.h"
+#include "config/RuntimeConfig.h"
 
 int main(void)
 {
@@ -31,6 +32,9 @@ int main(void)
     {
         snprintf(log_path, sizeof(log_path), "logs/server.log");
     }
+
+    // LOAD RUNTIME CONFIG
+    RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
 
     // INITIALIZE GRIDGUARD LOGGER
     if (Logger_Initiate(log_path, LOG_LEVEL_DEBUG) != 0)
