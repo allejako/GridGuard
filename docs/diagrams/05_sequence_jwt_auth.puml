@@ -1,0 +1,40 @@
+@startuml GridGuard_Sequence_JWT
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+
+title GridGuard — JWT Auth-flöde (plattform → enhet)
+
+participant "GridGuard\nPlatform" as PL
+participant "platform.db\n(SQLite)" as PDB
+participant "generate_jwt.py" as GEN
+participant "GridGuard-client\n(C++)" as CLI
+participant "JWTValidator\n(mbedTLS)" as VAL
+participant "gridguard.db\n(SQLite)" as GDB
+
+note over PL, GDB : Plattform och enhet kommunicerar ALDRIG direkt.\nDe delar bara GRIDGUARD_JWT_SECRET.
+
+== Engångsinloggning (offline) ==
+
+PL -> PDB : Hämtar userId för användare
+PDB --> GEN : userId, email, plan_type
+GEN -> GEN : Signerar JWT med GRIDGUARD_JWT_SECRET\nPayload: sub=userId, exp=2030-01-01\nAlgoritm: HS256 (HMAC-SHA256)
+GEN --> CLI : JWT-token (header.payload.signature)
+CLI -> CLI : Sparar token i\n~/.gridguard/token
+
+== Varje forecast-anrop (online) ==
+
+CLI -> VAL : GET /forecast\nAuthorization: Bearer <token>
+
+VAL -> VAL : 1. Base64url-avkoda header + payload
+VAL -> VAL : 2. Beräkna HMAC-SHA256(header.payload, secret)
+VAL -> VAL : 3. Jämför med token.signature\n   (constant-time, skyddar mot timing-attack)
+VAL -> VAL : 4. Kontrollera exp-fältet mot time(NULL)
+
+alt Ogiltig signatur eller utgången token
+    VAL --> CLI : HTTP 401 Unauthorized
+else Token giltig
+    VAL -> GDB : Slå upp sub (userId)\nHämtar lat/lon/solar/region
+    GDB --> VAL : UserConfig
+    VAL --> CLI : Kör pipeline → HTTP 200 energiplan
+end
+
+@enduml

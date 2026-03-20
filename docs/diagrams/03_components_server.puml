@@ -1,0 +1,51 @@
+@startuml GridGuard_Components_Server
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+title GridGuard-server — Components (C4 Level 3)
+
+Person(owner, "Fastighetsägare")
+Container_Ext(client, "GridGuard-client", "C++", "CLI-klient")
+Container_Ext(parser, "GridGuard-parser", "C", "Skickar ParseResult via Unix socket")
+ContainerDb_Ext(shm_forecast, "SharedCache: forecast", "POSIX shm", "48h energiplan JSON, TTL 1800s")
+ContainerDb_Ext(shm_weather, "SharedCache: weather/price", "POSIX shm", "Väder + prisdata")
+ContainerDb_Ext(db, "gridguard.db", "SQLite", "Användarkonfiguration\n(lat/lon/region/solar_area/efficiency)")
+
+Container_Boundary(server, "GridGuard-server") {
+    Component(tcpserver, "TCPServer", "C", "TCP accept loop på port 8080.\nAccepterar inkommande anslutningar\noch lägger dem i work queue.")
+
+    Component(threadpool, "ThreadPool", "C", "20 worker-trådar.\nProducer-consumer via mutex + cond var.\npthread_cond_wait tills arbete finns.")
+
+    Component(clienthandler, "ClientHandler", "C", "HTTP-routing:\nGET /forecast\nGET /schedule\nPUT /user/config\nGET /metrics\nGET /health")
+
+    Component(jwtval, "JWTValidator", "C + mbedTLS", "Verifierar HS256-signatur.\nBase64url-avkodning.\nConstant-time HMAC-jämförelse.\nKontrollerar exp-fältet.")
+
+    Component(clientdb, "ClientDB", "C + SQLite", "Läser och skriver user_configs.\nsqlite3_prepare_v2 med\npositional binding.\nFULLMUTEX för thread safety.")
+
+    Component(completion, "CompletionRegistry", "C", "Mutex-skyddad array (1024 slots).\nuserId → WorkCompletion*\nKopplar HTTP-tråd till ComputeWorker.")
+
+    Component(workcompletion, "WorkCompletion", "C", "Linux completion-mönster.\npthread_cond_timedwait 30s timeout.\nCLOCK_MONOTONIC (systemtidssäkert).\nHTTP 504 vid timeout.")
+
+    Component(computeworker, "ComputeWorker", "C thread", "Lyssnar på Unix domain socket.\nTar emot ParseResult från Parser.\nTransformerar 192 råkvartar till\nactionabla fönster (IDLE filtreras).")
+
+    Component(compute, "Compute", "C", "Genererar 48h energiplan.\n192 kvartar × 15 min.\nBUY/SELL/AVOID/IDLE per kvart.\nIEC 61724 solpanelmodell.\nNOCT temperaturkorrigering.")
+}
+
+Rel(owner, client, "gridguard forecast", "CLI")
+Rel(client, tcpserver, "HTTP GET /forecast", "TCP :8080 + JWT")
+Rel(tcpserver, threadpool, "client socket fd")
+Rel(threadpool, clienthandler, "HTTP-request")
+Rel(clienthandler, jwtval, "Authorization: Bearer <token>")
+Rel(clienthandler, clientdb, "Hämtar/sparar UserConfig", "userId från JWT sub")
+Rel(clientdb, db, "SQL SELECT / INSERT OR REPLACE")
+Rel(clienthandler, shm_forecast, "SharedCache_Lookup()", "Cache HIT → returnera direkt")
+Rel(clienthandler, completion, "RegisterCompletion(userId)\nUnregisterCompletion(userId)")
+Rel(clienthandler, workcompletion, "WorkCompletion_Wait() 30s")
+Rel(parser, computeworker, "ParseResult", "Unix domain socket")
+Rel(computeworker, clientdb, "Hämtar UserConfig\n(lat/lon/solar för beräkning)")
+Rel(computeworker, shm_weather, "Läser väder/pris vid behov")
+Rel(computeworker, compute, "ParseResult + UserConfig")
+Rel(compute, shm_forecast, "SharedCache_Store(forecast)")
+Rel(compute, completion, "WorkCompletion_Signal(userId)")
+
+@enduml

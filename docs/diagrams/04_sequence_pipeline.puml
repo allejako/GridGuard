@@ -1,0 +1,60 @@
+@startuml GridGuard_Sequence_Pipeline
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+
+title GridGuard — End-to-end pipeline (cache miss)
+
+Person(user, "Fastighetsägare")
+
+participant "GridGuard-client\n(C++)" as CLI
+participant "ClientHandler\n(HTTP-tråd)" as CH
+participant "SharedCache\nforecast" as FC
+participant "GridGuard-fetcher" as FE
+participant "SharedCache\nweather/price" as SC
+participant "Open-Meteo\nElpriset" as API
+participant "GridGuard-parser" as PA
+participant "ComputeWorker\n(tråd)" as CW
+participant "CompletionRegistry" as REG
+
+user -> CLI : gridguard forecast
+CLI -> CH : GET /forecast\nAuthorization: Bearer <JWT>
+
+CH -> CH : JWTValidator_Validate()\nKontrollerar HS256-signatur + exp
+
+CH -> FC : SharedCache_Lookup(userId)
+FC --> CH : MISS — ingen giltig cache
+
+CH -> REG : RegisterCompletion(userId)
+CH -> FE : write(WorkRequest)\n[FIFO: gridguard_requests.fifo]
+
+note over CH : WorkCompletion_Wait()\npthread_cond_timedwait 30s\nHTTP-tråden blockeras här
+
+FE -> SC : SharedCache_Lookup(weather)\nSharedCache_Lookup(price)
+
+alt Cache HIT (TTL giltig)
+    SC --> FE : Returnerar cachad data
+else Cache MISS
+    FE -> API : HTTPS GET Open-Meteo\nHTTPS GET Elpriset
+    API --> FE : JSON-svar
+    FE -> SC : SharedCache_Store(weather)\nSharedCache_Store(price)
+end
+
+FE -> PA : FetchResult\n[FIFO: gridguard_fetch_to_parse.fifo]
+
+PA -> PA : Validerar JSON\nKonverterar tidsstämplar\nMatchar väder+pris per 15-min slot
+
+PA -> CW : ParseResult\n[Unix domain socket + FIFO notify]
+
+CW -> CW : Compute_GenerateEnergyPlan()\n192 kvartar × 15 min\nIEC 61724 solpanelmodell\nBUY/SELL/AVOID/IDLE per kvart
+
+CW -> FC : SharedCache_Store(forecast JSON)
+
+CW -> REG : WorkCompletion_Signal(userId)
+REG -> CH : pthread_cond_signal()\nHTTP-tråden väcks
+
+CH -> FC : SharedCache_Lookup(userId)
+FC --> CH : HIT — 48h energiplan JSON
+
+CH --> CLI : HTTP 200 OK\n48h energiplan JSON
+CLI --> user : Färgkodad dashboard\nBUY / SELL / AVOID / IDLE
+
+@enduml
