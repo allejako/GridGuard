@@ -26,4 +26,6 @@ jobs:
         run: make all
 
       - name: Run tests (ASAN/UBSAN)
+        env:
+          GRIDGUARD_JWT_SECRET: gridguard-ci-test-secret
         run: make test-gtest
