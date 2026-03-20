@@ -316,7 +316,7 @@ Tre SharedCache-instanser används för att dela data mellan processer utan att 
 
 **Synkronisering:** SharedCache använder `pthread_rwlock` lagrad i shared memory — flera readers kan läsa parallellt, writers får exklusivt lås. Watchdog metrics är read-only från serverns sida (inga lås krävs vid läsning av atomära värden).
 
-**TTL:** Vädercachen och priscachen har en Time-To-Live som kan konfigureras via `config/gridguard.conf` (se sektion 19). Vid cache miss kör servern hela pipeline (Fetch → Parse → Compute) synkront och lagrar resultatet.
+**TTL:** Vädercachen och priscachen har en Time-To-Live som kan konfigureras via `config/gridguard.conf` (se sektion 20). Vid cache miss kör servern hela pipeline (Fetch → Parse → Compute) synkront och lagrar resultatet.
 
 ### Process-Shared RWLock
 
@@ -1222,7 +1222,59 @@ Fullständig dokumentation: `tests/README.md`
 
 ---
 
-## 18. Loggning
+## 18. CI/CD — Automatisk Validering
+
+GridGuard använder GitHub Actions för kontinuerlig integration. Varje push till `development` eller `master` — och varje pull request mot dessa grenar — triggar automatiskt en pipeline som bygger alla binärer och kör hela testsviten.
+
+[![CI](https://github.com/allejako/GridGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/allejako/GridGuard/actions/workflows/ci.yml)
+
+### Pipeline-steg
+
+```mermaid
+flowchart LR
+    PUSH["Push / Pull Request\n(development eller master)"]
+    RUNNER["Ubuntu-runner\n(GitHub Actions)"]
+    DEPS["Installera beroenden\nlibmbedtls-dev, libsqlite3-dev\ncmake, libgtest-dev"]
+    BUILD["make all\nBygger alla 6 binärer"]
+    CMAKE["cmake -S . -B build\n-DCMAKE_BUILD_TYPE=Debug"]
+    TEST["ctest -V\n163 tester med ASAN + UBSAN"]
+    PASS["Grön bock\nCommit validerad"]
+    FAIL["Rött kryss\nExakt vilket test som bröts"]
+
+    PUSH --> RUNNER --> DEPS --> BUILD --> CMAKE --> TEST
+    TEST -->|Alla godkänns| PASS
+    TEST -->|Något misslyckas| FAIL
+
+    style PASS fill:#2d6a4f,color:#fff
+    style FAIL fill:#e63946,color:#fff
+```
+
+### Vad som körs
+
+| Steg | Kommando | Syfte |
+|---|---|---|
+| Build | `make all` | Kompilerar alla 6 binärer |
+| CMake-konfiguration | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug` | Sätter upp Google Test med ASAN/UBSAN |
+| Testkörning | `cd build && ctest -V` | Kör alla 163 tester med sanitizers aktiverade |
+
+### Pull Request-skydd
+
+Om en PR mot `master` eller `development` skapas körs CI-pipelinen **automatiskt innan merge är möjlig**. Ett misslyckat test → röd bock på GitHub, exakt vilket test som bröts visas i loggen.
+
+### Varför ASAN + UBSAN i CI?
+
+| Sanitizer | Detekterar |
+|---|---|
+| **AddressSanitizer (ASAN)** | Heap overflow, use-after-free, stack overflow — minnesbuggar som inte syns i normal körning |
+| **UndefinedBehaviorSanitizer (UBSAN)** | Signed integer overflow, null pointer dereference, misaligned access |
+
+Dessa körs på **varje commit** — buggar som är svåra att reproducera lokalt fångas direkt i CI.
+
+Körningshistorik och badge: `github.com/allejako/GridGuard/actions`
+
+---
+
+## 19. Loggning
 
 Varje process loggar till sin egen fil:
 
@@ -1237,7 +1289,7 @@ Loggnivåer: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `FATAL`. Nivå sätts vid `Log
 
 ---
 
-## 19. Konfigurationssystem
+## 20. Konfigurationssystem
 
 GridGuard använder ett runtime konfigurationssystem med tre nivåer (fallback chain):
 
@@ -1296,7 +1348,7 @@ Se `docs/CONFIG_DESIGN.md` för fullständig designdokumentation.
 
 ---
 
-## 20. Designbeslut och avvägningar
+## 21. Designbeslut och avvägningar
 
 ### Varför separata processer istället för trådar för Fetcher/Parser?
 
@@ -1333,7 +1385,7 @@ shm-segment layout:
 
 ---
 
-## 21. Binärer och byggsystem
+## 22. Binärer och byggsystem
 
 ```
 bin/
