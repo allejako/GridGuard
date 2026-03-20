@@ -16,14 +16,14 @@ int main(int argc, char *argv[])
     const char *parserPath = "bin/GridGuard-parser";
     const char *serverPath = "bin/GridGuard-server";
     const char *configPath = "config/gridguard.conf";
-    int daemon_mode = 0;
+    int daemonMode = 0;
 
     // Parse command line arguments
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--daemon") == 0 || strcmp(argv[i], "-d") == 0)
         {
-            daemon_mode = 1;
+            daemonMode = 1;
         }
         else if (strcmp(argv[i], "--config") == 0 || strcmp(argv[i], "-c") == 0)
         {
@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     // Pass config path to child processes — fork() inherits the env.
     setenv("GRIDGUARD_CONFIG_PATH", configPath, 1);
 
-    if (daemon_mode)
+    if (daemonMode)
     {
         LOG_INFO("Watchdog: Daemonizing...");
         if (Daemon_Initiate() != 0)

@@ -24,6 +24,6 @@ void ProcessGroup_Initiate(ProcessGroup *group, const char *fetcherPath, const c
 int  ProcessGroup_SpawnAll(ProcessGroup *group);
 void ProcessGroup_KillAll(ProcessGroup *group, int signal);
 void ProcessGroup_WaitAll(ProcessGroup *group);
-void ProcessGroup_Cleanup(ProcessGroup *group);
+void ProcessGroup_Shutdown(ProcessGroup *group);
 
 #endif // _PROCESS_SPAWNER_H_

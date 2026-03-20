@@ -21,14 +21,34 @@
 #include <time.h>
 #include <errno.h>
 
-static void iso8601_utc(time_t t, char *buf, size_t len)
+int ComputeWorker_Initiate(ComputeWorker *worker, const char *socketPath, const char *notifyPath, void *compute)
+{
+    if (!worker || !socketPath || !notifyPath || !compute)
+        return -1;
+
+    worker->socketPath = socketPath;
+    worker->notifyPath = notifyPath;
+    worker->compute    = compute;
+    worker->isRunning  = true;
+    return 0;
+}
+
+void ComputeWorker_Shutdown(ComputeWorker *worker)
+{
+    if (!worker)
+        return;
+
+    worker->isRunning = false;
+}
+
+static void FormatIso8601Utc(time_t t, char *buf, size_t len)
 {
     struct tm tm;
     gmtime_r(&t, &tm);
     strftime(buf, len, "%Y-%m-%dT%H:%M:%SZ", &tm);
 }
 
-static void local_date(time_t t, char *buf, size_t len)
+static void FormatLocalDate(time_t t, char *buf, size_t len)
 {
     struct tm tm;
     localtime_r(&t, &tm);
@@ -37,7 +57,7 @@ static void local_date(time_t t, char *buf, size_t len)
 
 // Build the JSON response that the HTTP worker forwards to the client.
 // Returns a heap-allocated string (caller must free), or NULL on failure.
-static char *build_response_json(const EnergyData *plan, const ParseResult *req)
+static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
 {
     cJSON *root = cJSON_CreateObject();
     if (!root)
@@ -61,8 +81,8 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
     if (plan->hasBuyWindow)
     {
         char startIso[32], endIso[32];
-        iso8601_utc(plan->bestBuyWindow.start, startIso, sizeof(startIso));
-        iso8601_utc(plan->bestBuyWindow.end, endIso, sizeof(endIso));
+        FormatIso8601Utc(plan->bestBuyWindow.start, startIso, sizeof(startIso));
+        FormatIso8601Utc(plan->bestBuyWindow.end, endIso, sizeof(endIso));
 
         cJSON *win = cJSON_AddObjectToObject(summary, "best_buy_window");
         cJSON_AddStringToObject(win, "start", startIso);
@@ -84,7 +104,7 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
         cJSON *q = cJSON_CreateObject();
 
         char iso[32];
-        iso8601_utc(e->timestamp, iso, sizeof(iso));
+        FormatIso8601Utc(e->timestamp, iso, sizeof(iso));
 
         cJSON_AddStringToObject(q, "time", iso);
         cJSON_AddNumberToObject(q, "spot_price_sek_kwh", e->spotPrice);
@@ -110,27 +130,27 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
     char currentDate[16] = {0};
 
     // Track signal transitions to group consecutive actions into windows
-    EnergyAction prev_action = ACTION_IDLE;
-    time_t window_start = 0;
-    int window_quarters = 0;
-    double window_production = 0.0;
-    double window_consumption = 0.0;
+    EnergyAction prevAction = ACTION_IDLE;
+    time_t windowStart = 0;
+    int windowQuarters = 0;
+    double windowProduction = 0.0;
+    double windowConsumption = 0.0;
 
     for (int i = 0; i <= plan->count; i++)
     {
         const EnergyDataEntry *e = (i < plan->count) ? &plan->entries[i] : NULL;
-        EnergyAction current_action = (e && e->valid) ? e->action : ACTION_IDLE;
+        EnergyAction currentAction = (e && e->valid) ? e->action : ACTION_IDLE;
 
         // Detect signal change (or end of forecast)
-        bool signal_changed = (current_action != prev_action) || (i == plan->count);
+        bool signalChanged = (currentAction != prevAction) || (i == plan->count);
 
-        if (signal_changed && prev_action != ACTION_IDLE && window_quarters > 0)
+        if (signalChanged && prevAction != ACTION_IDLE && windowQuarters > 0)
         {
             // Emit the completed action window
-            const EnergyDataEntry *window_entry = &plan->entries[i - window_quarters];
+            const EnergyDataEntry *windowEntry = &plan->entries[i - windowQuarters];
 
             char date[16];
-            local_date(window_entry->timestamp, date, sizeof(date));
+            FormatLocalDate(windowEntry->timestamp, date, sizeof(date));
 
             if (strcmp(date, currentDate) != 0)
             {
@@ -141,41 +161,41 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
                 cJSON_AddItemToArray(days, currentDay);
             }
 
-            char start_iso[32], end_iso[32];
-            iso8601_utc(window_start, start_iso, sizeof(start_iso));
-            iso8601_utc(window_entry->timestamp + (window_quarters - 1) * 15 * 60, end_iso, sizeof(end_iso));
+            char startIso[32], endIso[32];
+            FormatIso8601Utc(windowStart, startIso, sizeof(startIso));
+            FormatIso8601Utc(windowEntry->timestamp + (windowQuarters - 1) * 15 * 60, endIso, sizeof(endIso));
 
             cJSON *signal = cJSON_CreateObject();
-            cJSON_AddStringToObject(signal, "signal", EnergyAction_ToString(prev_action));
-            cJSON_AddStringToObject(signal, "start", start_iso);
-            cJSON_AddStringToObject(signal, "end", end_iso);
-            cJSON_AddNumberToObject(signal, "duration_minutes", window_quarters * 15);
-            cJSON_AddNumberToObject(signal, "price_sek_kwh", window_entry->spotPrice);
-            cJSON_AddNumberToObject(signal, "total_cost_sek_kwh", window_entry->totalCostSek);
-            cJSON_AddNumberToObject(signal, "price_vs_avg_pct", window_entry->priceVsAvgPct);
-            cJSON_AddNumberToObject(signal, "solar_kwh", window_production);
-            cJSON_AddNumberToObject(signal, "consumption_kwh", window_consumption);
+            cJSON_AddStringToObject(signal, "signal", EnergyAction_ToString(prevAction));
+            cJSON_AddStringToObject(signal, "start", startIso);
+            cJSON_AddStringToObject(signal, "end", endIso);
+            cJSON_AddNumberToObject(signal, "duration_minutes", windowQuarters * 15);
+            cJSON_AddNumberToObject(signal, "price_sek_kwh", windowEntry->spotPrice);
+            cJSON_AddNumberToObject(signal, "total_cost_sek_kwh", windowEntry->totalCostSek);
+            cJSON_AddNumberToObject(signal, "price_vs_avg_pct", windowEntry->priceVsAvgPct);
+            cJSON_AddNumberToObject(signal, "solar_kwh", windowProduction);
+            cJSON_AddNumberToObject(signal, "consumption_kwh", windowConsumption);
             cJSON_AddItemToArray(daySignals, signal);
 
             // Reset window
-            window_quarters = 0;
-            window_production = 0.0;
-            window_consumption = 0.0;
+            windowQuarters = 0;
+            windowProduction = 0.0;
+            windowConsumption = 0.0;
         }
 
-        if (e && e->valid && current_action != ACTION_IDLE)
+        if (e && e->valid && currentAction != ACTION_IDLE)
         {
-            if (current_action != prev_action)
+            if (currentAction != prevAction)
             {
                 // Start new window
-                window_start = e->timestamp;
+                windowStart = e->timestamp;
             }
-            window_quarters++;
-            window_production += e->productionKwh;
-            window_consumption += e->consumptionKwh;
+            windowQuarters++;
+            windowProduction += e->productionKwh;
+            windowConsumption += e->consumptionKwh;
         }
 
-        prev_action = current_action;
+        prevAction = currentAction;
     }
 
     char *json = cJSON_PrintUnformatted(root);
@@ -183,7 +203,7 @@ static char *build_response_json(const EnergyData *plan, const ParseResult *req)
     return json;
 }
 
-static int connect_to_parser(const char *socketPath)
+static int ConnectToParser(const char *socketPath)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
@@ -266,7 +286,7 @@ void *ComputeWorker_Run(void *arg)
         LOG_INFO("ComputeWorker: Received notification, connecting to Parser");
 
         // Now connect to Parser to receive the data
-        int fd = connect_to_parser(worker->socketPath);
+        int fd = ConnectToParser(worker->socketPath);
         if (fd < 0)
         {
             LOG_ERROR("ComputeWorker: Failed to connect to Parser after notification");
@@ -311,7 +331,7 @@ void *ComputeWorker_Run(void *arg)
 
         LOG_INFO("ComputeWorker: %s — solar %.1fm² %.0f%%, avg load %.2f kWh/h, region %s", result.userId, result.solarAreaM2, result.solarEfficiency * 100.0, result.consumptionKwh, result.region);
 
-        WorkCompletion *completion = FindCompletionByUserId(result.userId);
+        WorkCompletion *completion = CompletionRegistry_Find(result.userId);
         if (!completion)
         {
             LOG_ERROR("ComputeWorker: no pending request for user %s", result.userId);
@@ -319,21 +339,21 @@ void *ComputeWorker_Run(void *arg)
         }
 
         EnergyData plan;
-        int rc = Compute_GenerateEnergyPlan(compute, &result.forecastData, result.solarAreaM2, result.solarEfficiency, result.consumptionKwh, result.gridFee_low, result.gridFee_normal, result.gridFee_high, &plan);
+        int rc = Compute_GenerateEnergyPlan(compute, &result.forecastData, result.solarAreaM2, result.solarEfficiency, result.consumptionKwh, result.gridFeeLow, result.gridFeeNormal, result.gridFeeHigh, &plan);
 
         if (rc != 0)
         {
             LOG_ERROR("ComputeWorker: plan generation failed for %s", result.userId);
-            UnregisterCompletion(result.userId);
+            CompletionRegistry_Unregister(result.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
 
-        char *json = build_response_json(&plan, &result);
+        char *json = BuildResponseJson(&plan, &result);
         if (!json)
         {
             LOG_ERROR("ComputeWorker: JSON allocation failed for %s", result.userId);
-            UnregisterCompletion(result.userId);
+            CompletionRegistry_Unregister(result.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
@@ -342,14 +362,14 @@ void *ComputeWorker_Run(void *arg)
         {
             LOG_ERROR("ComputeWorker: JSON response too large for %s (%zu bytes)", result.userId, strlen(json));
             free(json);
-            UnregisterCompletion(result.userId);
+            CompletionRegistry_Unregister(result.userId);
             WorkCompletion_SignalError(completion);
             continue;
         }
 
         // Unregister before signalling so a subsequent request from the same
         // user can register immediately without racing against a stale slot.
-        UnregisterCompletion(result.userId);
+        CompletionRegistry_Unregister(result.userId);
         WorkCompletion_Signal(completion, json);
         free(json);
     }

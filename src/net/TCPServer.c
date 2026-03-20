@@ -41,14 +41,14 @@ int TCPServer_Initiate(TCPServer* server, const char* port)
 		return -1;
 	}
 
-	server->listen_fd = fd;
+	server->listenFd = fd;
 
 	return 0;
 }
 
 int TCPServer_Accept(TCPServer* server)
 {
-    int clientSocket = accept(server->listen_fd, NULL, NULL);
+    int clientSocket = accept(server->listenFd, NULL, NULL);
     if (clientSocket < 0)
     {
         if (errno == EINTR)
@@ -66,8 +66,8 @@ int TCPServer_Accept(TCPServer* server)
 void TCPServer_Shutdown(TCPServer* server)
 {
 	// Close the listening socket
-	if (server->listen_fd >= 0) {
-		close(server->listen_fd);
-		server->listen_fd = -1;
+	if (server->listenFd >= 0) {
+		close(server->listenFd);
+		server->listenFd = -1;
 	}
 }

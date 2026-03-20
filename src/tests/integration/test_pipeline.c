@@ -75,9 +75,9 @@ int main(void)
     req1.solarAreaM2     = 20.0;
     req1.solarEfficiency = 0.20;
     req1.consumptionKwh  = 1.5;
-    req1.gridFee_low     = 0.25;
-    req1.gridFee_normal  = 0.35;
-    req1.gridFee_high    = 0.45;
+    req1.gridFeeLow     = 0.25;
+    req1.gridFeeNormal  = 0.35;
+    req1.gridFeeHigh    = 0.45;
 
     if (submit_and_wait(&app, &req1, "stockholm") != 0)
     {
@@ -104,9 +104,9 @@ int main(void)
         req.solarAreaM2     = 20.0;
         req.solarEfficiency = 0.20;
         req.consumptionKwh  = 1.5;
-        req.gridFee_low     = 0.25;
-        req.gridFee_normal  = 0.35;
-        req.gridFee_high    = 0.45;
+        req.gridFeeLow     = 0.25;
+        req.gridFeeNormal  = 0.35;
+        req.gridFeeHigh    = 0.45;
 
         if (submit_and_wait(&app, &req, locs[i]) != 0)
         {

@@ -1,17 +1,15 @@
 #ifndef _SERVER_H_
 #define _SERVER_H_
 
-#include <signal.h>
 #include "net/TCPServer.h"
 #include "sys/ThreadPool.h"
 #include "server/GridGuard.h"
 
 typedef struct
 {
-    TCPServer tcpServer;
+    TCPServer  tcpServer;
     ThreadPool threadPool;
-    GridGuard app;
-    volatile sig_atomic_t *isRunning;
+    GridGuard  app;
 } Server;
 
 // Initialize all server components

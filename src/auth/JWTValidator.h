@@ -14,6 +14,6 @@ typedef struct
 // Validates a HS256 JWT (without "Bearer " prefix).
 // Checks structure, signature (GRIDGUARD_JWT_SECRET), and expiry.
 // Returns 0 and fills *claims on success, -1 on any failure.
-int JWT_Validate(const char *token, JWTClaims *claims);
+int JWTValidator_Validate(const char *token, JWTClaims *claims);
 
 #endif // _JWT_VALIDATOR_H_

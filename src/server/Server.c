@@ -19,8 +19,11 @@ int Server_Initiate(Server *server)
 
     LOG_INFO("Initializing server");
 
-    // Initialize signal handler first
-    server->isRunning = SignalHandler_Initiate();
+    if (SignalHandler_Initiate() != 0)
+    {
+        LOG_FATAL("Server: Failed to initialize signal handler");
+        return -1;
+    }
 
     // Initialize GridGuard application core
     if (GridGuard_Initiate(&server->app) != 0)
@@ -48,7 +51,7 @@ int Server_Initiate(Server *server)
     }
 
     // Register server fd with signal handler
-    SignalHandler_SetServerFd(server->tcpServer.listen_fd);
+    SignalHandler_SetServerFd(server->tcpServer.listenFd);
 
     LOG_INFO("Server ready");
     return 0;
@@ -56,12 +59,12 @@ int Server_Initiate(Server *server)
 
 int Server_Run(Server *server)
 {
-    if (!server || !server->isRunning)
+    if (!server)
         return -1;
 
     LOG_INFO("Starting main loop");
 
-    while (*server->isRunning)
+    while (SignalHandler_IsRunning())
     {
         // Check for SIGHUP signal (config reload)
         if (SignalHandler_CheckReload())
@@ -80,7 +83,7 @@ int Server_Run(Server *server)
         int clientSocket = TCPServer_Accept(&server->tcpServer);
         if (clientSocket <= 0)
         {
-            if (!*server->isRunning)
+            if (!SignalHandler_IsRunning())
                 break;
             if (clientSocket < 0)
                 LOG_ERROR("Server: Failed to accept connection");
@@ -114,10 +117,12 @@ void Server_Shutdown(Server *server)
     ThreadPool_Shutdown(&server->threadPool);
     GridGuard_Shutdown(&server->app);
 
-    if (server->tcpServer.listen_fd >= 0)
+    if (server->tcpServer.listenFd >= 0)
     {
-        close(server->tcpServer.listen_fd);
+        close(server->tcpServer.listenFd);
     }
+
+    SignalHandler_Shutdown();
 
     LOG_INFO("Shutdown complete");
 }

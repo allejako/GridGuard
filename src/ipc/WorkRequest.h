@@ -12,9 +12,9 @@ typedef struct
     double solarAreaM2;
     double solarEfficiency;
     double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
+    double gridFeeLow;
+    double gridFeeNormal;
+    double gridFeeHigh;
 } WorkRequest;
 
 #endif // _WORK_REQUEST_H_

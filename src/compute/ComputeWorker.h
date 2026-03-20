@@ -15,6 +15,8 @@ typedef struct
     bool        isRunning;
 } ComputeWorker;
 
+int   ComputeWorker_Initiate(ComputeWorker *worker, const char *socketPath, const char *notifyPath, void *compute);
+void  ComputeWorker_Shutdown(ComputeWorker *worker);
 void *ComputeWorker_Run(void *arg);
 
 #endif // _COMPUTE_WORKER_H_

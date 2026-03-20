@@ -3,11 +3,11 @@
 
 typedef struct
 {
-    char   time_start[26];
-    char   time_end[26];
-    double SEK_per_kWh;
-    double EUR_per_kWh;
-    double EXR;
+    char   timeStart[26];
+    char   timeEnd[26];
+    double sekPerKwh;
+    double eurPerKwh;
+    double exr;
 } ElprisetEntry;
 
 typedef struct

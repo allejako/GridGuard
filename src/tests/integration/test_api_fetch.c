@@ -58,9 +58,9 @@ int test_spot_prices(HTTPFetcher *fetcher, APIParser *parser)
         ElprisetEntry *p = &spotData.entries[i];
         // Show only the first 16 characters of the timestamp (without timezone)
         char timeStr[17];
-        strncpy(timeStr, p->time_start, 16);
+        strncpy(timeStr, p->timeStart, 16);
         timeStr[16] = '\0';
-        printf("%-20s %-12.4f\n", timeStr, p->SEK_per_kWh);
+        printf("%-20s %-12.4f\n", timeStr, p->sekPerKwh);
     }
 
     HTTPFetcher_FreeResponse(&response);
@@ -111,7 +111,7 @@ int test_weather(HTTPFetcher *fetcher, APIParser *parser)
     {
         OpenMeteoEntry *w = &forecast.entries[i];
         printf("%-20s %-8.1f %-8.0f %-12.0f\n",
-               w->time, w->temperature_2m, w->cloud_cover, w->shortwave_radiation);
+               w->time, w->temperature2m, w->cloudCover, w->shortwaveRadiation);
     }
 
     HTTPFetcher_FreeResponse(&response);

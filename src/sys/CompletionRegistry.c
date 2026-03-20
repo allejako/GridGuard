@@ -17,7 +17,21 @@ typedef struct
 static CompletionEntry g_registry[MAX_COMPLETIONS];
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void RegisterCompletion(const char *userId, WorkCompletion *completion)
+void CompletionRegistry_Initiate(void)
+{
+    pthread_mutex_lock(&g_mutex);
+    memset(g_registry, 0, sizeof(g_registry));
+    pthread_mutex_unlock(&g_mutex);
+}
+
+void CompletionRegistry_Shutdown(void)
+{
+    pthread_mutex_lock(&g_mutex);
+    memset(g_registry, 0, sizeof(g_registry));
+    pthread_mutex_unlock(&g_mutex);
+}
+
+void CompletionRegistry_Register(const char *userId, WorkCompletion *completion)
 {
     if (!userId || !completion)
         return;
@@ -43,17 +57,16 @@ void RegisterCompletion(const char *userId, WorkCompletion *completion)
     LOG_ERROR("CompletionRegistry: No free slots (MAX_COMPLETIONS=%d)", MAX_COMPLETIONS);
 }
 
-WorkCompletion *FindCompletionByUserId(const char *userId)
+WorkCompletion *CompletionRegistry_Find(const char *userId)
 {
     if (!userId)
         return NULL;
 
     pthread_mutex_lock(&g_mutex);
 
-    // Search for userId in registry and return WorkCompletion
-    for (int i = 0; i < MAX_COMPLETIONS; i++) 
+    for (int i = 0; i < MAX_COMPLETIONS; i++)
     {
-        if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0) 
+        if (g_registry[i].active && strcmp(g_registry[i].userId, userId) == 0)
         {
             WorkCompletion *completion = g_registry[i].completion;
             pthread_mutex_unlock(&g_mutex);
@@ -65,7 +78,7 @@ WorkCompletion *FindCompletionByUserId(const char *userId)
     return NULL;
 }
 
-void UnregisterCompletion(const char *userId)
+void CompletionRegistry_Unregister(const char *userId)
 {
     if (!userId)
         return;

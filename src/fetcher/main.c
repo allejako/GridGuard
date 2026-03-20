@@ -8,7 +8,7 @@
 
 static FetcherProcess g_process;
 
-static void signal_handler(int sig)
+static void HandleSignal(int sig)
 {
     LOG_INFO("fetcher_main: Received signal %d, shutting down", sig);
     g_process.isRunning = false;
@@ -28,8 +28,8 @@ int main(int argc, char *argv[])
     RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
     Logger_Initiate("logs/fetcher.log", LOG_LEVEL_DEBUG);
 
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT, signal_handler);
+    signal(SIGTERM, HandleSignal);
+    signal(SIGINT, HandleSignal);
 
     LOG_INFO("fetcher_main: Starting Fetcher process (PID %d)", getpid());
 

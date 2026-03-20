@@ -247,7 +247,7 @@ Vid krasj dödar Watchdog **alla** processer (inte bara den kraschade) och start
 
 ```c
 // Exponentiell backoff (RestartPolicy.c)
-int delay = base_backoff_sec;        // 2
+int delay = rp->baseBackoffSec;      // 2
 for (int i = 0; i < count - 1; i++) // Dubblar för varje restart
     delay *= 2;                      // cap vid 32s
 ```
@@ -510,7 +510,7 @@ sequenceDiagram
 
     Note over CLI,DEV: Online — vid varje forecast-anrop
     CLI->>DEV: GET /forecast<br/>Authorization: Bearer <token>
-    DEV->>DEV: JWT_Validate()<br/>1. Avkoda header.payload.signature<br/>2. Beräkna HMAC-SHA256(header.payload, secret)<br/>3. Jämför med signature (constant-time)<br/>4. Kontrollera exp-fältet
+    DEV->>DEV: JWTValidator_Validate()<br/>1. Avkoda header.payload.signature<br/>2. Beräkna HMAC-SHA256(header.payload, secret)<br/>3. Jämför med signature (constant-time)<br/>4. Kontrollera exp-fältet
     DEV->>DEV: Slå upp sub (userId) i gridguard.db
     DEV-->>CLI: Energiplan (JSON)
 ```
@@ -881,6 +881,103 @@ flowchart LR
 **Resultat:** 192 råentries komprimeras till typiskt **50–100 actionabla fönster**, grupperade per dag.
 
 **Implementering:** `src/compute/ComputeWorker.c:102–180`
+
+### Solcellsmodell — Temperaturkorrigering (IEC 61724 / IEC 61215)
+
+Solcellsproduktionen per 15-minuterskvart beräknas i tre steg: paneltemperatur, temperaturderating, och slutlig energiproduktion.
+
+#### Steg 1 — Paneltemperatur (NOCT-modell, IEC 61215)
+
+Paneler i direkt solsken blir varmare än lufttemperaturen. NOCT (*Nominal Operating Cell Temperature*) är standardiserat till 45 °C vid 800 W/m² och 20 °C lufttemperatur. Vind kyler panelen via konvektiv kylning.
+
+```
+panelTemp = airTemp + (tempRise × irradiance) / (1 + WIND_COOLING_FACTOR × windSpeed)
+
+där:
+  tempRise          = (45 - 20) / 800 = 0.03125 °C per W/m²   (NOCT-kalibrerat)
+  WIND_COOLING_FACTOR = 0.04                                    (konvektiv kylkoefficient)
+```
+
+```mermaid
+flowchart LR
+    AIR["Lufttemperatur\n(°C)"]
+    IRR["Solinstrålning\n(W/m²)"]
+    WIND["Vindhastighet\n(m/s)"]
+    NOCT["NOCT-beräkning\npanelTemp = airTemp +\ntempRise × irr / (1 + 0.04 × wind)"]
+    PT["Paneltemperatur\n(°C)"]
+
+    AIR --> NOCT
+    IRR --> NOCT
+    WIND --> NOCT
+    NOCT --> PT
+```
+
+#### Steg 2 — Temperaturderating
+
+Kiselbaserade solceller tappar effekt med ökad temperatur. Kristallint kisel (c-Si) har en typisk temperaturkoefficient på -0,45 % per °C (IEC 61724).
+
+```
+tempEfficiency = 1.0 + PANEL_TEMP_COEFFICIENT × (panelTemp - STC_TEMP)
+
+där:
+  PANEL_TEMP_COEFFICIENT   = -0.0045   (-0,45 % / °C, IEC 61724 c-Si standard)
+  STC_TEMP                 = 25.0 °C   (Standard Test Conditions referenstemperatur)
+
+Klämd till intervallet [0.70, 1.10]
+```
+
+**Exempel:** En panel vid 60 °C (varmt sommardag) ger:
+`tempEfficiency = 1.0 + (-0.0045) × (60 - 25) = 1.0 - 0.1575 = 0.84` → 16 % effektivitetsförlust
+
+#### Steg 3 — Energiproduktion per kvart (kWh)
+
+```
+quarterProduction = (irradiance / 1000) × solarAreaM2 × solarEfficiency
+                    × SOLAR_REAL_WORLD_EFFICIENCY × tempEfficiency × 0.25
+
+där:
+  irradiance / 1000           = normalisering mot STC (1 000 W/m² referens)
+  solarAreaM2                 = panelyta från användarkonfiguration (m²)
+  solarEfficiency             = verkningsgrad från användarkonfiguration (typisk: 0.18–0.22)
+  SOLAR_REAL_WORLD_EFFICIENCY = 0.75   (kabel-, växelriktare- och smuts-förluster)
+  tempEfficiency              = beräknad i steg 2
+  0.25                        = 15 min / 60 min (konverterar kW → kWh per kvart)
+```
+
+```mermaid
+flowchart TB
+    subgraph INPUTS ["Indata"]
+        IRR2["Solinstrålning W/m²\n(Open-Meteo: shortwave_radiation)"]
+        AREA["solarAreaM2\n(användarkonfig)"]
+        EFF["solarEfficiency\n(användarkonfig, ex. 0.20)"]
+        TEFF["tempEfficiency\n(steg 2, ex. 0.84)"]
+    end
+
+    NORM["Normalisering mot STC\nirradiance / 1 000"]
+    PROD["× solarAreaM2 × solarEfficiency"]
+    RW["× 0.75\n(real-world förluster)"]
+    TE["× tempEfficiency\n(temperaturderating)"]
+    QH["× 0.25\n(15 min = ¼ timme)"]
+    OUT["quarterProduction\n(kWh)"]
+
+    IRR2 --> NORM --> PROD --> RW --> TE --> QH --> OUT
+    AREA --> PROD
+    EFF --> PROD
+    TEFF --> TE
+```
+
+#### Konstantsammanfattning
+
+| Konstant | Värde | Standard / Källa |
+|---|---|---|
+| `SOLAR_REAL_WORLD_EFFICIENCY` | 0.75 | Branschstandard (kabel + växelriktare + smuts) |
+| `PANEL_TEMP_COEFFICIENT` | −0.0045 / °C | IEC 61724, kristallint kisel |
+| `PANEL_TEMP_AT_STANDARD_TEST` | 25 °C | STC (Standard Test Conditions) |
+| `WIND_COOLING_FACTOR` | 0.04 | NOCT-kalibrerat konvektiv kylkoefficient |
+| NOCT-referens | 45 °C vid 800 W/m², 20 °C luft | IEC 61215 |
+| `tempEfficiency` klämning | [0.70, 1.10] | Undviker modellextrapolering |
+
+**Implementering:** `src/compute/Compute.c` — `CalculatePanelTemperature()` (rad 47–54) och `Compute_GenerateEnergyPlan()` (rad 252–262)
 
 ---
 

@@ -7,7 +7,7 @@
 
 static ParserProcess g_process;
 
-static void signal_handler(int sig)
+static void HandleSignal(int sig)
 {
     LOG_INFO("parser_main: Received signal %d, shutting down", sig);
     g_process.isRunning = false;
@@ -22,8 +22,8 @@ int main(int argc __attribute__((unused)), char *argv[])
     RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
     Logger_Initiate("logs/parser.log", LOG_LEVEL_DEBUG);
 
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT, signal_handler);
+    signal(SIGTERM, HandleSignal);
+    signal(SIGINT, HandleSignal);
 
     LOG_INFO("parser_main: Starting Parser process (PID %d)", getpid());
 

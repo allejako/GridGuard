@@ -223,7 +223,7 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
     int buyCount = count("BUY");
     double totalDev = std::accumulate(entries.begin(), entries.end(), 0.0,
         [](double s, const gridguard::ForecastEntry& e){
-            return s + (e.savingsVsMedian < 0.0 ? e.savingsVsMedian : 0.0); });
+            return s + (e.signal == "BUY" ? e.savingsVsMedian : 0.0); });
     double avgDev = buyCount > 0 ? totalDev / buyCount : 0.0;
 
     // ─────────────────────────────────────────────────────────────────────────

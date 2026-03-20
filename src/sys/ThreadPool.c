@@ -98,7 +98,7 @@ int ThreadPool_Shutdown(ThreadPool *threadPool)
     // Wait for all threads to exit before destroying the queue's mutex/cond.
     WorkerPool_Shutdown(&threadPool->pool);
 
-    Queue_Destroy(&threadPool->workQueue);
+    Queue_Cleanup(&threadPool->workQueue);
 
     LOG_INFO("ThreadPool: Shutdown complete");
     return 0;
