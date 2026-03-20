@@ -27,7 +27,7 @@ TEST_F(JWTTest, IssueAndValidateRoundtrip) {
     ASSERT_EQ(JWTIssuer_CreateToken("user123", "user@test.com", "premium", token), 0);
 
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate(token, &claims), 0);
+    EXPECT_EQ(JWTValidator_Validate(token, &claims), 0);
     EXPECT_STREQ(claims.subject, "user123");
     EXPECT_GT(claims.expiresAt, (long)time(NULL));
 }
@@ -38,7 +38,7 @@ TEST_F(JWTTest, TokenExpiresIn24Hours) {
     ASSERT_EQ(JWTIssuer_CreateToken("exp_user", "e@test.com", "free", token), 0);
 
     JWTClaims claims;
-    ASSERT_EQ(JWT_Validate(token, &claims), 0);
+    ASSERT_EQ(JWTValidator_Validate(token, &claims), 0);
 
     long expectedExp = (long)time(NULL) + 86400;
     EXPECT_NEAR(claims.expiresAt, expectedExp, 5);
@@ -51,7 +51,7 @@ TEST_F(JWTTest, RejectsTokenWithWrongSecret) {
 
     setenv("GRIDGUARD_JWT_SECRET", "completely-different-secret", 1);
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate(token, &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate(token, &claims), -1);
 }
 
 // Manually crafted token with invalid signature must be rejected
@@ -61,7 +61,7 @@ TEST_F(JWTTest, RejectsTamperedPayload) {
                       ".eyJzdWIiOiJoYWNrZXIiLCJleHAiOjk5OTk5OTk5OTl9"
                       ".invalidsignature_xxxx";
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate(bad, &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate(bad, &claims), -1);
 }
 
 // Issuer must fail when the secret env var is not set
@@ -78,7 +78,7 @@ TEST_F(JWTTest, ValidatorFailsWithoutSecret) {
 
     unsetenv("GRIDGUARD_JWT_SECRET");
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate(token, &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate(token, &claims), -1);
 }
 
 // All null combinations for the issuer must return -1 without crashing
@@ -93,19 +93,19 @@ TEST_F(JWTTest, IssuerNullPointers) {
 // All null combinations for the validator must return -1 without crashing
 TEST_F(JWTTest, ValidatorNullPointers) {
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate(nullptr, &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate(nullptr, &claims), -1);
 
     char token[JWT_TOKEN_MAX];
     ASSERT_EQ(JWTIssuer_CreateToken("user", "u@u.com", "free", token), 0);
-    EXPECT_EQ(JWT_Validate(token, nullptr), -1);
+    EXPECT_EQ(JWTValidator_Validate(token, nullptr), -1);
 }
 
 // Structurally broken tokens (missing dots) must be rejected
 TEST_F(JWTTest, RejectsMalformedTokens) {
     JWTClaims claims;
-    EXPECT_EQ(JWT_Validate("",           &claims), -1);
-    EXPECT_EQ(JWT_Validate("nodots",     &claims), -1);
-    EXPECT_EQ(JWT_Validate("only.one",   &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate("",           &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate("nodots",     &claims), -1);
+    EXPECT_EQ(JWTValidator_Validate("only.one",   &claims), -1);
 }
 
 // Two different users must get distinct tokens, both validating to the right subject
@@ -116,8 +116,8 @@ TEST_F(JWTTest, DifferentUsersGetDifferentTokens) {
     EXPECT_STRNE(t1, t2);
 
     JWTClaims c1, c2;
-    ASSERT_EQ(JWT_Validate(t1, &c1), 0);
-    ASSERT_EQ(JWT_Validate(t2, &c2), 0);
+    ASSERT_EQ(JWTValidator_Validate(t1, &c1), 0);
+    ASSERT_EQ(JWTValidator_Validate(t2, &c2), 0);
     EXPECT_STREQ(c1.subject, "alice");
     EXPECT_STREQ(c2.subject, "bob");
 }
