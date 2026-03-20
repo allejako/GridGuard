@@ -18,11 +18,7 @@ static const char *HTTPResponse_StatusText(HTTPStatusCode code)
     }
 }
 
-int HTTPResponse_Initiate(HTTPResponse *response,
-                          HTTPStatusCode statusCode,
-                          const char *contentType,
-                          const char *body,
-                          size_t bodyLength)
+int HTTPResponse_Initiate(HTTPResponse *response, HTTPStatusCode statusCode, const char *contentType, const char *body, size_t bodyLength)
 {
     if (!response || !contentType)
         return -1;

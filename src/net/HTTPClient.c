@@ -290,8 +290,7 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
     int written = 0;
     while (written < reqLen)
     {
-        ret = mbedtls_ssl_write(&ssl, (unsigned char *)(req + written),
-                                (size_t)(reqLen - written));
+        ret = mbedtls_ssl_write(&ssl, (unsigned char *)(req + written), (size_t)(reqLen - written));
         if (ret <= 0)
         {
             mbedtls_ssl_free(&ssl);
@@ -317,8 +316,7 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
 
     while (1)
     {
-        ret = mbedtls_ssl_read(&ssl, (unsigned char *)(buf + total),
-                               capacity - total - 1);
+        ret = mbedtls_ssl_read(&ssl, (unsigned char *)(buf + total), capacity - total - 1);
         if (ret > 0)
         {
             total += (size_t)ret;

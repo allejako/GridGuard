@@ -19,10 +19,7 @@ int HTTPRequest_Parse(int fd, HTTPRequest *request)
 
     while (totalRead < HTTP_READ_BUFFER_SIZE - 1)
     {
-        int bytesRead = recv(fd,
-                             buffer + totalRead,
-                             HTTP_READ_BUFFER_SIZE - 1 - totalRead,
-                             0);
+        int bytesRead = recv(fd, buffer + totalRead, HTTP_READ_BUFFER_SIZE - 1 - totalRead, 0);
         if (bytesRead <= 0)
             return -1;
 
