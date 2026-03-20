@@ -15,7 +15,7 @@
 #include "auth/JWTValidator.h"
 #include "db/UserConfigDB.h"
 #include "db/ScheduleDB.h"
-#include "domain/LoadScheduler.h"
+#include "compute/LoadScheduler.h"
 #include "watchdog/Metrics.h"
 #include "sys/Logger.h"
 #include "libs/cJSON.h"

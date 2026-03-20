@@ -51,7 +51,7 @@ SERVER_SRCS = \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c \
     $(SRC)/compute/ComputeWorker.c \
-    $(SRC)/domain/LoadScheduler.c \
+    $(SRC)/compute/LoadScheduler.c \
     $(SRC)/watchdog/Metrics.c \
     $(SRC)/api/APIEndpoints.c \
     $(SRC)/api/APIParser.c \
@@ -372,7 +372,7 @@ $(TEST_WEATHER_BIN): $(SRC)/tests/integration/test_openmeteo_parser.c \
 $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/server/ClientHandler.c $(SRC)/server/Server.c \
     $(SRC)/net/TCPServer.c $(SRC)/net/HTTPRequest.c $(SRC)/net/HTTPResponse.c \
-    $(SRC)/auth/JWTValidator.c $(SRC)/domain/LoadScheduler.c \
+    $(SRC)/auth/JWTValidator.c $(SRC)/compute/LoadScheduler.c \
     $(SRC)/sys/SignalHandler.c $(SRC)/sys/Daemon.c $(SRC)/sys/PidFile.c \
     $(SRC)/server/GridGuard.c \
     $(SRC)/compute/Compute.c $(SRC)/compute/ComputeWorker.c \
