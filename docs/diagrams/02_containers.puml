@@ -1,0 +1,50 @@
+@startuml GridGuard_Containers
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+title GridGuard — Containers (C4 Level 2)
+
+Person(owner, "Fastighetsägare")
+
+System_Ext(openmeteo, "Open-Meteo API", "Väderdata")
+System_Ext(elpriset, "Elpriset API", "Spotpriser")
+
+System_Boundary(gridguard, "GridGuard") {
+    Container(launcher, "GridGuard", "C binary", "Tunn launcher.\nexecv() direkt till Watchdog —\nlämnar inget extra process i trädet.")
+
+    Container(watchdog, "GridGuard-watchdog", "C binary", "Supervisor och rotprocess.\nSkapar IPC-resurser, forkar processer\ni rätt ordning, övervakar via\nheartbeat-pipes, startar om hela\ngruppen vid krasj (exp. backoff 2→32s).")
+
+    Container(fetcher, "GridGuard-fetcher", "C binary", "Hämtar väder- och prisdata via HTTPS.\nCachelagrar i shared memory\n(väder TTL 900s, pris TTL 43200s).\nHanterar imorgondagens priser ~13:00 CET.")
+
+    Container(parser, "GridGuard-parser", "C binary", "Validerar JSON-svar.\nKonverterar tidsstämplar till Unix-tid.\nMatchar väder + pris per 15-min slot.\nSkickar ParseResult via Unix socket.")
+
+    Container(server, "GridGuard-server", "C binary", "HTTP API på port 8080.\nTrådpool med 20 workers.\nJWT-validering (HS256, mbedTLS).\nSQLite för användarkonfiguration.")
+
+    Container(computeworker, "ComputeWorker", "C thread i server", "Tar emot ParseResult från Parser.\nKör energialgoritmen.\nSkriver 48h energiplan till forecast-cache.")
+
+    ContainerDb(shm, "SharedCache", "POSIX shared memory", "Tre instanser: weather, price, forecast.\npthread_rwlock (process-shared).\nTTL-baserad ogiltigförklaring.")
+
+    Container(client, "GridGuard-client", "C++ binary", "CLI-klient.\nRAII (SocketGuard), STL, exceptions.\ngridguard forecast / config / login.")
+}
+
+Rel(owner, client, "gridguard forecast\ngridguard config", "Terminal")
+Rel(client, server, "GET /forecast\nPUT /user/config", "HTTP + JWT")
+
+Rel(launcher, watchdog, "execv()", "ersätter sig själv")
+Rel(watchdog, fetcher, "fork() + exec()")
+Rel(watchdog, parser, "fork() + exec()")
+Rel(watchdog, server, "fork() + exec()")
+
+Rel(server, fetcher, "WorkRequest", "FIFO: gridguard_requests.fifo")
+Rel(fetcher, parser, "FetchResult", "FIFO: gridguard_fetch_to_parse.fifo")
+Rel(parser, computeworker, "ParseResult", "Unix socket + FIFO notify")
+
+Rel(fetcher, shm, "skriv väder/pris", "shm_open + mmap")
+Rel(parser, shm, "läs väder/pris", "shm_open + mmap")
+Rel(computeworker, shm, "skriv forecast", "shm_open + mmap")
+Rel(server, shm, "läs forecast", "shm_open + mmap")
+
+Rel(fetcher, openmeteo, "HTTPS GET", "mbedTLS")
+Rel(fetcher, elpriset, "HTTPS GET", "mbedTLS")
+
+@enduml

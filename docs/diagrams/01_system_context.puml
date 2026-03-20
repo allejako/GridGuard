@@ -1,0 +1,22 @@
+@startuml GridGuard_System_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+title GridGuard — System Context (C4 Level 1)
+
+Person(owner, "Fastighetsägare", "Vill optimera elkostnader baserat\npå spotpriser och solproduktion")
+
+System(gridguard, "GridGuard", "Lokal energioptimeringsenhet.\nHämtar väder- och prisdata, beräknar\n48h energiplan med BUY/SELL/AVOID/IDLE-signaler\nper 15-minuterskvart.")
+
+System_Ext(openmeteo, "Open-Meteo API", "Väderdata: solinstrålning,\ntemperatur, vindstyrka\n(15 min-intervall, gratis)")
+
+System_Ext(elpriset, "Elpriset API", "Svenska spotpriser SE1–SE4\n(15 min-intervall, gratis)")
+
+System_Ext(platform, "GridGuard Platform", "Utfärdar signerade JWT-tokens\ntill användare.\nDelar GRIDGUARD_JWT_SECRET\nmed enheten.")
+
+Rel(owner, gridguard, "gridguard forecast / config", "CLI eller HTTP + JWT")
+Rel(gridguard, openmeteo, "HTTPS GET", "Väder + solinstrålning")
+Rel(gridguard, elpriset, "HTTPS GET", "Spotpriser")
+Rel(platform, owner, "Utfärdar JWT-token", "Engångsinloggning")
+
+@enduml
