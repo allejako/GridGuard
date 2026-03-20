@@ -31,9 +31,9 @@ protected:
         c.solarAreaM2    = 10.0;
         c.solarEfficiency= 0.18;
         c.consumptionKwh = 1.5;
-        c.gridFee_low    = 0.03;
-        c.gridFee_normal = 0.05;
-        c.gridFee_high   = 0.10;
+        c.gridFeeLow    = 0.03;
+        c.gridFeeNormal = 0.05;
+        c.gridFeeHigh   = 0.10;
         c.updatedAt      = (long)time(NULL);
         return c;
     }
@@ -88,16 +88,16 @@ TEST_F(UserConfigDBTest, SolarParamsPersist) {
 // All three time-of-use grid fee bands must persist correctly
 TEST_F(UserConfigDBTest, GridFeesPersist) {
     UserConfig cfg = MakeConfig("user_d");
-    cfg.gridFee_low    = 0.02;
-    cfg.gridFee_normal = 0.06;
-    cfg.gridFee_high   = 0.12;
+    cfg.gridFeeLow    = 0.02;
+    cfg.gridFeeNormal = 0.06;
+    cfg.gridFeeHigh   = 0.12;
     ASSERT_EQ(UserConfigDB_Upsert(&db, &cfg), 0);
 
     UserConfig out;
     ASSERT_EQ(UserConfigDB_Get(&db, "user_d", &out), 0);
-    EXPECT_NEAR(out.gridFee_low,    0.02, 0.001);
-    EXPECT_NEAR(out.gridFee_normal, 0.06, 0.001);
-    EXPECT_NEAR(out.gridFee_high,   0.12, 0.001);
+    EXPECT_NEAR(out.gridFeeLow,    0.02, 0.001);
+    EXPECT_NEAR(out.gridFeeNormal, 0.06, 0.001);
+    EXPECT_NEAR(out.gridFeeHigh,   0.12, 0.001);
 }
 
 // Different users must have their configs stored independently
