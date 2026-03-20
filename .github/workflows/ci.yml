@@ -28,4 +28,7 @@ jobs:
       - name: Run tests (ASAN/UBSAN)
         env:
           GRIDGUARD_JWT_SECRET: gridguard-ci-test-secret
-        run: make test-gtest
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build -j$(nproc)
+          cd build && ctest -V
