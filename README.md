@@ -1,5 +1,7 @@
 # GridGuard
 
+[![CI](https://github.com/allejako/GridGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/allejako/GridGuard/actions/workflows/ci.yml)
+
 Smart energioptimering för svenska hushåll. Systemet hämtar väderdata och spotpriser i realtid, beräknar förväntad solcellsproduktion och genererar en tidsbaserad energiplan som visar när det är billigast att köpa, sälja eller undvika el.
 
 ## Arkitektur
