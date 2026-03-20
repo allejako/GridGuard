@@ -60,7 +60,7 @@ gtest_discover_tests(test_restart_policy_gtest)
 # Energy-Aware Scheduling Tests - LoadScheduler spot price optimization
 add_executable(test_scheduler_gtest
     unit/test_scheduler_gtest.cpp
-    ${CMAKE_SOURCE_DIR}/src/domain/LoadScheduler.c
+    ${CMAKE_SOURCE_DIR}/src/compute/LoadScheduler.c
     ${CMAKE_SOURCE_DIR}/src/sys/Logger.c
 )
 

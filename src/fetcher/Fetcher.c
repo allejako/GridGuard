@@ -249,13 +249,9 @@ int FetcherProcess_Run(FetcherProcess *proc)
                              (nowTmStockholm.tm_mon + 1) * 100 +
                              nowTmStockholm.tm_mday;
 
-            bool firstFetchToday = (proc->lastPriceFetchDate != todayDate &&
-                                      nowTmStockholm.tm_hour >= 13);
+            bool firstFetchToday = (proc->lastPriceFetchDate != todayDate && nowTmStockholm.tm_hour >= 13);
 
-            bool retryForTomorrow = (proc->lastPriceFetchDate == todayDate &&
-                                       !proc->tomorrowPricesFetched &&
-                                       nowTmStockholm.tm_hour >= 13 &&
-                                       (now - proc->lastPriceFetch) >= 300);  // 5-min throttle
+            bool retryForTomorrow = (proc->lastPriceFetchDate == todayDate && !proc->tomorrowPricesFetched && nowTmStockholm.tm_hour >= 13 && (now - proc->lastPriceFetch) >= 300);  // 5-min throttle
 
             bool shouldFetchPrices = firstFetchToday || retryForTomorrow;
 
