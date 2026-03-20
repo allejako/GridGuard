@@ -26,11 +26,11 @@ int PlatformDB_Initiate(PlatformDB *db, const char *path)
         return -1;
     }
 
-    char *err_msg = NULL;
-    if (sqlite3_exec(db->handle, SCHEMA_SQL, NULL, NULL, &err_msg) != SQLITE_OK)
+    char *errMsg = NULL;
+    if (sqlite3_exec(db->handle, SCHEMA_SQL, NULL, NULL, &errMsg) != SQLITE_OK)
     {
-        LOG_ERROR("PlatformDB: Failed to create schema: %s", err_msg);
-        sqlite3_free(err_msg);
+        LOG_ERROR("PlatformDB: Failed to create schema: %s", errMsg);
+        sqlite3_free(errMsg);
         sqlite3_close(db->handle);
         return -1;
     }

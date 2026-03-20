@@ -13,7 +13,7 @@
 #define TOKEN_LIFETIME_SECONDS 86400  // 24 hours for demo
 
 // Standard base64 → base64url encoding.
-static int base64url_encode(const unsigned char *src, size_t srcLen, char *dst, size_t dstBufLen)
+static int Base64urlEncode(const unsigned char *src, size_t srcLen, char *dst, size_t dstBufLen)
 {
     size_t olen = 0;
     int ret = mbedtls_base64_encode((unsigned char *)dst, dstBufLen, &olen, src, srcLen);
@@ -50,7 +50,7 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
     // Build header JSON
     const char *headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
     char headerB64[256];
-    int headerB64Len = base64url_encode((const unsigned char *)headerJson, strlen(headerJson), headerB64, sizeof(headerB64));
+    int headerB64Len = Base64urlEncode((const unsigned char *)headerJson, strlen(headerJson), headerB64, sizeof(headerB64));
     if (headerB64Len < 0)
     {
         LOG_ERROR("JWTIssuer: Failed to encode header");
@@ -65,7 +65,7 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
     snprintf(payloadJson, sizeof(payloadJson), "{\"sub\":\"%s\",\"email\":\"%s\",\"plan\":\"%s\",\"exp\":%ld}", userId, email, planType, (long)expiresAt);
 
     char payloadB64[1024];
-    int payloadB64Len = base64url_encode((const unsigned char *)payloadJson, strlen(payloadJson), payloadB64, sizeof(payloadB64));
+    int payloadB64Len = Base64urlEncode((const unsigned char *)payloadJson, strlen(payloadJson), payloadB64, sizeof(payloadB64));
     if (payloadB64Len < 0)
     {
         LOG_ERROR("JWTIssuer: Failed to encode payload");
@@ -87,7 +87,7 @@ int JWTIssuer_CreateToken(const char *userId, const char *email, const char *pla
 
     // Encode signature
     char signatureB64[64];
-    int signatureB64Len = base64url_encode(signature, 32, signatureB64, sizeof(signatureB64));
+    int signatureB64Len = Base64urlEncode(signature, 32, signatureB64, sizeof(signatureB64));
     if (signatureB64Len < 0)
     {
         LOG_ERROR("JWTIssuer: Failed to encode signature");

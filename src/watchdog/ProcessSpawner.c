@@ -12,7 +12,7 @@
 #include <sys/wait.h>
 #include <stdio.h>
 
-static pid_t spawnProcess(const char *path, const char *name, char *const argv[], ManagedProcess *proc)
+static pid_t SpawnProcess(const char *path, const char *name, char *const argv[], ManagedProcess *proc)
 {
     // Shutdown old heartbeat if it was initialized
     if (proc->heartbeatInitialized)
@@ -99,7 +99,7 @@ void ProcessGroup_Initiate(ProcessGroup *group, const char *fetcherPath, const c
 int ProcessGroup_SpawnAll(ProcessGroup *group)
 {
     // Start Parser first so it opens read end of FIFO before Fetcher tries to open write end
-    char *parser_argv[] = 
+    char *parserArgv[] =
     {
         "GridGuard-parser",
         FETCH_TO_PARSE_FIFO_PATH,
@@ -108,7 +108,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->parser.pid = spawnProcess(group->parser.path, group->parser.name, parser_argv, &group->parser);
+    group->parser.pid = SpawnProcess(group->parser.path, group->parser.name, parserArgv, &group->parser);
     if (group->parser.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn parser");
@@ -119,7 +119,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
     sleep(1);  // Give parser time to open FIFO read end
 
     // Start Fetcher
-    char *fetcher_argv[] =
+    char *fetcherArgv[] =
     {
         "GridGuard-fetcher",
         REQUEST_FIFO_PATH,
@@ -127,7 +127,7 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
         NULL
     };
 
-    group->fetcher.pid = spawnProcess(group->fetcher.path, group->fetcher.name, fetcher_argv, &group->fetcher);
+    group->fetcher.pid = SpawnProcess(group->fetcher.path, group->fetcher.name, fetcherArgv, &group->fetcher);
     if (group->fetcher.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn fetcher");
@@ -139,13 +139,13 @@ int ProcessGroup_SpawnAll(ProcessGroup *group)
     sleep(1);
 
     // Start Server
-    char *server_argv[] =
+    char *serverArgv[] =
     {
         "GridGuard-server",
         NULL
     };
 
-    group->server.pid = spawnProcess(group->server.path, group->server.name, server_argv, &group->server);
+    group->server.pid = SpawnProcess(group->server.path, group->server.name, serverArgv, &group->server);
     if (group->server.pid < 0)
     {
         LOG_ERROR("ProcessSpawner: Failed to spawn server");
@@ -182,7 +182,7 @@ void ProcessGroup_WaitAll(ProcessGroup *group)
 }
 
 // Cleanup heartbeats and reset PIDs
-void ProcessGroup_Cleanup(ProcessGroup *group)
+void ProcessGroup_Shutdown(ProcessGroup *group)
 {
     if (group->fetcher.heartbeatInitialized)
     {

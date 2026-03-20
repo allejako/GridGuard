@@ -10,9 +10,9 @@ typedef struct
     double solarAreaM2;
     double solarEfficiency;
     double consumptionKwh;
-    double gridFee_low;
-    double gridFee_normal;
-    double gridFee_high;
+    double gridFeeLow;
+    double gridFeeNormal;
+    double gridFeeHigh;
     char   openMeteoJson[32768];  // 48h weather data (~8KB for 192 quarters)
     char   priceJson[32768];      // 48h price data (today + tomorrow, ~26KB for 192 quarters)
 } FetchResult;

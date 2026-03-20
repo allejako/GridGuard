@@ -16,20 +16,20 @@
 // Heartbeat state
 #define HEARTBEAT_INTERVAL_SEC 5
 
-static int heartbeat_fd = -1;
-static pthread_t heartbeat_thread;
-static volatile sig_atomic_t heartbeat_running = 0;
+static int heartbeatFd = -1;
+static pthread_t heartbeatThread;
+static volatile sig_atomic_t heartbeatRunning = 0;
 
 static void *Daemon_HeartbeatLoop(void *arg)
 {
     (void)arg;
 
-    LOG_INFO("Daemon: Heartbeat thread started (fd=%d, interval=%ds)", heartbeat_fd, HEARTBEAT_INTERVAL_SEC);
+    LOG_INFO("Daemon: Heartbeat thread started (fd=%d, interval=%ds)", heartbeatFd, HEARTBEAT_INTERVAL_SEC);
 
-    while (heartbeat_running)
+    while (heartbeatRunning)
     {
         const char *msg = "heartbeat\n";
-        ssize_t written = write(heartbeat_fd, msg, strlen(msg));
+        ssize_t written = write(heartbeatFd, msg, strlen(msg));
 
         if (written < 0)
         {
@@ -37,8 +37,8 @@ static void *Daemon_HeartbeatLoop(void *arg)
             break;
         }
 
-        // Sleep in 1-second increments so we can check heartbeat_running
-        for (int i = 0; i < HEARTBEAT_INTERVAL_SEC && heartbeat_running; i++)
+        // Sleep in 1-second increments so we can check heartbeatRunning
+        for (int i = 0; i < HEARTBEAT_INTERVAL_SEC && heartbeatRunning; i++)
         {
             sleep(1);
         }
@@ -54,9 +54,9 @@ int Daemon_Initiate(void)
     // double-fork: the watchdog already owns process supervision via waitpid.
     // Forking would make the watchdog track the wrong PID (the intermediate
     // child that exits immediately), leaving the real daemon unsupervised.
-    int under_watchdog = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
+    int underWatchdog = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
 
-    if (!under_watchdog)
+    if (!underWatchdog)
     {
         // Step 1: Fork and let parent exit
         pid_t pid = fork();
@@ -134,27 +134,27 @@ int Daemon_Initiate(void)
 int Daemon_StartHeartbeat(void)
 {
     // Read heartbeat fd from environment (set by watchdog before exec)
-    const char *fd_env = getenv("GRIDGUARD_HEARTBEAT_FD");
-    if (fd_env == NULL)
+    const char *fdEnv = getenv("GRIDGUARD_HEARTBEAT_FD");
+    if (fdEnv == NULL)
     {
         LOG_INFO("Daemon: No heartbeat fd set (GRIDGUARD_HEARTBEAT_FD not found), skipping heartbeat");
         return 0;
     }
 
-    heartbeat_fd = atoi(fd_env);
-    if (heartbeat_fd < 0)
+    heartbeatFd = atoi(fdEnv);
+    if (heartbeatFd < 0)
     {
-        LOG_ERROR("Daemon: Invalid heartbeat fd: %s", fd_env);
+        LOG_ERROR("Daemon: Invalid heartbeat fd: %s", fdEnv);
         return -1;
     }
 
-    LOG_INFO("Daemon: Starting heartbeat thread on fd %d", heartbeat_fd);
+    LOG_INFO("Daemon: Starting heartbeat thread on fd %d", heartbeatFd);
 
-    heartbeat_running = 1;
-    if (pthread_create(&heartbeat_thread, NULL, Daemon_HeartbeatLoop, NULL) != 0)
+    heartbeatRunning = 1;
+    if (pthread_create(&heartbeatThread, NULL, Daemon_HeartbeatLoop, NULL) != 0)
     {
         LOG_ERROR("Daemon: Failed to create heartbeat thread");
-        heartbeat_running = 0;
+        heartbeatRunning = 0;
         return -1;
     }
 
@@ -163,17 +163,17 @@ int Daemon_StartHeartbeat(void)
 
 void Daemon_StopHeartbeat(void)
 {
-    if (!heartbeat_running)
+    if (!heartbeatRunning)
         return;
 
     LOG_INFO("Daemon: Stopping heartbeat thread");
-    heartbeat_running = 0;
-    pthread_join(heartbeat_thread, NULL);
+    heartbeatRunning = 0;
+    pthread_join(heartbeatThread, NULL);
 
-    if (heartbeat_fd >= 0)
+    if (heartbeatFd >= 0)
     {
-        close(heartbeat_fd);
-        heartbeat_fd = -1;
+        close(heartbeatFd);
+        heartbeatFd = -1;
     }
 }
 

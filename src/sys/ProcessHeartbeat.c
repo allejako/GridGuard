@@ -33,6 +33,18 @@ int ProcessHeartbeat_Initiate(ProcessHeartbeat *heartbeat, int intervalSec)
     return 0;
 }
 
+void ProcessHeartbeat_Shutdown(ProcessHeartbeat *heartbeat)
+{
+    if (!heartbeat)
+        return;
+
+    if (heartbeat->fd >= 0)
+    {
+        close(heartbeat->fd);
+        heartbeat->fd = -1;
+    }
+}
+
 int ProcessHeartbeat_Send(ProcessHeartbeat *heartbeat)
 {
     if (!heartbeat || heartbeat->fd < 0) return 0;

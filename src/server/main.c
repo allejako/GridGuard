@@ -17,7 +17,7 @@ int main(void)
     int daemonize = (getenv("GRIDGUARD_HEARTBEAT_FD") != NULL);
 
     // RESOLVE LOG PATH FIX FOR DAEMON MODE
-    char log_path[PATH_MAX + 64];
+    char logPath[PATH_MAX + 64];
     if (daemonize)
     {
         char cwd[PATH_MAX];
@@ -26,18 +26,18 @@ int main(void)
             perror("getcwd");
             return EXIT_FAILURE;
         }
-        snprintf(log_path, sizeof(log_path), "%s/logs/server.log", cwd);
+        snprintf(logPath, sizeof(logPath), "%s/logs/server.log", cwd);
     }
     else
     {
-        snprintf(log_path, sizeof(log_path), "logs/server.log");
+        snprintf(logPath, sizeof(logPath), "logs/server.log");
     }
 
     // LOAD RUNTIME CONFIG
     RuntimeConfig_Load(getenv("GRIDGUARD_CONFIG_PATH"));
 
     // INITIALIZE GRIDGUARD LOGGER
-    if (Logger_Initiate(log_path, LOG_LEVEL_DEBUG) != 0)
+    if (Logger_Initiate(logPath, LOG_LEVEL_DEBUG) != 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
         return EXIT_FAILURE;

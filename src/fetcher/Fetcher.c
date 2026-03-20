@@ -28,7 +28,7 @@
 
 // Helper: Write timestamp file to signal that fresh data is available
 // This allows the server to invalidate forecast caches automatically
-static void signal_data_updated(void)
+static void SignalDataUpdated(void)
 {
     FILE *f = fopen(DATA_UPDATE_TIMESTAMP_PATH, "w");
     if (f)
@@ -45,7 +45,7 @@ static void signal_data_updated(void)
 
 // Helper: Validate Elpriset API response structure
 // Returns true if array is valid (correct size and has required fields)
-static bool validate_price_array(cJSON *array, const char *label)
+static bool ValidatePriceArray(cJSON *array, const char *label)
 {
     if (!array || !cJSON_IsArray(array))
     {
@@ -226,15 +226,15 @@ int FetcherProcess_Run(FetcherProcess *proc)
 
             // CRITICAL: Must use Europe/Stockholm timezone for price fetch timing
             // Elprisetjustnu publishes at 13:00 CET, regardless of server timezone
-            struct tm now_tm_stockholm;
+            struct tm nowTmStockholm;
             {
                 // Force Europe/Stockholm timezone for this conversion
-                const char *_tmp_tz = getenv("TZ");
-                char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
+                const char *tmpTz = getenv("TZ");
+                char *oldTz = tmpTz ? strdup(tmpTz) : NULL;
                 setenv("TZ", "Europe/Stockholm", 1);
                 tzset();
-                localtime_r(&now, &now_tm_stockholm);
-                if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); }
+                localtime_r(&now, &nowTmStockholm);
+                if (oldTz) { setenv("TZ", oldTz, 1); free(oldTz); }
                 else          unsetenv("TZ");
                 tzset();
             }
@@ -245,52 +245,52 @@ int FetcherProcess_Run(FetcherProcess *proc)
             //   (B) Tomorrow retry          — elprisetjustnu may publish up to 14:00;
             //       keep retrying every 5 minutes until tomorrow's prices arrive.
             //       No hard stop: we keep trying until we succeed.
-            int today_date = (now_tm_stockholm.tm_year + 1900) * 10000 +
-                             (now_tm_stockholm.tm_mon + 1) * 100 +
-                             now_tm_stockholm.tm_mday;
+            int todayDate = (nowTmStockholm.tm_year + 1900) * 10000 +
+                             (nowTmStockholm.tm_mon + 1) * 100 +
+                             nowTmStockholm.tm_mday;
 
-            bool first_fetch_today = (proc->lastPriceFetchDate != today_date &&
-                                      now_tm_stockholm.tm_hour >= 13);
+            bool firstFetchToday = (proc->lastPriceFetchDate != todayDate &&
+                                      nowTmStockholm.tm_hour >= 13);
 
-            bool retry_for_tomorrow = (proc->lastPriceFetchDate == today_date &&
+            bool retryForTomorrow = (proc->lastPriceFetchDate == todayDate &&
                                        !proc->tomorrowPricesFetched &&
-                                       now_tm_stockholm.tm_hour >= 13 &&
+                                       nowTmStockholm.tm_hour >= 13 &&
                                        (now - proc->lastPriceFetch) >= 300);  // 5-min throttle
 
-            bool should_fetch_prices = first_fetch_today || retry_for_tomorrow;
+            bool shouldFetchPrices = firstFetchToday || retryForTomorrow;
 
-            if (first_fetch_today)
-                LOG_INFO("FetcherProcess: Daily price fetch triggered (Stockholm %02d:00)", now_tm_stockholm.tm_hour);
-            else if (retry_for_tomorrow)
+            if (firstFetchToday)
+                LOG_INFO("FetcherProcess: Daily price fetch triggered (Stockholm %02d:00)", nowTmStockholm.tm_hour);
+            else if (retryForTomorrow)
                 LOG_INFO("FetcherProcess: Retrying tomorrow's prices (not yet published at 13:00)");
 
-            if (should_fetch_prices && now >= proc->priceBackoffUntil)
+            if (shouldFetchPrices && now >= proc->priceBackoffUntil)
             {
                 // Fetch prices for all Swedish regions (SE1-SE4)
                 const char *regions[] = {"SE1", "SE2", "SE3", "SE4"};
-                int regions_count = 4;
+                int regionsCount = 4;
                 int fetched = 0, skipped = 0, tomorrowFetched = 0;
 
                 // Use Stockholm timezone for today/tomorrow date calculation
                 struct tm today, tomorrow;
-                today = now_tm_stockholm;  // Already in Stockholm time
+                today = nowTmStockholm;  // Already in Stockholm time
                 // Use mktime to advance by one calendar day in Stockholm TZ.
                 // Adding 86400 seconds fails on DST spring-forward nights (23 h day).
                 tomorrow = today;
                 tomorrow.tm_mday += 1;
                 tomorrow.tm_isdst = -1;
                 {
-                    const char *_tmp_tz = getenv("TZ");
-                    char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
+                    const char *tmpTz = getenv("TZ");
+                    char *oldTz = tmpTz ? strdup(tmpTz) : NULL;
                     setenv("TZ", "Europe/Stockholm", 1);
                     tzset();
                     mktime(&tomorrow);  // normalise overflow (e.g. mday=32 → next month)
-                    if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); }
+                    if (oldTz) { setenv("TZ", oldTz, 1); free(oldTz); }
                     else          unsetenv("TZ");
                     tzset();
                 }
 
-                for (int r = 0; r < regions_count; r++)
+                for (int r = 0; r < regionsCount; r++)
                 {
                     const char *region = regions[r];
                     char priceKey[256];
@@ -322,8 +322,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
                         cJSON *tomorrowArray = cJSON_Parse(tomorrowResp.data);
 
                         // Validate both arrays before merging
-                        bool todayValid = validate_price_array(todayArray, "Today prices");
-                        bool tomorrowValid = validate_price_array(tomorrowArray, "Tomorrow prices");
+                        bool todayValid = ValidatePriceArray(todayArray, "Today prices");
+                        bool tomorrowValid = ValidatePriceArray(tomorrowArray, "Tomorrow prices");
 
                         if (todayValid && tomorrowValid)
                         {
@@ -357,7 +357,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                     else if (todaySuccess)  // At least got today's prices
                     {
                         cJSON *todayArray = cJSON_Parse(todayResp.data);
-                        if (validate_price_array(todayArray, "Today prices"))
+                        if (ValidatePriceArray(todayArray, "Today prices"))
                         {
                             char *combinedJson = cJSON_PrintUnformatted(todayArray);
                             if (combinedJson)
@@ -393,14 +393,14 @@ int FetcherProcess_Run(FetcherProcess *proc)
                 // Signal that fresh price data is available (for cache invalidation)
                 if (fetched > 0)
                 {
-                    signal_data_updated();
+                    SignalDataUpdated();
                 }
 
                 proc->lastPriceFetch = now;
-                proc->lastPriceFetchDate = today_date;  // Always mark so retry throttle works
+                proc->lastPriceFetchDate = todayDate;  // Always mark so retry throttle works
                 // tomorrowPricesFetched = true only when ALL regions got tomorrow's data.
                 // If any region is still missing tomorrow, keep retrying every 5 minutes.
-                proc->tomorrowPricesFetched = (tomorrowFetched == regions_count && skipped == 0);
+                proc->tomorrowPricesFetched = (tomorrowFetched == regionsCount && skipped == 0);
                 if (!proc->tomorrowPricesFetched && fetched > 0)
                     LOG_INFO("FetcherProcess: Tomorrow's prices not yet published — will retry in 5 min");
             }
@@ -408,10 +408,10 @@ int FetcherProcess_Run(FetcherProcess *proc)
             // === WEATHER CACHE INVALIDATION: Every 15 minutes ===
             // Proactively invalidate weather cache to force fresh fetch on next user request.
             // This ensures weather data is never more than 15 minutes stale.
-            time_t weather_elapsed = now - proc->lastWeatherFetch;
-            if (weather_elapsed >= proc->weatherIntervalSeconds)
+            time_t weatherElapsed = now - proc->lastWeatherFetch;
+            if (weatherElapsed >= proc->weatherIntervalSeconds)
             {
-                LOG_INFO("FetcherProcess: Invalidating ALL weather cache entries after %ld seconds", weather_elapsed);
+                LOG_INFO("FetcherProcess: Invalidating ALL weather cache entries after %ld seconds", weatherElapsed);
 
                 // Invalidate ALL weather cache entries to force fresh fetch
                 // This prevents the TTL timing issue where:
@@ -453,9 +453,9 @@ int FetcherProcess_Run(FetcherProcess *proc)
         result.solarAreaM2 = request.solarAreaM2;
         result.solarEfficiency = request.solarEfficiency;
         result.consumptionKwh = request.consumptionKwh;
-        result.gridFee_low = request.gridFee_low;
-        result.gridFee_normal = request.gridFee_normal;
-        result.gridFee_high = request.gridFee_high;
+        result.gridFeeLow    = request.gridFeeLow;
+        result.gridFeeNormal = request.gridFeeNormal;
+        result.gridFeeHigh   = request.gridFeeHigh;
 
         time_t now; // For circuit breaker timing
 
@@ -494,7 +494,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
                         LOG_INFO("FetcherProcess: Fetched Open-Meteo data (%zu bytes)", strlen(result.openMeteoJson));
 
                         // Signal that fresh weather data is available (for cache invalidation)
-                        signal_data_updated();
+                        SignalDataUpdated();
                     }
                     else
                     {
@@ -522,8 +522,8 @@ int FetcherProcess_Run(FetcherProcess *proc)
         // Use Stockholm TZ for both cache key and API URLs so they always match
         // the background-fetch keys, even when the server runs in UTC or another TZ.
         {
-            const char *_tmp_tz = getenv("TZ");
-            char *old_tz = _tmp_tz ? strdup(_tmp_tz) : NULL;
+            const char *tmpTz = getenv("TZ");
+            char *oldTz = tmpTz ? strdup(tmpTz) : NULL;
             setenv("TZ", "Europe/Stockholm", 1);
             tzset();
             localtime_r(&now, &today);
@@ -531,7 +531,7 @@ int FetcherProcess_Run(FetcherProcess *proc)
             tomorrow.tm_mday += 1;
             tomorrow.tm_isdst = -1;
             mktime(&tomorrow);  // normalise + handle DST spring-forward
-            if (old_tz) { setenv("TZ", old_tz, 1); free(old_tz); } else unsetenv("TZ");
+            if (oldTz) { setenv("TZ", oldTz, 1); free(oldTz); } else unsetenv("TZ");
             tzset();
         }
 

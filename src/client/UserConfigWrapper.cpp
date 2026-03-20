@@ -69,9 +69,9 @@ std::map<std::string, std::string> UserConfigWrapper::getAsMap() const {
         { "solar_area_m2",    d(cfg_.solarAreaM2,  2)   },
         { "solar_efficiency", d(cfg_.solarEfficiency, 3)},
         { "consumption_kwh",  d(cfg_.consumptionKwh, 3) },
-        { "grid_fee_low",     d(cfg_.gridFee_low,   4)  },
-        { "grid_fee_normal",  d(cfg_.gridFee_normal, 4) },
-        { "grid_fee_high",    d(cfg_.gridFee_high,  4)  },
+        { "grid_fee_low",     d(cfg_.gridFeeLow,   4)  },
+        { "grid_fee_normal",  d(cfg_.gridFeeNormal, 4) },
+        { "grid_fee_high",    d(cfg_.gridFeeHigh,  4)  },
     };
 }
 

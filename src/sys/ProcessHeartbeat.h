@@ -10,7 +10,8 @@ typedef struct
     int    interval;
 } ProcessHeartbeat;
 
-int ProcessHeartbeat_Initiate(ProcessHeartbeat *heartbeat, int intervalSec);
-int ProcessHeartbeat_Send(ProcessHeartbeat *heartbeat);
+int  ProcessHeartbeat_Initiate(ProcessHeartbeat *heartbeat, int intervalSec);
+void ProcessHeartbeat_Shutdown(ProcessHeartbeat *heartbeat);
+int  ProcessHeartbeat_Send(ProcessHeartbeat *heartbeat);
 
 #endif // _PROCESS_HEARTBEAT_H_

@@ -22,10 +22,10 @@
 // Open a write-end FIFO without blocking forever.
 // O_WRONLY on a named pipe blocks until someone opens the read end.
 // We retry with O_NONBLOCK (which gives ENXIO if no reader yet) until timeout.
-static int open_fifo_write(const char *path, int timeout_sec)
+static int OpenFifoWrite(const char *path, int timeoutSec)
 {
     struct timespec delay = { 0, 100 * 1000000L }; // 100 ms
-    int attempts = (timeout_sec * 1000) / 100;
+    int attempts = (timeoutSec * 1000) / 100;
 
     for (int i = 0; i < attempts; i++)
     {
@@ -148,7 +148,7 @@ int GridGuard_Initiate(GridGuard *app)
 
     // Open request FIFO for writing — Watchdog created it, Fetcher opens the read end.
     // Retry for up to 10 seconds rather than blocking indefinitely.
-    app->requestPipeFd = open_fifo_write("/tmp/gridguard_requests.fifo", 10);
+    app->requestPipeFd = OpenFifoWrite("/tmp/gridguard_requests.fifo", 10);
     if (app->requestPipeFd < 0)
     {
         LOG_ERROR("GridGuard: Timed out waiting for Fetcher to open request FIFO");
@@ -175,10 +175,18 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    computeWorker->socketPath = app->socketPath; // Unix socket path for Parse → Compute
-    computeWorker->notifyPath = NOTIFY_PATH; // Notify FIFO path for Parse → Compute (signals when data is ready)
-    computeWorker->compute = &app->compute; // Opaque pointer to Compute service
-    computeWorker->isRunning = true; // Control flag for ComputeWorker
+    if (ComputeWorker_Initiate(computeWorker, app->socketPath, NOTIFY_PATH, &app->compute) != 0)
+    {
+        LOG_ERROR("Failed to initiate ComputeWorker");
+        free(computeWorker);
+        close(app->requestPipeFd);
+        SharedCache_Shutdown(&app->forecastCache);
+        SharedCache_Shutdown(&app->priceCache);
+        SharedCache_Shutdown(&app->weatherCache);
+        Compute_Shutdown(&app->compute);
+        ClientDB_Shutdown(&app->db);
+        return -1;
+    }
 
     // Save reference to worker so we can signal shutdown later
     app->computeWorker = computeWorker;
@@ -209,7 +217,7 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request, WorkComp
         return -1;
 
     // Register WorkCompletion so the Compute thread can find it by userId
-    RegisterCompletion(request->userId, completion);
+    CompletionRegistry_Register(request->userId, completion);
 
     // Write request to pipe (HTTP → Fetch)
     pthread_mutex_lock(&app->mutex);
@@ -219,7 +227,7 @@ int GridGuard_SubmitRequest(GridGuard *app, const WorkRequest *request, WorkComp
     if (written != sizeof(WorkRequest))
     {
         LOG_ERROR(" Failed to write WorkRequest to pipe");
-        UnregisterCompletion(request->userId);
+        CompletionRegistry_Unregister(request->userId);
         return -1;
     }
 

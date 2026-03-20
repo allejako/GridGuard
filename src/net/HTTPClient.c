@@ -19,7 +19,7 @@
 // Decode HTTP/1.1 chunked transfer encoding.
 // src/srcLen: raw chunked body.  *out: malloc'd decoded body, caller frees.
 // Returns 0 on success, -1 on error.
-static int decode_chunked(const char *src, size_t srcLen, char **out, size_t *outLen)
+static int DecodeChunked(const char *src, size_t srcLen, char **out, size_t *outLen)
 {
     char *buf = malloc(srcLen + 1); // decoded body is always <= encoded size
     if (!buf) return -1;
@@ -59,7 +59,7 @@ static int decode_chunked(const char *src, size_t srcLen, char **out, size_t *ou
 }
 
 // Case-insensitive substring search (portable, no _GNU_SOURCE needed).
-static const char *str_istr(const char *haystack, const char *needle)
+static const char *StrIStr(const char *haystack, const char *needle)
 {
     size_t nlen = strlen(needle);
     for (; *haystack; haystack++)
@@ -70,7 +70,7 @@ static const char *str_istr(const char *haystack, const char *needle)
     return NULL;
 }
 
-static int parse_url(const char *url,
+static int ParseUrl(const char *url,
                      char *host, size_t hostLen,
                      char *port, size_t portLen,
                      char *path, size_t pathLen)
@@ -113,7 +113,7 @@ static int parse_url(const char *url,
     return 0;
 }
 
-static int tcp_connect(const char *host, const char *port, int timeoutSec)
+static int TcpConnect(const char *host, const char *port, int timeoutSec)
 {
     struct addrinfo hints = {0};
     hints.ai_family   = AF_UNSPEC;
@@ -145,14 +145,14 @@ static int tcp_connect(const char *host, const char *port, int timeoutSec)
 }
 
 // Bio callbacks — mbedTLS calls these to send/receive raw bytes over our socket.
-static int tls_send(void *ctx, const unsigned char *buf, size_t len)
+static int TlsSend(void *ctx, const unsigned char *buf, size_t len)
 {
     int fd = *(int *)ctx;
     ssize_t n = send(fd, buf, len, 0);
     return (n < 0) ? -1 : (int)n;
 }
 
-static int tls_recv(void *ctx, unsigned char *buf, size_t len)
+static int TlsRecv(void *ctx, unsigned char *buf, size_t len)
 {
     int fd = *(int *)ctx;
     ssize_t n = recv(fd, buf, len, 0);
@@ -180,8 +180,8 @@ int HTTPClient_Initiate(HTTPClient *client)
 
     // Load system CA certificates for proper TLS verification
     // Try common Linux CA certificate locations
-    int ca_loaded = 0;
-    const char *ca_paths[] = {
+    int caLoaded = 0;
+    const char *caPaths[] = {
         "/etc/ssl/certs/ca-certificates.crt",  // Debian/Ubuntu
         "/etc/pki/tls/certs/ca-bundle.crt",    // RHEL/Fedora
         "/etc/ssl/ca-bundle.pem",              // OpenSUSE
@@ -189,16 +189,16 @@ int HTTPClient_Initiate(HTTPClient *client)
         NULL
     };
 
-    for (int i = 0; ca_paths[i] != NULL; i++)
+    for (int i = 0; caPaths[i] != NULL; i++)
     {
-        if (mbedtls_x509_crt_parse_file(&client->cacert, ca_paths[i]) == 0)
+        if (mbedtls_x509_crt_parse_file(&client->cacert, caPaths[i]) == 0)
         {
-            ca_loaded = 1;
+            caLoaded = 1;
             break;
         }
     }
 
-    if (!ca_loaded)
+    if (!caLoaded)
     {
         // Fallback: try loading from directory
         if (mbedtls_x509_crt_parse_path(&client->cacert, "/etc/ssl/certs") != 0)
@@ -247,10 +247,10 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
         return -1;
 
     char host[256], port[8], path[2048];
-    if (parse_url(url, host, sizeof(host), port, sizeof(port), path, sizeof(path)) != 0)
+    if (ParseUrl(url, host, sizeof(host), port, sizeof(port), path, sizeof(path)) != 0)
         return -1;
 
-    int fd = tcp_connect(host, port, timeoutSec);
+    int fd = TcpConnect(host, port, timeoutSec);
     if (fd < 0)
         return -1;
 
@@ -265,7 +265,7 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
     }
 
     mbedtls_ssl_set_hostname(&ssl, host);
-    mbedtls_ssl_set_bio(&ssl, &fd, tls_send, tls_recv, NULL);
+    mbedtls_ssl_set_bio(&ssl, &fd, TlsSend, TlsRecv, NULL);
 
     int ret;
     while ((ret = mbedtls_ssl_handshake(&ssl)) != 0)
@@ -383,7 +383,7 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
         {
             memcpy(hdr, buf, headerLen);
             hdr[headerLen] = '\0';
-            chunked = str_istr(hdr, "transfer-encoding: chunked") != NULL;
+            chunked = StrIStr(hdr, "transfer-encoding: chunked") != NULL;
             free(hdr);
         }
     }
@@ -396,7 +396,7 @@ int HTTPClient_Get(HTTPClient *client, const char *url, HTTPClientResponse *resp
 
     if (chunked)
     {
-        if (decode_chunked(bodyStart, rawBodyLen, &body, &bodyLen) != 0)
+        if (DecodeChunked(bodyStart, rawBodyLen, &body, &bodyLen) != 0)
         {
             free(buf);
             return -1;

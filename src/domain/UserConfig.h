@@ -13,9 +13,9 @@ typedef struct
     double consumptionKwh;  // average hourly base load (kWh/h)
 
     // Grid fees (kr/kWh) - time-of-use tariffs
-    double gridFee_low;     // 00:00-06:59 (night rate)
-    double gridFee_normal;  // 07:00-16:59 (day rate)
-    double gridFee_high;    // 17:00-23:59 (peak rate)
+    double gridFeeLow;      // 00:00-06:59 (night rate)
+    double gridFeeNormal;   // 07:00-16:59 (day rate)
+    double gridFeeHigh;     // 17:00-23:59 (peak rate)
 
     long updatedAt;
 } UserConfig;

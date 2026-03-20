@@ -76,11 +76,11 @@ static int test_openmeteo(HTTPFetcher *fetcher, APIParser *parser)
     if (om.count > 0) {
         const OpenMeteoEntry *e = &om.entries[0];
         printf("\nFirst entry (%s):\n", e->time);
-        printf("  Temperature:        %.1f °C\n",  e->temperature_2m);
-        printf("  Humidity:           %.0f %%\n",   e->humidity_2m);
-        printf("  Cloud cover:        %.0f %%\n",   e->cloud_cover);
-        printf("  Wind speed:         %.1f m/s\n",  e->wind_speed_10m);
-        printf("  Solar irradiance:   %.1f W/m²\n", e->shortwave_radiation);
+        printf("  Temperature:        %.1f °C\n",  e->temperature2m);
+        printf("  Humidity:           %.0f %%\n",   e->humidity2m);
+        printf("  Cloud cover:        %.0f %%\n",   e->cloudCover);
+        printf("  Wind speed:         %.1f m/s\n",  e->windSpeed10m);
+        printf("  Solar irradiance:   %.1f W/m²\n", e->shortwaveRadiation);
 
         int hasAllFields = (e->time[0] != '\0');
         print_result("First entry has timestamp", hasAllFields);
@@ -128,11 +128,11 @@ static int test_elpriset(HTTPFetcher *fetcher, APIParser *parser)
     if (prices.count > 0) {
         const ElprisetEntry *e = &prices.entries[0];
         printf("\nFirst entry:\n");
-        printf("  From: %s\n",       e->time_start);
-        printf("  To:   %s\n",       e->time_end);
-        printf("  SEK:  %.4f kr/kWh\n", e->SEK_per_kWh);
-        printf("  EUR:  %.4f €/kWh\n",  e->EUR_per_kWh);
-        print_result("Price is non-negative", e->SEK_per_kWh >= 0.0);
+        printf("  From: %s\n",       e->timeStart);
+        printf("  To:   %s\n",       e->timeEnd);
+        printf("  SEK:  %.4f kr/kWh\n", e->sekPerKwh);
+        printf("  EUR:  %.4f €/kWh\n",  e->eurPerKwh);
+        print_result("Price is non-negative", e->sekPerKwh >= 0.0);
     }
 
     return 0;

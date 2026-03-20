@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <time.h>
 
-time_t parse_iso8601(const char *timeStr, int utc_offset_seconds);
+time_t ParseISO8601(const char *timeStr, int utcOffsetSeconds);
 
 // Dedicated parser process that runs as its own executable via exec().
 // Reads FetchResult from FIFO (named pipe from Fetch process).

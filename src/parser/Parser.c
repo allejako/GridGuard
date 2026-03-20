@@ -32,7 +32,7 @@
 // timeStr: ISO8601 string (e.g., "2026-03-17T00:00:00+01:00" or "2026-03-17T00:00")
 // utc_offset_seconds: Timezone offset from API metadata (e.g., 3600 for CET)
 //                     Use 0 if timestamp has explicit timezone or is already UTC
-time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
+time_t ParseISO8601(const char *timeStr, int utcOffsetSeconds)
 {
     struct tm tm = {0};
     int tzHour = 0, tzMin = 0;
@@ -57,9 +57,9 @@ time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
         result = (tzSign == '+') ? result - tzOffset : result + tzOffset;
     }
     // No explicit timezone? Apply API-provided offset
-    else if (utc_offset_seconds != 0)
+    else if (utcOffsetSeconds != 0)
     {
-        result -= utc_offset_seconds;
+        result -= utcOffsetSeconds;
     }
 
     return result;
@@ -68,7 +68,7 @@ time_t parse_iso8601(const char *timeStr, int utc_offset_seconds)
 // Normalize timestamp to 15-minute boundary in UTC
 // This ensures both Open-Meteo (UTC) and Elpriset (CET/CEST) timestamps
 // can be matched reliably regardless of timezone differences
-static time_t normalize_to_15min_utc(time_t timestamp)
+static time_t NormalizeTo15MinUtc(time_t timestamp)
 {
     // Truncate to nearest 15-minute boundary (900 seconds)
     // Example: 10:07:32 -> 10:00:00, 10:23:45 -> 10:15:00
@@ -76,12 +76,12 @@ static time_t normalize_to_15min_utc(time_t timestamp)
 }
 
 // Build forecast data by matching OpenMeteoResponse with ElprisetResponse based on timestamp
-static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetResponse *elpriset, const char *region __attribute__((unused)), ForecastData *forecast)
+static void BuildForecastData(const OpenMeteoResponse *om, const ElprisetResponse *elpriset, const char *region __attribute__((unused)), ForecastData *forecast)
 {
     memset(forecast, 0, sizeof(ForecastData));
     forecast->lastUpdated = time(NULL);
 
-    LOG_INFO("ParserProcess: build_forecast_data() called with om->count=%d, elpriset->count=%d", om->count, elpriset->count);
+    LOG_INFO("ParserProcess: BuildForecastData() called with om->count=%d, elpriset->count=%d", om->count, elpriset->count);
 
     int count = 0;
     for (int i = 0; i < om->count && count < 192; i++) // 48h = 192 quarters
@@ -90,12 +90,12 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         ForecastEntry *entry = &forecast->entries[count];
 
         // Parse Open-Meteo timestamp with timezone context from API metadata
-        entry->timestamp = parse_iso8601(src->time, om->utc_offset_seconds);
-        entry->temperature = src->temperature_2m;
-        entry->humidity = src->humidity_2m;
-        entry->cloudCover = src->cloud_cover;
-        entry->windSpeed = src->wind_speed_10m;
-        entry->solarIrradiance = src->shortwave_radiation;
+        entry->timestamp = ParseISO8601(src->time, om->utcOffsetSeconds);
+        entry->temperature = src->temperature2m;
+        entry->humidity = src->humidity2m;
+        entry->cloudCover = src->cloudCover;
+        entry->windSpeed = src->windSpeed10m;
+        entry->solarIrradiance = src->shortwaveRadiation;
 
         // Match electricity price to weather quarter
         // Both APIs provide 15-minute data. After parsing with timezone context,
@@ -104,18 +104,18 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
         entry->hasPriceData = false;
 
         // Normalize weather timestamp to 15-min boundary
-        time_t weatherQuarter = normalize_to_15min_utc(entry->timestamp);
+        time_t weatherQuarter = NormalizeTo15MinUtc(entry->timestamp);
 
         for (int j = 0; j < elpriset->count; j++)
         {
             const ElprisetEntry *price = &elpriset->entries[j];
             // Elpriset has explicit timezone (+01:00), pass 0 for utc_offset
-            time_t priceTime = parse_iso8601(price->time_start, 0);
-            time_t priceQuarter = normalize_to_15min_utc(priceTime);
+            time_t priceTime = ParseISO8601(price->timeStart, 0);
+            time_t priceQuarter = NormalizeTo15MinUtc(priceTime);
 
             if (weatherQuarter == priceQuarter)
             {
-                entry->spotPriceSek = price->SEK_per_kWh;
+                entry->spotPriceSek = price->sekPerKwh;
                 entry->hasPriceData = true;
                 break;
             }
@@ -150,7 +150,7 @@ static void build_forecast_data(const OpenMeteoResponse *om, const ElprisetRespo
 
     if (unmatched > count / 2)
     {
-        LOG_WARNING("ParserProcess: >50%% prices missing! Check timezone: OpenMeteo=%s (UTC%+d)", om->timezone, om->utc_offset_seconds / 3600);
+        LOG_WARNING("ParserProcess: >50%% prices missing! Check timezone: OpenMeteo=%s (UTC%+d)", om->timezone, om->utcOffsetSeconds / 3600);
     }
 }
 
@@ -408,18 +408,18 @@ int ParserProcess_Run(ParserProcess *proc)
             pendingResult->solarAreaM2 = fetchResult.solarAreaM2;
             pendingResult->solarEfficiency = fetchResult.solarEfficiency;
             pendingResult->consumptionKwh = fetchResult.consumptionKwh;
-            pendingResult->gridFee_low = fetchResult.gridFee_low;
-            pendingResult->gridFee_normal = fetchResult.gridFee_normal;
-            pendingResult->gridFee_high = fetchResult.gridFee_high;
+            pendingResult->gridFeeLow = fetchResult.gridFeeLow;
+            pendingResult->gridFeeNormal = fetchResult.gridFeeNormal;
+            pendingResult->gridFeeHigh = fetchResult.gridFeeHigh;
 
             if (pricesParsed)
             {
-                build_forecast_data(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
+                BuildForecastData(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
             }
             else
             {
                 // Build forecast without prices
-                build_forecast_data(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
+                BuildForecastData(&omData, &elprisetData, fetchResult.region, &pendingResult->forecastData);
             }
 
             LOG_INFO("ParserProcess: Data ready for %s, notifying Compute", pendingResult->userId);
@@ -437,11 +437,11 @@ int ParserProcess_Run(ParserProcess *proc)
         if (pendingResult && pendingClientSocket >= 0)
         {
             // Verify socket is still valid before writing
-            int socket_error = 0;
-            socklen_t error_len = sizeof(socket_error);
-            if (getsockopt(pendingClientSocket, SOL_SOCKET, SO_ERROR, &socket_error, &error_len) < 0 || socket_error != 0)
+            int socketError = 0;
+            socklen_t errorLen = sizeof(socketError);
+            if (getsockopt(pendingClientSocket, SOL_SOCKET, SO_ERROR, &socketError, &errorLen) < 0 || socketError != 0)
             {
-                LOG_ERROR("ParserProcess: Socket is in error state: %s", socket_error ? strerror(socket_error) : "getsockopt failed");
+                LOG_ERROR("ParserProcess: Socket is in error state: %s", socketError ? strerror(socketError) : "getsockopt failed");
                 close(pendingClientSocket);
                 pendingClientSocket = -1;
                 free(pendingResult);

@@ -42,9 +42,9 @@ int UserConfigDB_Get(ClientDB *db, const char *userId, UserConfig *out)
         out->solarAreaM2     = sqlite3_column_double(stmt, 4);
         out->solarEfficiency = sqlite3_column_double(stmt, 5);
         out->consumptionKwh  = sqlite3_column_double(stmt, 6);
-        out->gridFee_low     = sqlite3_column_double(stmt, 7);
-        out->gridFee_normal  = sqlite3_column_double(stmt, 8);
-        out->gridFee_high    = sqlite3_column_double(stmt, 9);
+        out->gridFeeLow     = sqlite3_column_double(stmt, 7);
+        out->gridFeeNormal  = sqlite3_column_double(stmt, 8);
+        out->gridFeeHigh    = sqlite3_column_double(stmt, 9);
         out->updatedAt       = (long)sqlite3_column_int64(stmt, 10);
         sqlite3_finalize(stmt);
         return 0;
@@ -80,9 +80,9 @@ int UserConfigDB_Upsert(ClientDB *db, const UserConfig *config)
     sqlite3_bind_double(stmt, 6, config->solarAreaM2);
     sqlite3_bind_double(stmt, 7, config->solarEfficiency);
     sqlite3_bind_double(stmt, 8, config->consumptionKwh);
-    sqlite3_bind_double(stmt, 9, config->gridFee_low);
-    sqlite3_bind_double(stmt, 10, config->gridFee_normal);
-    sqlite3_bind_double(stmt, 11, config->gridFee_high);
+    sqlite3_bind_double(stmt, 9, config->gridFeeLow);
+    sqlite3_bind_double(stmt, 10, config->gridFeeNormal);
+    sqlite3_bind_double(stmt, 11, config->gridFeeHigh);
     sqlite3_bind_int64(stmt,  12, (sqlite3_int64)time(NULL));
 
     int rc = sqlite3_step(stmt);

@@ -118,12 +118,12 @@ void Queue_Shutdown(Queue *queue)
     pthread_mutex_unlock(&queue->mutex);
 
     // NOTE: Do NOT destroy mutex/cond here — threads may still hold the mutex
-    // as they return from pthread_cond_wait. Call Queue_Destroy() only after
+    // as they return from pthread_cond_wait. Call Queue_Cleanup() only after
     // all consumer/producer threads have been joined (pthread_join).
     LOG_INFO("Queue shutdown signalled");
 }
 
-void Queue_Destroy(Queue *queue)
+void Queue_Cleanup(Queue *queue)
 {
     if (!queue)
         return;

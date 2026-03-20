@@ -1,65 +1,80 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "sys/SignalHandler.h"
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 
-static volatile sig_atomic_t keep_running = 1;
-static volatile sig_atomic_t reload_config = 0;
-static int server_fd = -1;
+static volatile sig_atomic_t keepRunning  = 1;
+static volatile sig_atomic_t reloadConfig = 0;
+static int                   serverFd     = -1;
 
 // Signal-safe message writing
-static void SignalHandler_Write(const char *msg)
+static void WriteMessage(const char *msg)
 {
     write(STDOUT_FILENO, msg, strlen(msg));
 }
 
-static void SignalHandler_HandleSignal(int signum)
+static void HandleSignal(int signum)
 {
     if (signum == SIGINT || signum == SIGTERM)
     {
-        SignalHandler_Write("\nSignal received, shutting down server...\n");
-        keep_running = 0;
-        if (server_fd >= 0) {
-            close(server_fd);
-            server_fd = -1;
+        WriteMessage("\nSignal received, shutting down server...\n");
+        keepRunning = 0;
+        if (serverFd >= 0) {
+            close(serverFd);
+            serverFd = -1;
         }
     }
     else if (signum == SIGHUP)
     {
-        SignalHandler_Write("\nSIGHUP received, config reload requested...\n");
-        reload_config = 1;
+        WriteMessage("\nSIGHUP received, config reload requested...\n");
+        reloadConfig = 1;
     }
 }
 
-volatile sig_atomic_t *SignalHandler_Initiate(void)
+int SignalHandler_Initiate(void)
 {
     struct sigaction sa;
 
-    sa.sa_handler = SignalHandler_HandleSignal;
+    sa.sa_handler = HandleSignal;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGINT,  &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGHUP, &sa, NULL);
+    sigaction(SIGHUP,  &sa, NULL);
 
     // Ignore SIGPIPE - prevents crash when clients disconnect
     signal(SIGPIPE, SIG_IGN);
 
-    return &keep_running;
+    keepRunning  = 1;
+    reloadConfig = 0;
+    return 0;
+}
+
+void SignalHandler_Shutdown(void)
+{
+    keepRunning  = 1;
+    reloadConfig = 0;
+    serverFd     = -1;
+}
+
+int SignalHandler_IsRunning(void)
+{
+    return (int)keepRunning;
 }
 
 void SignalHandler_SetServerFd(int fd)
 {
-    server_fd = fd;
+    serverFd = fd;
 }
 
 int SignalHandler_CheckReload(void)
 {
-    if (reload_config)
+    if (reloadConfig)
     {
-        reload_config = 0;
+        reloadConfig = 0;
         return 1;
     }
     return 0;

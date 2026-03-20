@@ -14,7 +14,7 @@
 
 typedef struct
 {
-    int listen_fd;
+    int listenFd;
 } TCPServer;
 
 int  TCPServer_Initiate(TCPServer *server, const char *port);

@@ -28,7 +28,7 @@ extern char   *strptime(const char *s, const char *format, struct tm *tm);
 
 // Helper: Read the last data update timestamp from Fetcher's signal file
 // Returns 0 if file doesn't exist or can't be read (never invalidate in that case)
-static time_t read_last_data_update(void)
+static time_t ReadLastDataUpdate(void)
 {
     FILE *f = fopen(DATA_UPDATE_TIMESTAMP_PATH, "r");
     if (!f)
@@ -210,24 +210,24 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     // Check cache before running pipeline.
     // Include today's date in cache key to prevent serving yesterday's forecast
     time_t now = time(NULL);
-    struct tm now_tm;
-    gmtime_r(&now, &now_tm);
+    struct tm nowTm;
+    gmtime_r(&now, &nowTm);
 
     char cacheKey[SHARED_CACHE_KEY_MAX];
-    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f", now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday, cfg.latitude, cfg.longitude, cfg.region, cfg.solarAreaM2);
+    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f", nowTm.tm_year + 1900, nowTm.tm_mon + 1, nowTm.tm_mday, cfg.latitude, cfg.longitude, cfg.region, cfg.solarAreaM2);
 
     // Smart cache invalidation: Check if input data (weather/prices) has been updated.
     // If yes, invalidate ALL forecast caches (not just this user's) to prevent race conditions.
     // This is safe because we only invalidate when data actually changes (not on every request).
     // Uses process-shared lastDataUpdateCheck to ensure only one worker thread invalidates per update.
     pthread_mutex_lock(&app->updateCheckMutex);
-    time_t last_data_update = read_last_data_update();
+    time_t lastDataUpdate = ReadLastDataUpdate();
 
-    if (last_data_update > 0 && last_data_update > app->lastDataUpdateCheck)
+    if (lastDataUpdate > 0 && lastDataUpdate > app->lastDataUpdateCheck)
     {
-        LOG_INFO("ClientHandler: New data detected (timestamp %ld), invalidating ALL forecast caches", last_data_update);
+        LOG_INFO("ClientHandler: New data detected (timestamp %ld), invalidating ALL forecast caches", lastDataUpdate);
         SharedCache_InvalidateAll(&app->forecastCache);
-        app->lastDataUpdateCheck = last_data_update;
+        app->lastDataUpdateCheck = lastDataUpdate;
     }
     pthread_mutex_unlock(&app->updateCheckMutex);
 
@@ -258,9 +258,9 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     req.solarAreaM2     = cfg.solarAreaM2;
     req.solarEfficiency = cfg.solarEfficiency;
     req.consumptionKwh  = cfg.consumptionKwh;
-    req.gridFee_low     = cfg.gridFee_low;
-    req.gridFee_normal  = cfg.gridFee_normal;
-    req.gridFee_high    = cfg.gridFee_high;
+    req.gridFeeLow    = cfg.gridFeeLow;
+    req.gridFeeNormal = cfg.gridFeeNormal;
+    req.gridFeeHigh   = cfg.gridFeeHigh;
 
     LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h", claims->subject, req.lat, req.lon, req.region, req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
 
@@ -396,9 +396,9 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cfg.solarAreaM2     = area;
     cfg.solarEfficiency = eff;
     cfg.consumptionKwh  = load;
-    cfg.gridFee_low     = gridFeeLow;
-    cfg.gridFee_normal  = gridFeeNormal;
-    cfg.gridFee_high    = gridFeeHigh;
+    cfg.gridFeeLow    = gridFeeLow;
+    cfg.gridFeeNormal = gridFeeNormal;
+    cfg.gridFeeHigh   = gridFeeHigh;
 
     cJSON_Delete(json);
 
@@ -483,9 +483,9 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     req.solarAreaM2     = cfg.solarAreaM2;
     req.solarEfficiency = cfg.solarEfficiency;
     req.consumptionKwh  = cfg.consumptionKwh;
-    req.gridFee_low     = cfg.gridFee_low;
-    req.gridFee_normal  = cfg.gridFee_normal;
-    req.gridFee_high    = cfg.gridFee_high;
+    req.gridFeeLow    = cfg.gridFeeLow;
+    req.gridFeeNormal = cfg.gridFeeNormal;
+    req.gridFeeHigh   = cfg.gridFeeHigh;
 
     if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
@@ -636,9 +636,9 @@ static void HandleGetSchedules(int fd, struct GridGuard *app, const JWTClaims *c
         const ScheduleEntry *e = &entries[i];
 
         char startStr[32];
-        struct tm tm_s;
-        gmtime_r(&e->scheduledStart, &tm_s);
-        strftime(startStr, sizeof(startStr), "%Y-%m-%dT%H:%M:%SZ", &tm_s);
+        struct tm tmS;
+        gmtime_r(&e->scheduledStart, &tmS);
+        strftime(startStr, sizeof(startStr), "%Y-%m-%dT%H:%M:%SZ", &tmS);
 
         cJSON *item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "schedule_id", e->scheduleId);
@@ -718,7 +718,7 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
     const char *token = HTTPRequest_GetBearerToken(&request);
     JWTClaims claims;
 
-    if (!token || JWT_Validate(token, &claims) != 0)
+    if (!token || JWTValidator_Validate(token, &claims) != 0)
     {
         LOG_WARNING("ClientHandler: Unauthorized request to %s (fd=%d)", request.path, fd);
         HTTPResponse_SendError(fd, HTTP_STATUS_401_UNAUTHORIZED, "Unauthorized");
