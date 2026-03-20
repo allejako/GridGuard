@@ -801,7 +801,7 @@ flowchart TD
     CHEAP{"totalkostnad\n≤ p33?"}
     BUY["BUY\nBilligaste 33% — ladda\nbatteri / kör tunga laster"]
 
-    SURPLUS{"nettoproduktion\n> 0,5 kWh OCH\ntotalkostnad ≥ p70?"}
+    SURPLUS{"nettoproduktion\n> 0,5 kWh OCH\ntotalkostnad ≥ p70?\n(p85 vid molntäckning > 50%)"}
     SELL["SELL\nSolöverskott under dyr period\n— exportera till nätet"]
 
     EXPENSIVE{"totalkostnad\n≥ p70?"}
@@ -836,11 +836,13 @@ flowchart TD
 | 1 | **IDLE** | Prisdata saknas | Ingen åtgärd möjlig |
 | 2 | **BUY** | Negativt spotpris | Maximera förbrukning — elnätet betalar |
 | 3 | **BUY** | `totalkostnad ≤ p33` (billigaste 33%) | Ladda batteri, kör tvättmaskin/diskmaskin |
-| 4 | **SELL** | `netto > 0,5 kWh` **OCH** `totalkostnad ≥ p70` | Exportera solöverskott — sälj enbart under dyra perioder |
+| 4 | **SELL** | `netto > 0,5 kWh` **OCH** `totalkostnad ≥ p70` (eller ≥ p85 vid molntäckning > 50%) | Exportera solöverskott — sälj enbart under dyra perioder. Hög molntäckning höjer prisgränsen för att undvika export när produktionen är osäker. |
 | 5 | **AVOID** | `totalkostnad ≥ p70` (dyraste 30%) | Minimera förbrukning, skjut upp laster |
 | 6 | **IDLE** | Annars (mittenzon) | Normal förbrukning |
 
 **Viktigt:** SELL triggas **inte** enbart för att det finns solöverskott — det krävs även att priset är högt (≥ p70). Under billiga perioder med solöverskott väljs BUY (ladda batteri) framför SELL.
+
+**Prognososäkerhet:** Vid molntäckning > 50% höjs SELL-tröskeln till ~p85 (`expensiveThreshold × 1.15`). Hög molntäckning innebär osäker solproduktion — systemet kräver ett starkare prissignal innan det rekommenderar export för att undvika att sälja under perioder där produktionen oväntat sjunker.
 
 ### Bästa laddningsfönster (bestBuyWindow)
 

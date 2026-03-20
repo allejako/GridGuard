@@ -31,6 +31,12 @@
 #define MIN_SURPLUS_TO_SELL_KWH 0.5  // Minimum net surplus per 15-min quarter to trigger export (~2 kWh/h)
 #define MIN_PRICE_TO_SELL_SEK 0.01   // Avoid exporting at negative prices
 
+// Forecast uncertainty: high cloud cover makes solar production unreliable.
+// When cloud cover exceeds this threshold, raise the SELL price requirement
+// so we only export during clearly profitable periods despite uncertain production.
+#define CLOUD_COVER_SELL_THRESHOLD 50.0  // % cloud cover above which SELL signal is dampened
+#define CLOUD_SELL_THRESHOLD_FACTOR 1.15 // Raise SELL threshold by 15% under high cloud cover (p70 → ~p85)
+
 // Swedish time-of-use tariffs: typical elbolag structure
 // - Low tariff (night):  00:00-06:00 daily
 // - Peak tariff (peak):  17:00-21:00 weekdays only
@@ -265,6 +271,14 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         double quarterConsumption = (consumptionKwh * GetConsumptionPatternQuarter(hourOfDay, minuteOfHour)) * 0.25;
         double netEnergy = quarterProduction - quarterConsumption;
 
+        // Forecast uncertainty: raise SELL threshold when cloud cover is high.
+        // High cloud cover (>50%) means solar production is unreliable — require a
+        // stronger price signal before recommending export to avoid selling during
+        // periods where production may unexpectedly drop.
+        double effectiveSellThreshold = (quarterData->cloudCover > CLOUD_COVER_SELL_THRESHOLD)
+            ? expensiveThreshold * CLOUD_SELL_THRESHOLD_FACTOR
+            : expensiveThreshold;
+
         // Signal classification with priority ordering
         EnergyAction recommendation;
 
@@ -277,7 +291,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             recommendation = ACTION_BUY_FROM_GRID;
             if (negativeLogged < 2)
             {
-                LOG_INFO("Compute: [%02d:%02d] ⚡ BUY (negative price!) → %.3f kr/kWh", hourOfDay, minuteOfHour, quarterData->spotPriceSek);
+                LOG_INFO("Compute: [%02d:%02d] BUY (negative price!) → %.3f kr/kWh", hourOfDay, minuteOfHour, quarterData->spotPriceSek);
                 negativeLogged++;
             }
         }
@@ -286,17 +300,20 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             recommendation = ACTION_BUY_FROM_GRID;
             if (buyLogged < 5)
             {
-                LOG_INFO("Compute: [%02d:%02d] ✓ BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)", hourOfDay, minuteOfHour, quarterCost, cheapThreshold, (quarterCost / medianPrice) * 100.0, netEnergy);
+                LOG_INFO("Compute: [%02d:%02d] BUY → %.3f kr/kWh ≤ %.3f threshold (%.0f%% of median, net: %.1f kWh)", hourOfDay, minuteOfHour, quarterCost, cheapThreshold, (quarterCost / medianPrice) * 100.0, netEnergy);
                 buyLogged++;
             }
         }
-        else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH && quarterCost >= expensiveThreshold)
+        else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH && quarterCost >= effectiveSellThreshold)
         {
             recommendation = ACTION_SELL_TO_GRID;
             totalExport += netEnergy;
             if (sellLogged < 3)
             {
-                LOG_INFO("Compute: [%02d:%02d] ⚡ SELL → %.1f kWh surplus @ %.3f kr/kWh (expensive period)", hourOfDay, minuteOfHour, netEnergy, quarterCost);
+                if (quarterData->cloudCover > CLOUD_COVER_SELL_THRESHOLD)
+                    LOG_INFO("Compute: [%02d:%02d] SELL → %.1f kWh surplus @ %.3f kr/kWh (cloudy %.0f%% — raised threshold %.3f)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover, effectiveSellThreshold);
+                else
+                    LOG_INFO("Compute: [%02d:%02d] SELL → %.1f kWh surplus @ %.3f kr/kWh (clear sky %.0f%%)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover);
                 sellLogged++;
             }
         }
@@ -305,7 +322,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             recommendation = ACTION_AVOID_HIGH_PRICE;
             if (avoidLogged < 3)
             {
-                LOG_INFO("Compute: [%02d:%02d] ⚠ AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)", hourOfDay, minuteOfHour, quarterCost, expensiveThreshold, (quarterCost / medianPrice) * 100.0);
+                LOG_INFO("Compute: [%02d:%02d] AVOID → %.3f kr/kWh ≥ %.3f threshold (%.0f%% of median)", hourOfDay, minuteOfHour, quarterCost, expensiveThreshold, (quarterCost / medianPrice) * 100.0);
                 avoidLogged++;
             }
         }
