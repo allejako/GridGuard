@@ -1,6 +1,8 @@
 # GridGuard — Arkitektur och Systemdesign
 
-Smart energioptimering för svenska hushåll. GridGuard hämtar spotpriser och väderdata i realtid, beräknar förväntad solcellsproduktion och genererar en löpande energiplan — köp billigt, sälj överskott, undvik toppar.
+GridGuard är ett systemprogrammeringsprojekt i C och C++ som implementerar en watchdog-övervakad multi-processpipeline för realtidsoptimering av energiförbrukning baserat på nordiska spotpriser och solcellsdata.
+
+GridGuard hämtar spotpriser och väderdata i realtid, beräknar förväntad solcellsproduktion och genererar en löpande 48-timmars energiplan — köp billigt, sälj överskott, undvik toppar.
 
 ---
 
@@ -144,7 +146,7 @@ flowchart TB
 **Watchdog-specialfall:**
 
 När `GRIDGUARD_HEARTBEAT_FD` är satt (Watchdog körning):
-- Steg 1-3 skippas (fork och setsid)
+- Steg 1–3 skippas (fork och setsid)
 - Watchdog äger redan processträdet via `fork()` + `waitpid()`
 - Om Server double-fork:ar skulle Watchdog förlora spårning av rätt PID
 - Heartbeat-tråden skriver till `fd` som Watchdog läser för att detektera att processen lever
@@ -225,6 +227,9 @@ Watchdog                          Child-process
 ```
 
 **Timeout-hantering:** Om en process inte skickat heartbeat på `HEARTBEAT_TIMEOUT` sekunder klassar Watchdog den som fryst (`FROZEN`) och dödar hela processgruppen innan omstart.
+
+**Varför anonym pipe och inte FIFO?**
+Heartbeat-pipen ska vara exklusiv mellan Watchdog och varje enskild child-process — ingen annan process ska kunna skriva till den. Anonym pipe skapad vid `fork()` ger exakt denna isolation. FIFOs är namngivna och tillgängliga för alla processer med rätt filsökvägsbehörighet.
 
 ---
 
@@ -311,7 +316,7 @@ Tre SharedCache-instanser används för att dela data mellan processer utan att 
 
 **Synkronisering:** SharedCache använder `pthread_rwlock` lagrad i shared memory — flera readers kan läsa parallellt, writers får exklusivt lås. Watchdog metrics är read-only från serverns sida (inga lås krävs vid läsning av atomära värden).
 
-**TTL:** Vädercachen och priscachen har en Time-To-Live som kan konfigureras via `config/gridguard.conf` (se sektion 14). Vid cache miss kör servern hela pipeline (Fetch → Parse → Compute) synkront och lagrar resultatet.
+**TTL:** Vädercachen och priscachen har en Time-To-Live som kan konfigureras via `config/gridguard.conf` (se sektion 19). Vid cache miss kör servern hela pipeline (Fetch → Parse → Compute) synkront och lagrar resultatet.
 
 ### Process-Shared RWLock
 
@@ -353,7 +358,7 @@ shm-segment (/dev/shm/gridguard_weather):
 └─────────────────────────────────────┘
 ```
 
-Implementering: `src/cache/SharedCache.c` (rad 45-60 för rwlock init)
+Implementering: `src/cache/SharedCache.c` (rad 45–60 för rwlock init)
 
 ### Cache HIT/MISS-flöde
 
@@ -432,8 +437,6 @@ sequenceDiagram
 ```
 
 Fetcher skriver en timestamp-fil (`/tmp/gridguard_last_data_update`) varje gång ny pris- eller väderdata hämtas. ClientHandler läser filen vid varje `/forecast`-request och jämför mot sin `lastDataUpdateCheck`. Om ny data har anlänt sedan sist invalideras **hela** forecast-cachen — alla användares gamla prognoser — och nästa request kör en färsk pipeline.
-
-**Designval:** Compute sker inte proaktivt vid exakt 13:00 utan triggas av den första förfrågan efteråt. För en kontinuerligt övervakad anläggning som Saab Arena — där dashboarden körs i `--watch`-läge dygnet runt — innebär det i praktiken att ny prognos alltid finns redo inom ett refresh-intervall efter att ny prisdata publicerats.
 
 ### Prisdata och imorgondagens priser
 
@@ -630,7 +633,7 @@ flowchart LR
 
 ---
 
-## 9. ThreadPool-arkitektur
+## 11. ThreadPool-arkitektur
 
 Servern använder en thread pool med N worker threads (default: 20) som hanterar inkommande HTTP-requests via ett producer-consumer-mönster.
 
@@ -666,7 +669,7 @@ Implementering: `src/sys/ThreadPool.c`, `src/sys/Queue.c`, `src/server/ClientHan
 
 ---
 
-## 10. WorkCompletion — HTTP-tråd ↔ ComputeWorker synkronisering
+## 12. WorkCompletion — HTTP-tråd ↔ ComputeWorker synkronisering
 
 När en HTTP-request kräver fresh data (cache miss) blockeras HTTP-tråden tills ComputeWorker färdigställt beräkningen. Detta löses med condition variables:
 
@@ -710,7 +713,7 @@ Implementering: `src/sys/WorkCompletion.c`, `src/sys/CompletionRegistry.c`
 
 ---
 
-## 11. Från Scheduler till WorkCompletion — Designevolution
+## 13. Från Scheduler till WorkCompletion — Designevolution
 
 ### Ursprunglig design (februari 2026): tråd-baserad pipeline med Scheduler
 
@@ -730,7 +733,7 @@ flowchart LR
     HTTP --> FQ --> FT --> PQ --> PT --> CQ --> CT --> RESP
 ```
 
-I planeringsstadiets changelog (2026-02-12) identifierades **en Scheduler-abstraktion** som önskvärd — en centraliserad komponent för task distribution, work stealing och lastbalansering mellan workers. Scheduler låg aldrig inblandad som mottagare av arbete utan som *koordinator* som bestämde *var* arbetet skulle hamna.
+I planeringsstadiets changelog (2026-02-12) identifierades **en Scheduler-abstraktion** som önskvärd — en centraliserad komponent för task distribution, work stealing och lastbalansering mellan workers.
 
 ### Varför Scheduler aldrig implementerades
 
@@ -765,28 +768,11 @@ Scheduler-problemet (hur dispatch:ar vi arbete till rätt worker?) ersattes av e
 | `WorkCompletion` | Linux completion-mönster: HTTP-tråden väntar via `pthread_cond_timedwait()` |
 | `CompletionRegistry` | Mutex-skyddad array: `userId → WorkCompletion*` — kopplar ihop HTTP-tråd med ComputeWorker |
 
-```mermaid
-flowchart LR
-    subgraph SCHEDULER_PROBLEM ["Schedulerns problem (löst av FIFOs/sockets)"]
-        direction TB
-        S["Hur distribuerar vi\narbete till rätt tråd/process?"]
-        S --> FIFO["FIFO → Fetcher\nUnix socket → Parser\n(IPC-protokoll)"]
-    end
-
-    subgraph COMPLETION_PROBLEM ["WorkCompletions problem (nytt)"]
-        direction TB
-        C["Hur vet HTTP-tråd X att\nresultat för userId Y är klart?"]
-        C --> REG["CompletionRegistry\nuserId → WorkCompletion*\n\nHTTP-tråd: cond_wait()\nComputeWorker: FindCompletion() → Signal()"]
-    end
-
-    SCHEDULER_PROBLEM --> COMPLETION_PROBLEM
-```
-
 **Scheduler dispatchar arbete *framåt* i pipelinen. WorkCompletion kopplar ihop resultatet *bakåt* till ursprungsbegäran.** De löser komplementära problem, och den multi-process-arkitektur som gjorde Scheduler onödig skapade exakt det synkroniseringsproblem som WorkCompletion behövdes för.
 
 ---
 
-## 12. Beslutlogik — BUY / SELL / AVOID / IDLE
+## 14. Beslutlogik — BUY / SELL / AVOID / IDLE
 
 För varje 15-minuterskvart i den 48-timmarslånga prognosen (192 kvartar) klassificerar ComputeWorker situationen i ett av fyra tillstånd. Beslutet baseras på **totalkostnad** (spotpris + nättariff + energiskatt + moms) relativt percentilgränser, samt aktuell solcellsproduktion.
 
@@ -892,15 +878,26 @@ flowchart LR
 3. Fönstret emitteras med `start`, `end`, `duration_minutes`, pris, sol- och förbrukningsdata
 4. IDLE-kvartar hoppar över — de genererar inget fönster
 
-**Resultat:** 192 råentries komprimeras till typiskt **50–100 actionabla fönster**, grupperade per dag. Dashboarden visar enbart BUY/SELL/AVOID — användaren ser direkt *när* och *hur länge* utan att behöva filtrera bort irrelevant data själv.
+**Resultat:** 192 råentries komprimeras till typiskt **50–100 actionabla fönster**, grupperade per dag.
 
 **Implementering:** `src/compute/ComputeWorker.c:102–180`
 
 ---
 
-## 13. C++ Client — RAII och STL
+## 15. C++ Client — RAII, STL och C/C++-gränssnittet
 
-GridGuard-klienten är implementerad i C++ och demonstrerar RAII (Resource Acquisition Is Initialization), STL-användning och exception-säker kod.
+### Varför C++ för klienten men C för servern?
+
+GridGuard är ett hybridprojekt med ett tydligt arkitekturellt gränssnitt:
+
+| Komponent | Språk | Motivering |
+|---|---|---|
+| Watchdog, Server, Fetcher, Parser | C | Maximal kontroll över processhantering, IPC, minnesmodell; zero overhead; POSIX-APIs är C-nativa |
+| GridGuard-client (`bin/GridGuard-client`) | C++ | Demonstrerar RAII, STL och undantagssäkerhet för resurshanterings-primitiver; klienten har inte serverns hårda latens-/minneskrav |
+
+**Gränssnittet** (`UserConfigWrapper`) hanterar konvertering mellan C++-objekt och C-structs, vilket visar hur de två språken kan samexistera i ett projekt utan att blanda paradigm i samma fil.
+
+### Klassdiagram
 
 ```mermaid
 classDiagram
@@ -910,6 +907,8 @@ classDiagram
         +~SocketGuard()
         +get() int
         +release() int
+        +SocketGuard(const SocketGuard&) = delete
+        +operator=(const SocketGuard&) = delete
     }
 
     class HttpClient {
@@ -940,7 +939,8 @@ classDiagram
     UserConfigWrapper ..> GridGuardClient : används av
 ```
 
-**RAII-exempel (SocketGuard):**
+### RAII — SocketGuard (Rule of Five)
+
 ```cpp
 class SocketGuard {
     int fd;
@@ -948,64 +948,182 @@ public:
     explicit SocketGuard(int socket) : fd(socket) {}
     ~SocketGuard() { if (fd >= 0) close(fd); }  // Automatisk cleanup
 
-    SocketGuard(const SocketGuard&) = delete;              // Ej kopierbar
+    // Rule of Five: kopiera/flytta förbjudet — socket-ägandeskap är unikt
+    SocketGuard(const SocketGuard&)            = delete;
     SocketGuard& operator=(const SocketGuard&) = delete;
+    SocketGuard(SocketGuard&&)                 = delete;
+    SocketGuard& operator=(SocketGuard&&)      = delete;
+
+    int get()     const { return fd; }
+    int release()       { int tmp = fd; fd = -1; return tmp; }
 };
 ```
 
-**STL-användning:**
-- `std::unique_ptr<char[]>` — smart pointer för nätverksbuffertar (Week 9)
-- `std::vector<std::string>` — dynamiska arrayer för HTTP headers (Week 9)
-- `std::map<std::string, std::string>` — JSON-parsing (Week 9)
-- Range-based for loops för iteration (C++11)
+`SocketGuard` garanterar att socket-deskriptorn stängs vid scope exit — även om ett undantag kastas. `release()` möjliggör ägandeöverlåtelse när det behövs.
 
-**Exception safety:**
-- HttpClient kastar exceptions vid nätverksfel
-- RAII garanterar att sockets stängs även vid exception
-- Strong exception guarantee: operation lyckas helt eller inte alls
+### STL-användning
 
-Implementering: `src/client/HttpClient.cpp`, `src/client/GridGuardClient.cpp`, `src/client/UserConfigWrapper.cpp`
+| Container / Smart pointer | Användning | Vecka |
+|---|---|---|
+| `std::unique_ptr<char[]>` | Nätverksbuffert — automatisk frigöring | 9 |
+| `std::vector<std::string>` | Dynamisk lista med HTTP-headers | 9 |
+| `std::map<std::string, std::string>` | JSON-parsing av nyckel-värde-par | 9 |
+| `std::string` | All stränghantering — inga manuella `strlen`/`strcpy` | 9 |
+| Range-based for | Iteration över headers och JSON-fält | 9 |
+| `std::move` | Effektiv resursöverföring av buffertar | 9 |
 
----
+### Undantagssäkerhet
 
-## 14. Designbeslut och avvägningar
+- `HttpClient` kastar `std::runtime_error` vid nätverksfel
+- RAII garanterar att sockets stängs även om undantag kastas
+- *Strong exception guarantee*: en operation lyckas helt eller inte alls — aldrig halvt
 
-### Varför separata processer istället för trådar för Fetcher/Parser?
-
-- **Isolation:** En krasch i Fetcher (t.ex. vid nätverksfel eller mallformad JSON) påverkar inte Server-processen
-- **Oberoende körbara:** Fetcher och Parser kan kompileras, testas och deployas separat
-- **IPC som kontrakt:** FIFOs och sockets tvingar fram explicita dataformat (WorkRequest, FetchResult, ParseResult) — inga oavsiktliga delad state
-
-**Nackdel:** Kommunikation via FIFOs/sockets är dyrare än inter-thread communication. För GridGuard med typisk last (<10 req/min) är detta försumbart.
-
-### Varför FIFO (named pipe) och inte Unix socket för Fetcher → Parser?
-
-Named pipe passar bättre för enkel, enkelriktad dataström av fixa structs. Unix socket valdes för Parser → ComputeWorker eftersom ComputeWorker behöver kunna skilja på separata meddelanden (datagram-semantik).
-
-### Varför dödar Watchdog alla processer vid en enskild krasj?
-
-FIFOs är enkelriktade och blockerar. Om Fetcher dör har Parser ingen writer — `read()` returnerar EOF och Parser hänger eller avslutar sig ändå. En atomär omstart av hela gruppen är enklare och mer förutsägbar än att hantera partiella tillstånd.
-
-### Minnesmodell för SharedCache
-
-Cachen allokeras i POSIX shared memory (`shm_open` + `mmap`). Mutex/rwlock lagras *inuti* det delade minnessegmentet med `PTHREAD_PROCESS_SHARED`-attribut, så att alla processer kan använda samma lock utan att gå via kernel-calls som semaforer.
-
-```
-shm-segment layout:
-┌──────────────────────────────────────┐
-│  pthread_rwlock_t  lock              │  (i shared memory, process-shared)
-│  int               count             │
-│  time_t            ttl               │
-│  CacheEntry[16]    entries[]         │
-│    char  key[64]                     │
-│    char  data[32768]                 │
-│    time_t created_at                 │
-└──────────────────────────────────────┘
-```
+Implementering: `src/client/HttpClient.cpp`, `src/client/GridGuardClient.cpp`, `src/client/SocketGuard.hpp`
 
 ---
 
-## 15. Loggning
+## 16. Prestanda och Optimering
+
+Profileringsarbetet genomfördes i vecka 10 med `gprof`, `clock_gettime(CLOCK_MONOTONIC)` och Valgrind. Resultaten dokumenterades i `docs/profiling/PROFILING_REPORT.md` och styrde de optimeringar som implementerades i vecka 11.
+
+### Identifierade flaskhalsar (PROFILING_REPORT sektion 7)
+
+| Prioritet | Komponent | Flaskhals | Åtgärd |
+|---|---|---|---|
+| **1** | Forecast pipeline | Ingen cache — varje request körde full API-fetch (1–2 s) | Cache short-circuit implementerad |
+| **2** | Compute | Kompilatoroptimeringar inte aktiverade (`-O0` i debug) | Aktiverade `-O2` i produktionsbygget |
+| 3 | Queue | Mutex-contention vid 4p/1c (302k ops/sek) | Acceptabelt — pipeline kör 1p/1c |
+| 4 | Cache | Linear scan O(N) vid lookup | Acceptabelt vid N=16 |
+
+### Optimering 1 — Cache Short-Circuit
+
+**Problem (identifierat via profilering):** Varje `/forecast`-request körde en komplett API-fetch-pipeline: HTTPS mot Open-Meteo + HTTPS mot elprisetjustnu + JSON-parsning + beräkning. Total latens: **1–2 sekunder per request**.
+
+**Åtgärd:** SharedCache med TTL-baserad ogiltigförklaring. Vid cache-träff returneras forecast-JSON direkt utan att röra pipeline.
+
+| Mätpunkt | Före | Efter | Förbättring |
+|---|---|---|---|
+| Latens vid cache-träff | 1 000–2 000 ms | ~2 ms | **400–1000×** |
+| Latens vid cache-miss | 1 000–2 000 ms | 1 000–2 000 ms | — (oförändrat) |
+| Andel cache-träffar (normal drift) | 0% | ~95% | — |
+
+*Källa: `docs/Changelog/CHANGELOG_2026-03-09.md`*
+
+### Optimering 2 — Kompilatoroptimering (-O0 → -O2)
+
+**Problem (identifierat via gprof):** `Compute_GenerateEnergyPlan` stod för 100% av CPU-tid i compute-modulen. Benchmarks med `-O0` visade hög p99-latens (29.51 µs) med stora spikar.
+
+**Åtgärd:** Aktiverade `-O2 -DNDEBUG` i produktionsbygget (`make release`). Effekter: function inlining, loop unrolling, dead code elimination.
+
+#### Scenario 1 — Realistisk prognos (sinusformad sol + prisökning)
+
+| Mätning | `-O0` (ingen opt.) | `-O2` (produktion) | Förbättring |
+|---|---|---|---|
+| avg | 3.22 µs | 2.10 µs | **1.53×** |
+| p50 | 2.32 µs | 1.60 µs | 1.45× |
+| p99 | 29.51 µs | 8.38 µs | **3.52×** |
+| Genomströmning | 310 439 plan/sek | 476 792 plan/sek | **+54%** |
+
+#### Scenario 2 — Worst-case (alternerande priser, fullt array)
+
+| Mätning | `-O0` | `-O2` | Förbättring |
+|---|---|---|---|
+| avg | 2.27 µs | 1.56 µs | 1.45× |
+| p99 | 23.87 µs | 3.89 µs | **6.14×** |
+| Genomströmning | 440 368 plan/sek | 640 325 plan/sek | **+45%** |
+
+*Källa: `docs/profiling/PROFILING_REPORT.md` sektion 8*
+
+### Systemets totala prestanda (efter optimeringar)
+
+| Komponent | Genomströmning | Latens (avg) | Marginal mot krav |
+|---|---|---|---|
+| Compute (realistisk) | 476 792 plan/sek | 2.10 µs | **7 000 000×** (ny plan behövs var 15 min) |
+| Queue (1p/1c pipeline) | 625 133 ops/sek | 1.60 µs | Mer än tillräckligt |
+| SharedCache (concurrent) | 2 457 106 lookups/sek | 1.29 µs | Mer än tillräckligt |
+
+**Valgrind-resultat:** 0 heap-läckor, 0 use-after-free, 0 invalid reads/writes i produktionskod.
+
+---
+
+## 17. Testtäckning
+
+GridGuard har ett fullständigt testsvit byggt med Google Test (CMake + FetchContent). Testerna körs automatiskt med AddressSanitizer (ASAN) och UndefinedBehaviorSanitizer (UBSAN) i debug-builds.
+
+### Testöversikt
+
+```
+Total: 163 tester
+├── Unit (15 sviter):
+│   ├── Logger:              7 tester   — grundläggande infrastruktur
+│   ├── HTTPRequest:         8 tester   — HTTP/1.1-parsning
+│   ├── HTTPResponse:       13 tester   — HTTP-svar med Content-Length
+│   ├── ConfigParser:        5 tester   — INI-filparsning
+│   ├── RestartPolicy:      11 tester   — exponentiell backoff och rate limiting
+│   ├── LoadScheduler:      14 tester   — energioptimering, EV-laddning, spotpriser
+│   ├── Queue:              16 tester   — concurrent stress (multi-producer/consumer)
+│   ├── JWT:                11 tester   — tokenutfärdande och signaturvalidering
+│   ├── RuntimeConfig:       9 tester   — config-fil → env-var → default fallback
+│   ├── APIEndpoints:       15 tester   — URL-konstruktion, DST-gränser, datumformat
+│   ├── Compute:             9 tester   — BUY/SELL/AVOID/IDLE-signallogik
+│   ├── WorkCompletion:      5 tester   — signal/wait-primitiv
+│   ├── Heartbeat:           8 tester   — pipe-baserad healthcheck
+│   ├── ScheduleDB:          8 tester   — SQLite CRUD (in-memory)
+│   └── UserConfigDB:        7 tester   — SQLite upsert/retrieve (in-memory)
+│
+└── Integration (2 sviter):
+    ├── ProcessPipeline:     8 tester   — fork()/exec() gräns, heartbeat IPC
+    └── ChaosWatchdog:       9 tester   — SIGKILL chaos engineering
+```
+
+### Integrationstester — ProcessPipeline
+
+Testar det faktiska `fork()`/`exec()`-gränssnittet som gör GridGuard till ett multi-processsystem — inte mocked IPC utan riktiga child-processer:
+
+- Child skickar heartbeat-beat → `Heartbeat_Check` returnerar 1
+- Död process (stängd pipe) detekteras via EOF
+- Fryst process (pipe öppen, inga beats) detekteras via timeout
+- Spawn och `waitpid` på tre simultana processer (server/fetcher/parser-analogi)
+- Kill → restart-cykel med `RestartPolicy`-spårning
+- Watchdog övervakar tre processer via oberoende heartbeat-pipes
+
+### Chaos Engineering — ChaosWatchdog
+
+Simulerar worst-case scenarios som kerneln kan orsaka (OOM-killer, operatör kill -9):
+
+- SIGKILL kan inte ignoreras (till skillnad från SIGTERM)
+- SIGKILL stänger automatiskt heartbeat-pipe (kernel-guaranteed)
+- Fem SIGKILL-krascher i följd triggar rate limit
+- Exponentiell backoff valideras efter varje krasj (2→4→8→16→32 s)
+- Simultan kill av alla tre processer korrupterar inte watchdog-state
+- Komplett crash → heartbeat → SIGKILL → restart-cykel
+
+**Implementationsdetalj:** `spawnSleeper()` använder en ready-pipe för synkronisering — föräldern väntar tills barnet installerat `SIG_IGN` innan SIGTERM skickas. Eliminerar race condition som orsakade flaky tests.
+
+### Sanitizers och verktyg
+
+| Verktyg | Kommando | Resultat |
+|---|---|---|
+| ASAN + UBSAN | `make test-gtest` | 163/163 — inga minnesproblem |
+| ThreadSanitizer | `make test-tsan` | 163/163 — **0 race conditions** |
+| Helgrind | `make test-valgrind` (+ helgrind) | **0 errors** |
+| Valgrind memcheck | `make test-valgrind` | **0 leaks** |
+
+```bash
+make test-gtest    # Alla 163 Google Tests med ASAN/UBSAN
+make test-tsan     # Alla tester med ThreadSanitizer
+make test-valgrind # Unit-tester under Valgrind memcheck
+make clean-gtest   # Rensa CMake build-katalog
+make clean-tsan    # Rensa TSan build-katalog
+```
+
+**CMake-konfiguration:** Tester byggs med `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`. Google Test hämtas automatiskt via `FetchContent` (v1.14.0).
+
+Fullständig dokumentation: `tests/README.md`
+
+---
+
+## 18. Loggning
 
 Varje process loggar till sin egen fil:
 
@@ -1020,7 +1138,7 @@ Loggnivåer: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `FATAL`. Nivå sätts vid `Log
 
 ---
 
-## 16. Konfigurationssystem
+## 19. Konfigurationssystem
 
 GridGuard använder ett runtime konfigurationssystem med tre nivåer (fallback chain):
 
@@ -1071,15 +1189,52 @@ export GRIDGUARD_JWT_SECRET="din-hemlighet"
 ### Thread Safety
 
 Config-access är thread-safe via `pthread_rwlock`:
-- Multiple readers can access config simultaneously
-- Reload operations acquire write lock (blocks until all readers finish)
-- Zero performance impact during normal operation
+- Flera readers kan läsa config simultant
+- Reload-operationer tar write-lås (blockerar tills alla readers är klara)
+- Noll prestanda-overhead under normal drift
 
 Se `docs/CONFIG_DESIGN.md` för fullständig designdokumentation.
 
 ---
 
-## 17. Binärer och byggsystem
+## 20. Designbeslut och avvägningar
+
+### Varför separata processer istället för trådar för Fetcher/Parser?
+
+- **Isolation:** En krasj i Fetcher (t.ex. vid nätverksfel eller mallformad JSON) påverkar inte Server-processen
+- **Oberoende körbara:** Fetcher och Parser kan kompileras, testas och deployas separat
+- **IPC som kontrakt:** FIFOs och sockets tvingar fram explicita dataformat (WorkRequest, FetchResult, ParseResult) — inga oavsiktliga delade states
+
+**Nackdel:** Kommunikation via FIFOs/sockets är dyrare än inter-thread communication. För GridGuard med typisk last (<10 req/min) är detta försumbart.
+
+### Varför FIFO (named pipe) och inte Unix socket för Fetcher → Parser?
+
+Named pipe passar bättre för enkel, enkelriktad dataström av fixa structs. Unix socket valdes för Parser → ComputeWorker eftersom ComputeWorker behöver kunna skilja på separata meddelanden (datagram-semantik).
+
+### Varför dödar Watchdog alla processer vid en enskild krasj?
+
+FIFOs är enkelriktade och blockerar. Om Fetcher dör har Parser ingen writer — `read()` returnerar EOF och Parser hänger eller avslutar sig ändå. En atomär omstart av hela gruppen är enklare och mer förutsägbar än att hantera partiella tillstånd.
+
+### Minnesmodell för SharedCache
+
+Cachen allokeras i POSIX shared memory (`shm_open` + `mmap`). Mutex/rwlock lagras *inuti* det delade minnessegmentet med `PTHREAD_PROCESS_SHARED`-attribut, så att alla processer kan använda samma lock utan att gå via kernel-calls som semaforer.
+
+```
+shm-segment layout:
+┌──────────────────────────────────────┐
+│  pthread_rwlock_t  lock              │  (i shared memory, process-shared)
+│  int               count             │
+│  time_t            ttl               │
+│  CacheEntry[16]    entries[]         │
+│    char  key[64]                     │
+│    char  data[32768]                 │
+│    time_t created_at                 │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 21. Binärer och byggsystem
 
 ```
 bin/
@@ -1095,6 +1250,9 @@ bin/
 make clean && make all   # Fullständig rebuild (krävs efter header-ändringar)
 make dev                 # Bygg + seed databaser + starta + generera token
 make stop                # Graceful shutdown via SIGTERM
+make test-gtest          # Alla 163 Google Tests med ASAN/UBSAN
+make test-tsan           # Tester med ThreadSanitizer
+make test-valgrind       # Tester under Valgrind memcheck
 ```
 
 **OBS:** Makefilen använder inte `-MMD` dependency tracking. Kör alltid `make clean` efter ändringar i header-filer som påverkar struct-storlekar (annars riskeras heap corruption p.g.a. felaktig struct-layout i stale .o-filer).
