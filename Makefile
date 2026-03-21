@@ -206,10 +206,11 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
-	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	SERVER_PID=$$(pgrep -f GridGuard-server 2>/dev/null | head -1); \
 	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
 	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo "watchdog: $$WATCHDOG_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo ""; \
@@ -593,7 +594,7 @@ daemon: server watchdog
 	echo "daemon running (pid $$WATCHDOG_PID)"; \
 	echo "http://localhost:8080"
 
-dev: server watchdog platform-objects
+dev: server watchdog platform-objects $(MAIN_BIN)
 	@if [ -f /tmp/gridguard.pid ]; then \
 	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
 	@pkill -9 GridGuard 2>/dev/null || true
@@ -616,10 +617,11 @@ dev: server watchdog platform-objects
 	for i in $$(seq 1 20); do \
 	    curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
 	    printf "."; sleep 0.5; done; echo " ready"; \
-	SERVER_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
+	SERVER_PID=$$(pgrep -f GridGuard-server 2>/dev/null | head -1); \
 	FETCHER_PID=$$(pgrep -f GridGuard-fetcher 2>/dev/null | head -1); \
 	PARSER_PID=$$(pgrep -f GridGuard-parser 2>/dev/null | head -1); \
-	echo "watchdog: $$SERVER_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
+	echo "watchdog: $$WATCHDOG_PID | server: $$SERVER_PID | fetcher: $$FETCHER_PID | parser: $$PARSER_PID"; \
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo ""; \
