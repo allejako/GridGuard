@@ -12,7 +12,7 @@ System_Ext(elpriset, "Elpriset API", "Spotpriser")
 System_Boundary(gridguard, "GridGuard") {
     Container(launcher, "GridGuard", "C binary", "Tunn launcher.\nexecv() direkt till Watchdog —\nlämnar inget extra process i trädet.")
 
-    Container(watchdog, "GridGuard-watchdog", "C binary", "Supervisor och rotprocess.\nSkapar IPC-resurser, forkar processer\ni rätt ordning, övervakar via\nheartbeat-pipes, startar om hela\ngruppen vid krasj (exp. backoff 2→32s).")
+    Container(watchdog, "GridGuard-watchdog", "C binary", "Supervisor och rotprocess.\nSkapar IPC-resurser, forkar processer\ni rätt ordning, övervakar via\nheartbeat-pipes, startar om hela\ngruppen vid krasch (exp. backoff 2→32s).")
 
     Container(fetcher, "GridGuard-fetcher", "C binary", "Hämtar väder- och prisdata via HTTPS.\nCachelagrar i shared memory\n(väder TTL 900s, pris TTL 43200s).\nHanterar imorgondagens priser ~13:00 CET.")
 

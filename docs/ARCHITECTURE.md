@@ -43,7 +43,7 @@ flowchart TD
 - Skapar alla IPC-resurser (FIFOs, socket) innan processerna startas
 - Forkar och exec:ar de tre child-processerna i rätt ordning
 - Övervakar varje process via heartbeat-pipes
-- Startar om hela gruppen vid krasj (med exponentiell backoff)
+- Startar om hela gruppen vid krasch (med exponentiell backoff)
 - Skriver processtatistik till POSIX shared memory (`/gridguard_watchdog_metrics`)
 - Skriver PID-fil (`/var/run/gridguard.pid`)
 
@@ -241,7 +241,7 @@ Heartbeat-pipen ska vara exklusiv mellan Watchdog och varje enskild child-proces
 | Tidsfönster | 300 sekunder |
 | Backoff-strategi | Exponentiell: 2s → 4s → 8s → 16s → 32s (max) |
 
-Vid krasj dödar Watchdog **alla** processer (inte bara den kraschade) och startar om hela gruppen. Anledning: processerna är sammankopplade via FIFOs — om Fetcher kraschar har Parser ingen write-end att läsa ifrån, vilket leder till ett hängt tillstånd ändå.
+Vid krasch dödar Watchdog **alla** processer (inte bara den kraschade) och startar om hela gruppen. Anledning: processerna är sammankopplade via FIFOs — om Fetcher kraschar har Parser ingen write-end att läsa ifrån, vilket leder till ett hängt tillstånd ändå.
 
 **Resetlogik:** Om inga krascher sker på 300 sekunder nollställs räknaren. En stabil körning kan alltså hålla 5 omstarter per 5-minutersfönster utan att systemet ger upp.
 
@@ -285,7 +285,7 @@ flowchart TD
 | `SIGTERM` / `SIGINT` | Graceful shutdown: vidarebefordrar SIGTERM till alla child-processer, väntar 3s, sedan SIGKILL |
 | `SIGHUP` | Vidarebefordrar SIGHUP till alla child-processer (reload-signal) |
 | `SIGUSR1` | Loggar processtatusrapport (PIDs, heartbeat-ålder, restart-räknare) |
-| `SIGUSR2` | Manuell omstart av alla processer (triggar samma flöde som krasj-omstart) |
+| `SIGUSR2` | Manuell omstart av alla processer (triggar samma flöde som krasch-omstart) |
 
 ### Server
 
@@ -1193,7 +1193,7 @@ Simulerar worst-case scenarios som kerneln kan orsaka (OOM-killer, operatör kil
 - SIGKILL kan inte ignoreras (till skillnad från SIGTERM)
 - SIGKILL stänger automatiskt heartbeat-pipe (kernel-guaranteed)
 - Fem SIGKILL-krascher i följd triggar rate limit
-- Exponentiell backoff valideras efter varje krasj (2→4→8→16→32 s)
+- Exponentiell backoff valideras efter varje krasch (2→4→8→16→32 s)
 - Simultan kill av alla tre processer korrupterar inte watchdog-state
 - Komplett crash → heartbeat → SIGKILL → restart-cykel
 
@@ -1352,7 +1352,7 @@ Se `docs/CONFIG_DESIGN.md` för fullständig designdokumentation.
 
 ### Varför separata processer istället för trådar för Fetcher/Parser?
 
-- **Isolation:** En krasj i Fetcher (t.ex. vid nätverksfel eller mallformad JSON) påverkar inte Server-processen
+- **Isolation:** En krasch i Fetcher (t.ex. vid nätverksfel eller mallformad JSON) påverkar inte Server-processen
 - **Oberoende körbara:** Fetcher och Parser kan kompileras, testas och deployas separat
 - **IPC som kontrakt:** FIFOs och sockets tvingar fram explicita dataformat (WorkRequest, FetchResult, ParseResult) — inga oavsiktliga delade states
 
@@ -1362,7 +1362,7 @@ Se `docs/CONFIG_DESIGN.md` för fullständig designdokumentation.
 
 Named pipe passar bättre för enkel, enkelriktad dataström av fixa structs. Unix socket valdes för Parser → ComputeWorker eftersom ComputeWorker behöver kunna skilja på separata meddelanden (datagram-semantik).
 
-### Varför dödar Watchdog alla processer vid en enskild krasj?
+### Varför dödar Watchdog alla processer vid en enskild krasch?
 
 FIFOs är enkelriktade och blockerar. Om Fetcher dör har Parser ingen writer — `read()` returnerar EOF och Parser hänger eller avslutar sig ändå. En atomär omstart av hela gruppen är enklare och mer förutsägbar än att hantera partiella tillstånd.
 

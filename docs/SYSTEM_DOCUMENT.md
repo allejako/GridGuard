@@ -50,12 +50,12 @@ Watchdog är systemets rotprocess och ansvarar för hela processträdet. Den:
 - Skapar alla IPC-resurser (FIFOs, Unix socket) **innan** child-processerna startas
 - Startar processerna i rätt ordning (parser → fetcher → server)
 - Övervakar varje process via **heartbeat-pipes** (anonyma pipes som arvas vid fork)
-- Startar om hela processgruppen vid krasj, med exponentiell backoff (2s → 4s → 8s → 16s → 32s)
+- Startar om hela processgruppen vid krasch, med exponentiell backoff (2s → 4s → 8s → 16s → 32s)
 - Skriver processtatistik till POSIX shared memory som servern exponerar via `/metrics`
 
 **Hur watchdog vet att en process lever:** Varje child-process skriver periodiskt `"hb"` till sin heartbeat-pipe. Watchdog pollar pipe:n var 2:a sekund med `poll()`. Om ingen heartbeat kommit inom timeout klassas processen som fryst och hela gruppen startas om.
 
-**Restart policy:** Max 5 omstarter per 300-sekunders fönster. Hela gruppen startas alltid om — inte bara den kraschade processen — eftersom processerna är sammankopplade via FIFOs och ett krasj i Fetcher ger ett hängt tillstånd i Parser ändå.
+**Restart policy:** Max 5 omstarter per 300-sekunders fönster. Hela gruppen startas alltid om — inte bara den kraschade processen — eftersom processerna är sammankopplade via FIFOs och ett krasch i Fetcher ger ett hängt tillstånd i Parser ändå.
 
 ### GridGuard-fetcher
 Tar emot en `WorkRequest` från servern, gör HTTPS-anrop mot OpenMeteo och Elpriset, och skickar rådata vidare som en `FetchResult` till parsern. Cachelagrar resultaten i POSIX shared memory för att undvika onödiga API-anrop.
