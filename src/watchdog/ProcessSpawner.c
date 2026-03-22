@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "watchdog/ProcessSpawner.h"
-#include "watchdog/IPCPaths.h"
+#include "ipc/IPCPaths.h"
 #include "sys/Logger.h"
 
 #include <stdlib.h>

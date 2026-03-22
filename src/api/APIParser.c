@@ -82,9 +82,11 @@ static double ValidateSpotPriceSek(double price)
         LOG_WARNING("Invalid spot price SEK value (non-finite), defaulting to 1.0 SEK/kWh");
         return 1.0;
     }
-    if (price < 0.0 || price > 20.0) {
-        LOG_WARNING("Spot price SEK out of bounds: %.2f SEK/kWh, clamping to 0-20", price);
-        if (price < 0.0) return 0.0;
+    // Nordic electricity markets can have negative spot prices (grid pays consumers).
+    // Allow prices down to -5 SEK/kWh (extreme but valid) and up to 20 SEK/kWh.
+    if (price < -5.0 || price > 20.0) {
+        LOG_WARNING("Spot price SEK out of bounds: %.2f SEK/kWh, clamping to -5 to 20 range", price);
+        if (price < -5.0) return -5.0;
         if (price > 20.0) return 20.0;
     }
     return price;
@@ -96,9 +98,11 @@ static double ValidateSpotPriceEur(double price)
         LOG_WARNING("Invalid spot price EUR value (non-finite), defaulting to 0.1 EUR/kWh");
         return 0.1;
     }
-    if (price < 0.0 || price > 2.0) {
-        LOG_WARNING("Spot price EUR out of bounds: %.2f EUR/kWh, clamping to 0-2", price);
-        if (price < 0.0) return 0.0;
+    // Nordic electricity markets can have negative spot prices (grid pays consumers).
+    // Allow prices down to -0.5 EUR/kWh (extreme but valid) and up to 2.0 EUR/kWh.
+    if (price < -0.5 || price > 2.0) {
+        LOG_WARNING("Spot price EUR out of bounds: %.2f EUR/kWh, clamping to -0.5 to 2.0 range", price);
+        if (price < -0.5) return -0.5;
         if (price > 2.0) return 2.0;
     }
     return price;

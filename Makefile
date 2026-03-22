@@ -251,7 +251,7 @@ debug: CFLAGS += -DDEBUG -O0
 debug: CXXFLAGS += -DDEBUG -O0
 debug: all
 
-release: CFLAGS += -O2 -DNDEBUG
+release: CFLAGS += -O2 -DNDEBUG -Wno-stringop-truncation -Wno-unused-result -Wno-maybe-uninitialized
 release: CXXFLAGS += -O2 -DNDEBUG
 release: clean all
 
@@ -553,7 +553,7 @@ start: server
 	echo ""; \
 	echo "DEMO FLOW:"; \
 	echo ""; \
-	echo "  For automated demo with everything set up: make dev"; \
+	echo "  To see the C++ dashboard in action: make client"; \
 	echo ""; \
 	echo "  Manual setup (for demonstrations):"; \
 	echo ""; \
@@ -707,41 +707,123 @@ distclean: clean
 # ── Hjälp ──────────────────────────────────────────────────────────────
 .PHONY: help
 help:
-	@echo "GridGuard — tillgängliga targets:"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  GridGuard Energy Optimization Platform - Makefile"
+	@echo "═══════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "  all              Bygg allt (server, fetcher, parser, client, platform-objects)"
-	@echo "  server           Bygg server + fetcher + parser"
-	@echo "  client           Bygg C++-klienten"
-	@echo "  watchdog         Bygg watchdog"
-	@echo "  platform-objects Kompilera JWTIssuer+PlatformDB .o (för generate_jwt.py)"
+	@echo "BUILD TARGETS"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  all              Build everything (default)"
+	@echo "  server           Build server + fetcher + parser + watchdog"
+	@echo "  client           Build C++ dashboard client"
+	@echo "  watchdog         Build process supervisor"
 	@echo ""
-	@echo "  debug / release / profile / coverage"
+	@echo "  debug            Build with debug symbols (-O0 -g)"
+	@echo "  release          Build optimized (-O2 -DNDEBUG)"
+	@echo "  profile          Build with gprof profiling"
+	@echo "  coverage         Build with code coverage"
 	@echo ""
-	@echo "  test             Kör alla legacy C-tester"
-	@echo "  test-jwt / test-http-request / test-http-response"
-	@echo "  test-logger / test-api / test-weather / test-pipeline"
-	@echo "  test-gtest       Kör Google Tests med ASAN/UBSAN sanitizers"
-	@echo "  build-gtest      Bygg Google Tests (CMake-baserade)"
-	@echo "  test-all         Kör alla tester (legacy + Google Test)"
-	@echo "  clean-gtest      Rensa CMake build-katalog"
-	@echo "  test-valgrind    Kör unit-tester under Valgrind memcheck"
-	@echo "  test-tsan        Bygg och kör Google Tests med ThreadSanitizer"
-	@echo "  clean-tsan       Rensa TSan build-katalog"
+	@echo "RUNTIME TARGETS"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  start            Start system (foreground, development)"
+	@echo "  dev              Start with demo data + test requests"
+	@echo "  daemon           Start as background daemon"
+	@echo "  stop             Stop all GridGuard processes"
+	@echo "  client           Run dashboard (requires running system)"
 	@echo ""
-	@echo "  start            Snabbstart med watchdog i foreground (development)"
-	@echo "  daemon           Starta watchdog i bakgrund (production)"
-	@echo "  run-server       Starta server med watchdog (samma som start)"
-	@echo "  server-run       Alias för run-server"
-	@echo "  dev              Utvecklingsmiljö med watchdog + test requests"
-	@echo "  stop             Stoppa alla GridGuard-processer"
-	@echo "  run-watchdog     Starta watchdog (kräver GRIDGUARD_JWT_SECRET)"
+	@echo "TESTING"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  test-all         Run all tests (unit + integration)"
+	@echo "  test-gtest       Run Google Test suite with sanitizers"
+	@echo "  test-valgrind    Run tests under Valgrind memcheck"
+	@echo "  test-tsan        Run tests with ThreadSanitizer"
+	@echo "  soak-test        24-hour stability test (production validation)"
+	@echo "  soak-test-short  1-hour quick stability test"
 	@echo ""
-	@echo "  valgrind-server  Minneskontroll"
-	@echo "  helgrind         Trådkontroll"
-	@echo "  gprof-analyze    Analysera profileringsdata"
-	@echo "  clean-ipc        Rensa IPC-resurser"
+	@echo "INSTALLATION (requires sudo)"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  install          Install to /opt/gridguard"
+	@echo "  install-systemd  Install + configure systemd service"
+	@echo "  uninstall        Remove GridGuard from system"
 	@echo ""
-	@echo "  clean / distclean"
+	@echo "  PREFIX=/custom/path make install   (custom install location)"
+	@echo ""
+	@echo "DEBUGGING & ANALYSIS"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  valgrind-server  Memory leak detection"
+	@echo "  helgrind         Thread race condition analysis"
+	@echo "  gprof-analyze    Performance profiling analysis"
+	@echo ""
+	@echo "CLEANUP"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  clean            Remove build artifacts"
+	@echo "  clean-ipc        Clean IPC resources (FIFOs, sockets, shm)"
+	@echo "  distclean        Full cleanup (clean + logs + PIDs)"
+	@echo ""
+	@echo "EXAMPLES"
+	@echo "─────────────────────────────────────────────────────────────"
+	@echo "  Development:     make dev"
+	@echo "  Production:      make release && sudo make install-systemd"
+	@echo "  Testing:         make test-all && make soak-test-short"
+	@echo "  Debug memory:    make debug && make valgrind-server"
+	@echo ""
+	@echo "DOCUMENTATION: docs/README.md"
+	@echo "═══════════════════════════════════════════════════════════════"
+
+# ── Installation ───────────────────────────────────────────────────────
+PREFIX ?= /opt/gridguard
+SYSTEMD_DIR ?= /etc/systemd/system
+USER ?= gridguard
+GROUP ?= gridguard
+
+install: all
+	@echo "Installing GridGuard to $(PREFIX)..."
+	install -d $(PREFIX)/bin
+	install -d $(PREFIX)/logs
+	install -d $(PREFIX)/scripts
+	install -d /var/run/gridguard
+	install -m 755 $(BIN)/GridGuard $(PREFIX)/bin/
+	install -m 755 $(BIN)/GridGuard-server $(PREFIX)/bin/
+	install -m 755 $(BIN)/GridGuard-fetcher $(PREFIX)/bin/
+	install -m 755 $(BIN)/GridGuard-parser $(PREFIX)/bin/
+	install -m 755 $(BIN)/GridGuard-watchdog $(PREFIX)/bin/
+	install -m 755 $(BIN)/GridGuard-client $(PREFIX)/bin/
+	install -m 644 gridguard.conf.example $(PREFIX)/gridguard.conf.example 2>/dev/null || true
+	install -m 755 scripts/*.sh $(PREFIX)/scripts/ 2>/dev/null || true
+	install -m 755 scripts/*.py $(PREFIX)/scripts/ 2>/dev/null || true
+	@echo "✓ Binaries installed to $(PREFIX)/bin"
+
+install-systemd: install
+	@echo "Installing systemd service..."
+	install -m 644 systemd/gridguard.service $(SYSTEMD_DIR)/gridguard.service
+	systemctl daemon-reload
+	@echo "✓ Systemd service installed"
+	@echo ""
+	@echo "To enable GridGuard on boot:"
+	@echo "  sudo systemctl enable gridguard"
+	@echo ""
+	@echo "To start GridGuard:"
+	@echo "  sudo systemctl start gridguard"
+
+uninstall:
+	@echo "Uninstalling GridGuard..."
+	systemctl stop gridguard 2>/dev/null || true
+	systemctl disable gridguard 2>/dev/null || true
+	rm -f $(SYSTEMD_DIR)/gridguard.service
+	systemctl daemon-reload 2>/dev/null || true
+	rm -rf $(PREFIX)
+	@echo "✓ GridGuard uninstalled"
+
+# ── Soak Test ──────────────────────────────────────────────────────────
+soak-test: server
+	@echo "Starting 24-hour soak test..."
+	@echo "This will monitor system stability, memory usage, and restart behavior"
+	@echo "Press Ctrl+C to stop early (report will be generated automatically)"
+	@./scripts/soak_test.sh
+
+soak-test-short: server
+	@echo "Starting 1-hour soak test (quick validation)..."
+	SOAK_TEST_HOURS=1 ./scripts/soak_test.sh
 
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage
@@ -749,3 +831,4 @@ help:
 .PHONY: build-gtest test-gtest clean-gtest test-all test-valgrind test-tsan clean-tsan
 .PHONY: start daemon run-server server-run run-watchdog run-client dev stop
 .PHONY: valgrind-server helgrind gprof-analyze clean-ipc clean distclean help
+.PHONY: install install-systemd uninstall soak-test soak-test-short

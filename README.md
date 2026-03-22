@@ -26,7 +26,7 @@ sudo apt-get install libmbedtls-dev libsqlite3-dev libssl-dev python3
 sudo dnf install mbedtls-devel sqlite-devel openssl-devel python3
 ```
 
-## Snabbstart
+## Snabbstart (Development)
 
 ```bash
 make dev
@@ -34,32 +34,93 @@ make dev
 
 Kommandot bygger allt, seedar databaser, startar systemet och skriver ut ett JWT-token redo att använda.
 
-## Manuell installation
+## Production Installation
+
+### Snabbinstallation
 
 ```bash
-# 1. Bygg
-make
+# 1. Bygg release-version
+make release
 
-# 2. Skapa databaser
-python3 scripts/seed_platform.py platform.db
-python3 scripts/seed_client.py gridguard.db
+# 2. Installera till system (default: /opt/gridguard)
+sudo make install-systemd
 
-# 3. Starta
-export GRIDGUARD_JWT_SECRET="gridguard-test-secret"
-make start
+# 3. Konfigurera JWT-hemlighet
+echo 'GRIDGUARD_JWT_SECRET="your-secret-key-here"' | sudo tee /etc/default/gridguard
 
-# 4. Generera token
-export TOKEN=$(python3 scripts/generate_jwt.py platform.db SAAB_ARENA)
+# 4. Starta service
+sudo systemctl start gridguard
+sudo systemctl enable gridguard  # Autostart vid boot
 
-# 5. Testa
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/forecast
+# 5. Verifiera
+curl http://localhost:8080/health
 ```
 
-## Stoppa systemet
+### Installation utan systemd
+
+Om du vill installera manuellt utan systemd-integration:
 
 ```bash
+sudo make install PREFIX=/opt/gridguard
+```
+
+Detta kopierar binaries, scripts och config-exempel till `/opt/gridguard`. Du kan sedan köra watchdog manuellt eller med ditt eget init-system.
+
+### Systemd-hantering
+
+```bash
+# Status
+sudo systemctl status gridguard
+
+# Loggar
+sudo journalctl -u gridguard -f
+
+# Omstart
+sudo systemctl restart gridguard
+
+# Stoppa
+sudo systemctl stop gridguard
+
+# Avinstallera
+sudo systemctl stop gridguard
+sudo systemctl disable gridguard
+sudo make uninstall
+```
+
+### Stabilitetstestning
+
+Innan produktionsdeploy, kör soak test för att verifiera stabilitet och minnesanvändning:
+
+```bash
+# 24-timmars test (rekommenderat före kundleverans)
+make soak-test
+
+# Snabb 1-timmars validering
+make soak-test-short
+```
+
+Rapport genereras till: `logs/soak_test/soak_test_report.txt`
+
+**Pass-kriterier:**
+- 0 krascher
+- <3 omstarter
+- <10% minnestillväxt
+- Inga heartbeat-failures
+
+## Development - Köra lokalt
+
+```bash
+# 1. Bygg och starta allt
+make dev
+
+# 2. Öppna dashboard i separat terminal
+make client
+
+# 3. Stoppa systemet
 make stop
 ```
+
+`make dev` seedar databaser, genererar JWT-token och startar watchdog med alla processer.
 
 ## Konfiguration
 

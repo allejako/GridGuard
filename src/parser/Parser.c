@@ -139,7 +139,7 @@ static void BuildForecastData(const OpenMeteoResponse *om, const ElprisetRespons
     int matched = 0, unmatched = 0;
     for (int i = 0; i < count; i++)
     {
-        if (forecast->entries[i].spotPriceSek > 0.0)
+        if (forecast->entries[i].hasPriceData)
             matched++;
         else
             unmatched++;

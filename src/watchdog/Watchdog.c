@@ -5,7 +5,7 @@
 #include "watchdog/RestartPolicy.h"
 #include "watchdog/Metrics.h"
 #include "watchdog/ProcessSpawner.h"
-#include "watchdog/IPCPaths.h"
+#include "ipc/IPCPaths.h"
 #include "sys/Logger.h"
 
 #include <stdio.h>

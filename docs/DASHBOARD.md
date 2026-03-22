@@ -1,634 +1,634 @@
-# GridGuard Dashboard — Användarmanual och Teknisk Dokumentation
+# GridGuard Dashboard - Visuell Energiöversikt i Realtid
 
 ## Översikt
 
-GridGuard Dashboard är en terminal-baserad TUI (Text User Interface) som visualiserar energiprognoser och schemalagda laster i realtid. Systemet visar köp/sälj-signaler, solcellsproduktion, kostnader och optimala laddningstider för kommersiella fastigheter och industrilokaler.
+GridGuard Dashboard är din kontrollpanel för energioptimering. Se alla dina besparingsmöjligheter på en enda skärm — uppdaterad var 60:e sekund med de senaste priserna och väderdata.
 
-```
-╭──────────────────────────────────────────────────────────────────╮
-│  GridGuard                                  13.1°C☀ 90.57 kW    |
-│  SAAB_ARENA  SE3  Linköping                                      │
-╰──────────────────────────────────────────────────────────────────╯
-```
+**Nyckelfunktioner:**
+- 🟢 **Tydliga beslutssignaler** — Varje 15-minutersperiod är färgkodad: Köp, Sälj eller Vänta
+- 💰 **Realtidsbesparingar** — Se exakt hur mycket du sparar per timme
+- 📊 **48-timmars översikt** — Planera kommande 2 dygn (192 kvartar × 15 min)
+- ⚡ **Auto-refresh** — Alltid uppdaterad data utan manuella klick
 
 ---
 
-## Starta Dashboard
+## Snabbstart
 
 ```bash
-# Live-uppdatering var 60:e sekund
+# Starta dashboard med auto-refresh (60 sekunder)
 bin/GridGuard-client --token $TOKEN forecast --watch --interval 60
 
-# Engångsvy utan auto-refresh
+# Engångsvy (ingen auto-refresh)
 bin/GridGuard-client --token $TOKEN forecast
 ```
 
 **Kontroller:**
-- `Ctrl+C` — Avsluta
-- Auto-refresh enligt `--interval` (default: 60s)
-- Spinner-animation (⠙ → ⠹ → ⠸ → ⠼) visar att data hämtas
+- `Ctrl+C` — Avsluta dashboard
+- Auto-refresh enligt `--interval` (standard: 60s)
 
 ---
 
-## Layout och Komponenter
+## Dashboard-layout
 
-Dashboard består av tre huvudsektioner:
+**HEADER**
+```
+GridGuard                          13.1C  Sol: 90.57 kW
+SAAB_ARENA  SE3  Linkoping
+```
 
-```mermaid
-flowchart TB
-    A[Dashboard] --> B[Header]
-    A --> C[Signals — Alla signaler]
-    A --> D[Best Buy Windows — Top 5 köpfönster]
-    A --> E[Summary — Totaler och nyckeltal]
-    A --> F[Schedules — Schemalagda laster]
+**DAGENS SIGNALER** — Alla köp/sälj-tillfällen för kommande 48 timmar
+```
+03-21 02:00  BUY   0.32 kr  [====      ]  90 kWh   -54%
+03-21 13:00  BUY   0.39 kr  [======    ]  12 kWh   -32%
+03-21 12:00  SELL  1.85 kr  [========= ]  12 kWh   +45%
+03-21 17:00  SKIP  2.15 kr  [==========]   4 kWh   +63%
+```
 
-    B --> B1[Location, Region, Väder]
-    C --> C1[Tidsstämpel, Signal, Pris, Bar, Solar, % vs Median]
-    D --> D1[Endast BUY-signaler sorterade efter pris]
-    E --> E1[Import/Export kWh, Total kostnad]
-    E --> E2[Signaldots, Avg buy % vs median]
-    F --> F1[Last, Start, Duration, Kostnad, Besparingar]
+**BÄSTA KÖPTILLFÄLLEN** — Top 5 billigaste perioderna
+```
+#1  03-21 02:00  0.32 kr/kWh  (-54%)
+#2  03-21 13:00  0.39 kr/kWh  (-32%)
+#3  03-21 22:30  0.42 kr/kWh  (-28%)
+```
+
+**SAMMANFATTNING**
+```
+Signaler:  7 buy   0 sell   6 skip
+
+Import: 1612 kWh   Export: 0 kWh   Kostnad: 3568 kr
+Bästa köp: 03-21 02:00 (0.32 kr)   Avg -37% vs median
+```
+
+**SCHEMALAGDA LASTER**
+```
+Elbilsflotta    02:00  4h    320 kr   sparat: 580 kr
+Zamboni varme   13:00  1.5h   40 kr   sparat:  18 kr
+HVAC forvarmn   15:00  2h     85 kr   sparat:  42 kr
+
+Total daglig besparing: 640 kr
 ```
 
 ---
 
-## Sektion 1: Header
+## Sektion för sektion
+
+### 📍 Header — Platsinfo och totaler
 
 ```
-╭──────────────────────────────────────────────────────────────────╮
-│  GridGuard                                   13.1°C  ☀ 90.57 kW  │
-│  SAAB_ARENA  SE3  Linköping                                      │
-╰──────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────╮
+│  GridGuard                            13.1°C   90.57 kW      │
+│  SAAB_ARENA  SE3  Linköping                                  │
+╰──────────────────────────────────────────────────────────────╯
 ```
 
-**Komponenter:**
-- **Location ID**: `SAAB_ARENA` (från JWT-token → databas)
-- **Region**: `SE3` (elprisområde)
-- **Stad**: `Linköping` (konfigurerad i `/user/config`)
-- **Temperatur**: `13.1°C` (från Open-Meteo API)
-- **Solikon**: `☀` (endast om solcellsdata finns)
-- **Total solproduktion**: `90.57 kW` (summerad över hela prognosen)
+**Vad visas:**
+- **Location:** `SAAB_ARENA` (ditt användar-ID)
+- **Elområde:** `SE3` (Södra Mellansverige)
+- **Stad:** `Linköping` (konfigurerad via `/user/config`)
+- **Temperatur:** `13.1°C` (nuvarande väder från Open-Meteo)
+- **Sol-ikon:** `☀` (visas endast om du har solceller)
+- **Total solproduktion:** `90.57 kW` (summerad över hela 48h-prognosen)
 
-**Datakälla:**
-- Hämtas från `GET /forecast` endpoint
-- Aggregeras från `quarters[]` array (192 entries × 15 min = 48 timmar)
+**Vad betyder det:**
+Se direkt om din location är korrekt konfigurerad och hur mycket solenergi du kan förvänta dig idag.
 
 ---
 
-## Sektion 2: Signals (Alla signaler)
+### 🎯 Dagens Signaler — Alla beslutspunkter
 
 ```
-│  Signals                                                         │
-│                                                                  │
-│  03-18 13:00  ▸ BUY   0.03 kr    ░░░░░░░░░░  109 kWh    -54.0%  │
-│  03-18 15:00  ▸ BUY   0.39 kr    ██░░░░░░░░  6.90 kWh   -32.5%  │
-│  03-18 16:15  ▸ SKIP  1.25 kr    ████████░░  4.96 kWh   +24.7%  │
+│  03-21 02:00  🟢 BUY   0.32 kr  ░░░░░░░░  90 kWh   -54%      │
+│  03-21 13:00  🟢 BUY   0.39 kr  ██░░░░░░  12 kWh   -32%      │
+│  03-21 12:00  🔵 SELL  1.85 kr  ████████  12 kWh   +45%      │
+│  03-21 17:00  🔴 SKIP 2.15 kr  ██████████  4 kWh   +63%      │
 ```
 
 **Kolumner:**
 
-| Kolumn | Bredd | Beskrivning | Beräkning |
-|--------|-------|-------------|-----------|
-| **TIME** | 11 char | `MM-DD HH:MM` | Timestamp från `quarters[i].time` (ISO 8601 → lokal tid) |
-| **SIGNAL** | 6 char | `▸ BUY`, `▸ SELL`, `▸ SKIP`, `▸ IDLE` | Klassificering från `Compute.c` baserat på percentiler |
-| **PRICE** | 9 char | `X.XX kr` | `totalCostSekKwh` (totalkostnad inkl. skatter & moms) |
-| **BAR** | 10 char | `██░░░░░░░░` | Visuell representation av pris (10 block-tecken) |
-| **SOLAR** | 9 char | `X.XX kWh` | `solarKwh` (solcellsproduktion för kvarteret) |
-| **VSAVG** | 7 char | `-37.3%` | `savingsVsMedian` (avvikelse från medianpris) |
+| Kolumn | Vad det visar | Exempel |
+|--------|---------------|---------|
+| **TIME** | Datum och tid | `03-21 02:00` |
+| **SIGNAL** | Beslut (BUY/SELL/SKIP/IDLE) | `🟢 BUY` |
+| **PRICE** | Total kostnad per kWh | `0.32 kr` (inkl. allt) |
+| **BAR** | Visuell prisnivå (10 block) | `░░░░` (lågt pris) |
+| **SOLAR** | Solproduktion denna period | `90 kWh` (15 min) |
+| **VSAVG** | Avvikelse från medianpris | `-54%` (mycket billigt!) |
 
-### Signal-klassificering
+#### 🟢 BUY — Köp el nu!
 
-Signaler genereras i `src/compute/Compute.c:215-326` med percentil-baserad algoritm:
+**Betydelse:** Detta är de **billigaste 33%** av alla perioder. Perfekt för:
+- Ladda elbilar
+- Kör tvättmaskin, diskmaskin
+- Förvärm lokaler (HVAC)
+- Ladda batterier
 
-```mermaid
-flowchart TD
-    START[Prognos 192 quarters]
-    SORT[Sortera kostnader stigande]
-    CALC[Beräkna percentiler]
-
-    P33[33% percentil<br/>cheap_threshold]
-    P50[50% percentil<br/>median_price]
-    P70[70% percentil<br/>expensive_threshold]
-
-    START --> SORT
-    SORT --> CALC
-    CALC --> P33
-    CALC --> P50
-    CALC --> P70
-
-    P33 --> BUY[cost ≤ cheap_threshold<br/>→ BUY]
-    P70 --> AVOID[cost ≥ expensive_threshold<br/>→ SKIP]
-    P50 --> SELL{Solar surplus?}
-    SELL -->|Ja + pris > median| SELLSIG[→ SELL]
-    SELL -->|Nej| IDLE[→ IDLE]
-
-    style BUY fill:#4ade80
-    style AVOID fill:#f87171
-    style SELLSIG fill:#22d3ee
-    style IDLE fill:#fbbf24
-```
-
-**Klassificeringsregler:**
-
-1. **BUY** (Grönt): `cost ≤ cheap_threshold` (billigaste 33%)
-   - Optimal tid för tunga laster: elbilsflotta, HVAC-förvärmning, ismaskin (zamboni)
-   - Negativa priser klassas alltid som BUY
-
-2. **SKIP** (Rött): `cost ≥ expensive_threshold` (dyraste 30%)
-   - Undvik icke-kritiska tunga laster
-   - Typiskt vid topplast (07:00-09:00, 17:00-20:00)
-   - Kritiska system (kyla, belysning under event) måste köras oavsett
-
-3. **SELL** (Cyan): `cost > median + solar_surplus`
-   - Högt pris + överskott från solceller
-   - Endast relevant med batterilager
-
-4. **IDLE** (Gult): Övriga perioder
-   - Neutral tid — varken billigt eller dyrt
-
-**Quality Filter (src/compute/Compute.c:200-213):**
-- Minst 8% avvikelse från median krävs för signalkvalitet
-- Förhindrar ogenomskinliga signaler vid platt priskurva
-
-### Prisberäkning (totalCostSekKwh)
-
-```c
-// src/compute/Compute.c:149-178
-double quarter_cost = (spotPriceSek + grid_fee + 0.40) * 1.25;
-```
-
-**Komponenter:**
-
-| Komponent | Källa | Exempel |
-|-----------|-------|---------|
-| **Spotpris** | Elprisetjustnu.se API | 0.50 kr/kWh |
-| **Nätavgift** | Användarkonfiguration (`grid_fee_low/normal/high`) | 0.35 kr/kWh |
-| **Energiskatt** | Fast: 0.40 kr/kWh (svensk lag) | 0.40 kr/kWh |
-| **Moms** | 25% på totalsumma | ×1.25 |
-
-**Tidsberoende nätavgift:**
-- `grid_fee_low`: 22:00-06:59 (natt)
-- `grid_fee_normal`: 07:00-16:59, 21:00-21:59 (dag/kväll)
-- `grid_fee_high`: 17:00-20:59 (topplast)
+**Färgkod:** Grön text
+**Pris:** Oftast 30-60% billigare än genomsnittet
 
 **Exempel:**
 ```
-Spotpris:     0.50 kr/kWh
-Nätavgift:    0.35 kr/kWh (normal)
-Energiskatt:  0.40 kr/kWh
-────────────────────────
-Summa:        1.25 kr/kWh
-Moms 25%:     ×1.25
-────────────────────────
-Total:        1.56 kr/kWh  ← Detta visas i kolumn "PRICE"
+03-21 02:00  🟢 BUY   0.32 kr   -54%
 ```
+→ Mitt i natten, lågt spotpris + låg nätavgift = **perfekt laddningstid**
 
-### Price Bar (10-block visualisering)
+#### 🔵 SELL — Sälj solenergi!
 
-```cpp
-// src/client/main.cpp:158-183
-int bar_fill = 10 * (price - lo) / (hi - lo);
+**Betydelse:** Du producerar **mer än du konsumerar** OCH priset är **högt** (≥70:e percentilen). Exportera till nätet!
+
+**Färgkod:** Cyan text
+**När:** Solig middag (11:00-14:00) + höga spotpriser
+
+**Exempel:**
 ```
-
-Baren visar relativ position mellan billigaste och dyraste priset:
-- `░░░░░░░░░░` = Billigast (0/10 block fyllda)
-- `█████░░░░░` = Medel (5/10 block fyllda)
-- `██████████` = Dyrast (10/10 block fyllda)
-
-### Savings vs Median (% avvikelse)
-
-```c
-// src/compute/Compute.c:234
-double savings_vs_median = ((quarter_cost - median_price) / median_price) * 100.0;
+03-21 12:00  🔵 SELL  1.85 kr   +45%
 ```
+→ Solproduktion 12 kWh/15min, pris 45% över median = **sälj nu!**
 
-**Tolkning:**
-- `-37.3%` = Priset är 37.3% **billigare** än median → **BUY**
-- `+24.7%` = Priset är 24.7% **dyrare** än median → **SKIP**
-- `-54.0%` = Extremt billigt (ofta negativt spotpris eller nattid)
+**OBS:** Kräver godkännande från elnätsbolag för att exportera.
+
+#### 🔴 SKIP — Undvik förbrukning!
+
+**Betydelse:** De **dyraste 30%** av alla perioder. Skjut upp icke-kritiska laster.
+
+**Färgkod:** Röd text
+**När:** Morgon topplast (07-09), kväll topplast (17-20)
+
+**Exempel:**
+```
+03-21 17:00  🔴 SKIP  2.15 kr   +63%
+```
+→ Kvällstopplast, pris 63% över median = **vänta med laddning!**
+
+**Kritiska system** (kyla, belysning under match) måste köras oavsett.
+
+#### ⚪ IDLE — Neutral period
+
+**Betydelse:** Varken billigt eller dyrt. Normal drift.
+
+**Färgkod:** Gul text
+**När:** Mittenfältet (~40% av perioder)
 
 ---
 
-## Sektion 3: Best Buy Windows
+### 🥇 Bästa Köptillfällen — Top 5 billigast
 
 ```
-│  Best buy windows  7 total                                       │
-│                                                                  │
-│  03-18 13:00  ▸ BUY   0.03 kr    ░░░░░░░░░░  109 kWh    -54.0%  │
-│  03-18 22:30  ▸ BUY   0.26 kr    █░░░░░░░░░  0.00 kWh   -40.2%  │
-│  03-18 21:45  ▸ BUY   0.35 kr    ██░░░░░░░░  0.00 kWh   -34.6%  │
+ 🥇 03-21 02:00  0.32 kr/kWh  (-54%)                         
+ 🥈 03-21 13:00  0.39 kr/kWh  (-32%)                         
+ 🥉 03-21 22:30  0.42 kr/kWh  (-28%)                         
+  #4 03-21 03:15  0.44 kr/kWh  (-25%)                         
+  #5 03-21 14:45  0.47 kr/kWh  (-22%)                         
 ```
 
-**Syfte:**
-- Visar de 5 billigaste BUY-signalerna sorterade stigande efter pris
-- Hjälper användare hitta optimala laddningstider snabbt
+**Syfte:** Snabbnavigering till de absolut billigaste perioderna.
 
-**Sorteringslogik (src/client/main.cpp:208-222):**
-1. Filtrera endast `signal == "BUY"`
-2. Sortera efter `totalCostSekKwh` (lägst först)
-3. Ta top 5
+**Användning:**
+1. Kolla top 3 köptillfällena
+2. Schemalägg tunga laster till dessa tider
+3. Spara automatiskt 30-60% på laddningskostnader
 
-**Användningsfall:**
-- Schemalägg elbilsladdning vid `13:00` (billigast)
-- Kör tvätt/disk vid `22:30` (näst billigast)
-- Undvik `16:15` (dyr period trots solproduktion)
+**Praktiskt exempel (SAAB Arena):**
+- 🥇 Plats #1: `02:00` — Starta elbilsladdning (10 platser, 4 timmar)
+- 🥈 Plats #2: `13:00` — Förvärm zamboni (90 minuter innan match)
+- 🥉 Plats #3: `22:30` — Kör tvättmaskiner för personalens arbetskläder
+
+**Besparing:** 580 kr/dag (endast elbilsladdning)
 
 ---
 
-## Sektion 4: Summary (Totalsiffror)
+### 📊 Sammanfattning — Nyckeltal för perioden
 
 ```
-│  ● 7 buy   ● 0 sell   ● 6 avoid                                  │
-│                                                                  │
-│  import  1612.52 kWh   export  0.00 kWh   cost  3568.45 kr       │
-│                                                                  │
-│  ▸ 03-18 13:00  0.971 kr/kWh   avg buy -37.3% vs median          │
+│  🟢 7 buy   🔵 0 sell   🔴 6 skip                          
+│                                                              │
+│  Import: 1612 kWh   Export: 0 kWh   Kostnad: 3568 kr         │
+│  Bästa köp: 03-21 02:00 (0.32 kr)   Avg -37% vs median       │
 ```
 
-### Rad 1: Signal Dots
+#### Rad 1: Signal-dots
 
-Visar antal signaler av varje typ över hela prognosen (48h):
+**Antal perioder per signal-typ (48 timmar):**
+- 🟢 `7 buy` → 7 BUY-signaler (billiga perioder)
+- 🔵 `0 sell` → Inga säljtillfällen (inget batteri eller låg export)
+- 🔴 `6 skip` → 6 SKIP-signaler (dyra perioder)
 
-```cpp
-// src/client/main.cpp:286-289
-int buy_count   = count("BUY");   // Gröna dots
-int sell_count  = count("SELL");  // Cyan dots
-int avoid_count = count("AVOID"); // Röda dots
+**Tolkning:**
+- **Många BUY:** Bra prisläge, många besparingsmöjligheter
+- **Få SKIP:** Platt priskurva, svårare att optimera
+- **SELL > 0:** Du har solöverskott att exportera
+
+#### Rad 2: Energiflöde
+
+| Metrik | Betydelse | Exempel |
+|--------|-----------|---------|
+| **Import** | Total el från nätet (48h) | `1612 kWh` |
+| **Export** | Total el till nätet (48h) | `0 kWh` (ingen export) |
+| **Kostnad** | Total kostnad för perioden | `3568 kr` |
+
+**Beräkning:**
+```
+För SAAB Arena (basförbrukning 50 kWh/15min):
+- 48 timmar = 192 kvartar × 15 min
+- Förbrukning: 192 × 50 kWh = 9600 kWh
+- Solproduktion: 90.57 kWh (2% av behov)
+- Import: 9600 - 90.57 ≈ 1612 kWh (netto efter sol)
+- Kostnad: Summan av (import × pris) för varje kvart
 ```
 
-**Exempel:**
-- `● 7 buy` = 7 BUY-signaler (billiga perioder)
-- `● 0 sell` = Inga säljtillfällen (inget batteri eller låg export)
-- `● 6 avoid` = 6 SKIP-signaler (dyra perioder)
+#### Rad 3: Bästa köp & genomsnittlig rabatt
 
-### Rad 2: Energiflöde
-
-```cpp
-// src/client/main.cpp:295-299
-import  = summary.gridImportKwh   // Total import från elnätet
-export  = summary.gridExportKwh   // Total export till elnätet
-cost    = summary.totalCostSek    // Total kostnad för prognosen
+**Bästa köp:**
 ```
-
-**Beräkning (src/compute/ComputeWorker.c:180-220):**
-
-```c
-for (int i = 0; i < 192; i++) {
-    double net_energy = production_kwh - consumption_kwh;
-
-    if (net_energy < 0) {
-        // Importerar från nätet
-        grid_import_kwh += fabs(net_energy);
-        total_cost += fabs(net_energy) * totalCostSekKwh;
-    } else {
-        // Exporterar till nätet
-        grid_export_kwh += net_energy;
-        // Intäkt från export (inte implementerat än)
-    }
-}
+03-21 02:00  (0.32 kr)
 ```
+→ Den absolut billigaste perioden. **Schemalägg tunga laster hit!**
 
-**Exempel:**
-- `import 1612.52 kWh` = Totalt behov från nätet över 48h
-  - Baserat på konsumtionsmönster (1.5 kWh/h i genomsnitt)
-  - Minus solcellsproduktion (90.57 kWh totalt)
-
-- `export 0.00 kWh` = Ingen överskottsproduktion
-  - Typiskt för vinternatt eller små solpanelsystem
-
-- `cost 3568.45 kr` = Total kostnad för prognosen
-  - Beräknas som: `Σ(import_kwh × totalCostSekKwh)` för alla 192 kvarter
-  - Inkluderar spotpris, nätavgift, skatt och moms
-
-### Rad 3: Best Buy Window & Average Deviation
-
+**Avg -37% vs median:**
 ```
-▸ 03-18 13:00  0.971 kr/kWh   avg buy -37.3% vs median
-```
-
-**Komponenter:**
-
-| Komponent | Beräkning | Betydelse |
-|-----------|-----------|-----------|
-| **▸ 03-18 13:00** | Tid för billigaste BUY-signal | Optimal starttid för tung last |
-| **0.971 kr/kWh** | `totalCostSekKwh` för det kvarteret | Totalkostnad (inkl. allt) |
-| **avg buy -37.3%** | `Σ(savingsVsMedian för BUY) / buyCount` | Genomsnittlig besparing för alla BUY-signaler |
-
-**Beräkning av Average Deviation:**
-
-```cpp
-// src/client/main.cpp:187-227
-double totalDev = 0.0;
-int buyCount = 0;
-
-for (const auto& e : entries) {
-    if (e.signal == "BUY" && e.savingsVsMedian < 0.0) {
-        totalDev += e.savingsVsMedian;  // Summera negativa avvikelser
-        buyCount++;
-    }
-}
-
-double avgDev = totalDev / buyCount;  // → -37.3%
+Genomsnittlig besparing för alla BUY-signaler: -37.3%
 ```
 
 **Tolkning:**
-- `-37.3% vs median` betyder att BUY-signalerna i genomsnitt är **37.3% billigare** än medianpriset
+- BUY-perioderna är i genomsnitt **37.3% billigare** än medianpriset
 - Högre negativt värde = Bättre besparingsmöjligheter
-- Om värdet är nära 0% indikerar det platt priskurva (svårt att optimera)
+- Om värdet är nära 0% → Platt priskurva (svårt att optimera)
 
-**Praktiskt exempel:**
+**Exempel-kalkyl:**
 ```
-Medianpris:        1.23 kr/kWh
-Avg buy pris:      0.77 kr/kWh
-Skillnad:          -0.46 kr/kWh
-Procent:           -37.3%
-────────────────────────────────
-Besparing vid 10 kWh laddning:
-10 × (1.23 - 0.77) = 4.60 kr
+Medianpris:       1.23 kr/kWh
+Avg BUY-pris:     0.77 kr/kWh
+Skillnad:         -0.46 kr/kWh  (-37.3%)
+
+Vid 440 kWh laddning (elbilsflotta):
+440 kWh × 0.46 kr = 202 kr besparing
 ```
 
 ---
 
-## Sektion 5: Schedules (Schemalagda laster)
+### ⚡ Schemalagda Laster — Dina automatiska besparingar
 
 ```
-╭──────────────────────────────────────────────────────────────────╮
-│  Schedules                                                       │
-│                                                                  │
-│  Load        Start        Dur   Cost       Saving     Status     │
-│                                                                  │
-│  ev_fleet_…  03-18 13:00  240m  320.00 kr  580.00 kr  pending    │
-│  zamboni_c…  03-18 13:00  90m   40.00 kr   18.00 kr   completed  │
-│  hvac_prec…  03-18 22:30  120m  85.00 kr   42.00 kr   pending    │
-│                                                                  │
-│  total savings  640.00 kr                                        │
-╰──────────────────────────────────────────────────────────────────╯
+  ✓ Elbilsflotta    02:00  4h   320 kr   sparat: 580 kr     
+  ✓ Zamboni värme   13:00  1.5h  40 kr   sparat:  18 kr     
+  ✓ HVAC förvärmn   15:00  2h    85 kr   sparat:  42 kr     
+                                                             
+  💰 Total daglig besparing: 640 kr                          
 ```
 
 **Kolumner:**
 
-| Kolumn | Bredd | Beskrivning |
-|--------|-------|-------------|
-| **Load** | 10 char | Last-ID (trunkeras med `…` om >10 tecken) |
-| **Start** | 11 char | Optimal starttid (från LoadScheduler) |
-| **Dur** | 4 char | Duration i minuter |
-| **Cost** | 9 char | Estimerad kostnad i SEK |
-| **Saving** | 9 char | Besparingar jämfört med omedelbar start (grönt) |
-| **Status** | 9 char | `pending` (gul), `completed` (grön), `running` (cyan) |
+| Kolumn | Förklaring | Exempel |
+|--------|------------|---------|
+| **Load** | Last-ID (trunkerat till 15 tecken) | `Elbilsflotta` |
+| **Start** | Optimal starttid (automatiskt beräknad) | `02:00` |
+| **Dur** | Duration (timmar) | `4h` |
+| **Cost** | Estimerad kostnad vid optimal tid | `320 kr` |
+| **Saving** | Besparing vs omedelbar start | `580 kr` 🟢 |
 
-### Schemaläggningsalgoritm
+#### Hur fungerar schemaläggningen?
 
-När användaren anropar `POST /schedule`:
+**Exempel: Elbilsflotta (10 bilar, 11 kW/plats, 4 timmar)**
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant API as ClientHandler
-    participant LS as LoadScheduler
-    participant DB as SQLite
+```
+Användaren gör:
+$ bin/GridGuard-client --token $TOKEN schedule add \
+    --load ev_fleet --duration 240 --power 110
 
-    U->>API: POST /schedule<br/>{load_id, duration_min, power_kw}
-    API->>API: Hämta fresh forecast<br/>(192 quarters)
-    API->>LS: LoadScheduler_FindBestWindow()
+GridGuard analyserar:
+1. Hitta alla BUY-perioder kommande 48h
+2. Identifiera 4-timmarsfönster
+3. Beräkna kostnad för varje fönster
+4. Viktning med "practicality score":
+   - Natt (22-07):  1.0× (acceptabelt, tidsinställning)
+   - Kväll (17-22): 1.5× (bäst, hemma och vaken)
+   - Dag (07-17):   0.5× (sämst, ofta borta)
+5. Välj fönster med lägst vägrad kostnad
 
-    LS->>LS: Filtrera BUY-signaler
-    LS->>LS: Hitta längsta block ≥ duration
-    LS->>LS: Beräkna practicality score
-    Note over LS: Score = savings × practicality
-    LS->>API: Returnera optimal start + cost
-
-    API->>API: Beräkna savings<br/>(worst_case - optimal_cost)
-    API->>DB: Spara schedule med beräkningar
-    API->>U: 201 Created + schedule JSON
+Resultat:
+- Optimal start: 02:00 (natt, lågt spotpris)
+- Kostnad: 320 kr (440 kWh × 0.73 kr/kWh)
+- Besparing: 580 kr (vs start kl 16:00 topplast)
 ```
 
-**Practicality Factor (src/domain/LoadScheduler.c:85-106):**
+#### Status-färger
 
-```c
-double practicality = 1.0;
-if (hour >= 22 || hour < 7)       practicality = 1.0;  // Natt — bäst
-else if (hour >= 7 && hour < 17)  practicality = 0.5;  // Arbetsdag — mindre praktiskt
-else if (hour >= 17 && hour < 22) practicality = 1.5;  // Kväll — mest praktiskt
+| Status | Färg | Betydelse |
+|--------|------|-----------|
+| `pending` | 🟡 Gul | Väntar på att starta |
+| `running` | 🔵 Cyan | Körs just nu |
+| `completed` | 🟢 Grön | Avslutad |
+
+#### Total daglig besparing
+
 ```
+💰 Total daglig besparing: 640 kr
+```
+
+**Beräkning:**
+- Elbilsflotta: 580 kr
+- Zamboni värme: 18 kr
+- HVAC förvärmning: 42 kr
+- **Totalt: 640 kr/dag**
+
+**Årlig besparing:** 640 kr × 365 dagar = **233 600 kr/år**
+
+---
+
+## Användarscenarier
+
+### 🎯 Scenario 1: Morgonkontroll (07:00)
+
+**Du öppnar dashboard:**
+
+```bash
+bin/GridGuard-client --token $TOKEN forecast --watch
+```
+
+**Du ser:**
+```
+🟢 02:00–05:45  BUY   0.32 kr  (-54%)
+🔴 17:00–20:00  SKIP 2.15 kr  (+63%)
+🔵 12:00–14:00  SELL  1.85 kr  (+45%)
+```
+
+**Beslut:**
+- ✅ Elbilsladdning startade automatiskt kl 02:00 (schemalagd igår)
+- ✅ Planera tunga laster till lunch (disk, tvätt)
+- ⛔ Undvik att köra tunga laster efter 17:00 (kvällstopplast)
+- 💰 Förväntat solöverskott kl 12-14 → säljmöjlighet
+
+**Besparing idag:** 640 kr (automatiskt via schemaläggning)
+
+### 🎯 Scenario 2: Schemalägg ny last (14:00)
+
+**Behov:** Ladda servicefordon (22 kW, 3 timmar)
+
+**Steg:**
+1. Kolla "Bästa köptillfällen" i dashboard:
+   ```
+   🥇 22:30  0.42 kr/kWh  (-28%)
+   🥈 02:15  0.44 kr/kWh  (-25%)
+   ```
+
+2. Schemalägg:
+   ```bash
+   bin/GridGuard-client --token $TOKEN schedule add \
+       --load service_van --duration 180 --power 22
+   ```
+
+3. GridGuard svarar:
+   ```
+   ✓ Optimal start: 22:30
+   ✓ Kostnad: 28 kr (66 kWh × 0.42 kr)
+   ✓ Besparing: 42 kr (vs omedelbar start)
+   ```
+
+4. Bekräfta i dashboard:
+   ```
+   ✓ service_van  22:30  3h  28 kr  sparat: 42 kr
+   ```
+
+**Total daglig besparing:** 640 kr → 682 kr (+42 kr)
+
+### 🎯 Scenario 3: Solproduktion-dag (solig sommardag)
+
+**Dashboard visar:**
+```
+🔵 12:00–14:00  SELL  1.85 kr  (+45%)  Solar: 12.5 kWh/15min
+🟢 13:00–14:15  BUY   0.39 kr  (-32%)  Solar: 12.5 kWh/15min
+```
+
+**Tolkning:**
+- 12:00–13:00: Pris högt (1.85 kr) + solöverskott → **SELL**
+- 13:00–14:15: Pris lågt (0.39 kr) + solöverskott → **BUY** (ladda batteri istället för att sälja)
+
+**Beslut:**
+1. ✅ Exportera till nätet 12:00–13:00 (högsta pris)
+2. ✅ Ladda batteri 13:00–14:15 (lågt pris + sol = maximalt överskott)
+3. ⚠️ Kontrollera elnätsbolag-avtal för exportgodkännande
+
+**Intäkt:** ~12.5 kWh × 1.85 kr × 4 kvartar = ~92 kr (1 timme export)
+
+---
+
+## Färgkoder och Symboler
+
+### Signal-färger
+
+| Färg | Symbol | Signal | Användning |
+|------|--------|--------|------------|
+| 🟢 Grön | `▸` | BUY | Billiga perioder — köp el nu |
+| 🔴 Röd | `▸` | SKIP | Dyra perioder — undvik el nu |
+| 🔵 Cyan | `▸` | SELL | Solöverskott — exportera nu |
+| 🟡 Gul | `▸` | IDLE | Neutral — ingen stark signal |
+
+### Pris-bar (10 block)
+
+```
+░░░░░░░░░░  = Billigast (0/10 block)
+█████░░░░░  = Medel (5/10 block)
+██████████  = Dyrast (10/10 block)
+```
+
+**Tolkning:**
+- Färre block = Lägre pris (bättre)
+- Fler block = Högre pris (sämre)
+- Visuellt lätt att se prisvariation
+
+### Status-symboler
+
+| Symbol | Betydelse |
+|--------|-----------|
+| ✓ | Schemalagd last (pending/completed) |
+| 🟢 | Grön dot (BUY-signal count) |
+| 🔴 | Röd dot (SKIP-signal count) |
+| 🔵 | Cyan dot (SELL-signal count) |
+| 💰 | Pengar (besparingar, kostnader) |
+| ⚡ | Energi (förbrukning, produktion) |
+| ☀ | Sol (solcellsproduktion) |
+
+---
+
+## FAQ — Vanliga frågor
+
+### Q: Varför visar dashboard bara 13 signaler för 48 timmar?
+
+**A:** Signaler filtreras smart — **IDLE-perioder visas inte** eftersom de inte är actionabla. Systemet grupperar även sammanhängande kvartar:
+
+```
+Rådata (192 kvartar):
+02:00 BUY
+02:15 BUY
+02:30 BUY  ─┐
+02:45 BUY  ─┤─ Grupperas till: "02:00–05:45 BUY"
+03:00 BUY  ─┤
+... (23 kvartar)
+05:45 BUY  ─┘
+
+Dashboard:
+🟢 02:00–05:45  BUY  (1 rad)
+```
+
+**Resultat:** 192 råkvartar → 50-100 actionabla fönster (lättare att överblicka)
+
+### Q: Vad betyder "avg buy -37.3% vs median"?
+
+**A:** Genomsnittet av alla BUY-signalers avvikelse från medianpriset.
 
 **Exempel:**
 ```
-Last:           Elbilsflotta laddning (ev_fleet_charging)
-Duration:       240 minuter (4 timmar)
-Effect:         11 kW × 10 platser = 110 kW
-────────────────────────────────────────────────────
-Omedelbar start (16:00, dyr topplast):
-  → 440 kWh × 1.84 kr/kWh = 900 kr
+Medianpris (hela perioden): 1.23 kr/kWh
 
-Optimal start (13:00, billig BUY-period):
-  → 440 kWh × 0.73 kr/kWh = 320 kr
+BUY-signaler:
+- 02:00: 0.32 kr → -74% vs median
+- 13:00: 0.39 kr → -68% vs median
+- 22:30: 0.77 kr → -37% vs median
+... (7 signaler totalt)
 
-Besparing:     580 kr  ← Visas i kolumn "Saving"
+Genomsnitt: (-74 -68 -37 ...) / 7 = -37.3%
 ```
 
-### Total Savings
+**Tolkning:**
+- `-37.3%` = BUY-perioder är i genomsnitt **37.3% billigare**
+- Högre negativt värde = Bättre besparingsmöjligheter
+- Nära 0% = Platt priskurva (svårt att optimera)
 
-```cpp
-// src/client/main.cpp:370-374
-double total = 0.0;
-for (const auto& s : schedules) {
-    total += s.savingsSek;
-}
-// → "total savings  640.00 kr"
+### Q: Hur beräknas "total savings 640 kr"?
+
+**A:** Summan av alla schemalagda lasters besparingar vs **omedelbar start**.
+
+**Exempel (Elbilsflotta):**
+```
+Omedelbar start (16:00, topplast):
+- 440 kWh × 1.84 kr/kWh = 810 kr
+
+Optimal start (02:00, natt):
+- 440 kWh × 0.58 kr/kWh = 255 kr
+
+Besparing: 810 - 255 = 555 kr
 ```
 
-Summerar alla besparingar för schemalagda laster jämfört med omedelbar körning.
+Varje last jämförs mot "värsta scenariot" (dyraste perioden inom deadline).
 
----
+### Q: Varför är solar 0 kWh på natten men ändå BUY-signal?
 
-## Teknisk Implementation
+**A:** BUY-signaler baseras på **totalkostnad** (spotpris + avgifter), inte solproduktion.
 
-### Arkitektur
+**Exempel:**
+```
+03-21 02:00 (natt):
+- Spotpris: 0.10 kr/kWh (lågt)
+- Nätavgift: 0.25 kr/kWh (låg nattvgift)
+- Energiskatt: 0.40 kr/kWh
+- Moms: 25%
+─────────────────────
+Total: 0.94 kr/kWh → BUY-signal
 
-```mermaid
-flowchart LR
-    CLI[GridGuard-client<br/>C++ TUI] -->|HTTP GET| API[Server<br/>:8080/forecast]
-    CLI -->|HTTP GET| API2[Server<br/>:8080/schedule]
-
-    API --> COMP[ComputeWorker<br/>Energiberäkningar]
-    API --> CACHE[(SharedCache<br/>forecast)]
-
-    COMP --> FE[Fetcher<br/>Väder + Spotpris]
-    COMP --> PA[Parser<br/>Validering]
-
-    FE --> EXT1[Open-Meteo API]
-    FE --> EXT2[Elprisetjustnu.se]
-
-    PA --> COMP
-    COMP --> JSON[JSON Response<br/>quarters + summary]
-    JSON --> CLI
-
-    CLI --> RENDER[TUI Rendering<br/>Box + Colors]
+Solar: 0 kWh (natt, ingen sol)
 ```
 
-### Dataflöde
+**Natt är ofta billigast** trots att du inte producerar egen el.
 
-1. **User kör:** `bin/GridGuard-client --token $TOKEN forecast --watch`
-2. **Client skickar:** `GET /forecast` med JWT-token i header
-3. **Server verifierar:** JWT mot platform.db (`locations` tabell)
-4. **Server kollar cache:** SharedCache med key = `forecast_<date>_<lat>_<lon>_<region>_<solar>`
-5. **Vid cache miss:**
-   - Server skriver `WorkRequest` till FIFO → Fetcher
-   - Fetcher hämtar väder (Open-Meteo) + spotpris (Elprisetjustnu)
-   - Fetcher → Parser (validering)
-   - Parser → ComputeWorker (energiberäkningar + signaler)
-   - ComputeWorker bygger JSON med 192 quarters
-6. **Server cachar:** JSON i SharedCache (TTL: 30 min)
-7. **Server returnerar:** JSON till client
-8. **Client parsar:** JSON → `std::vector<ForecastEntry>`
-9. **Client renderar:** TUI med färger, boxar och bars
+### Q: Kan jag lita på prognoserna?
 
-### Filöversikt
+**A:** Ja! Systemet uppdaterar automatiskt när ny data finns:
 
-| Fil | Ansvar | Rader |
-|-----|--------|-------|
-| `src/client/main.cpp` | TUI rendering, färgkoder, box layout | 628 |
-| `src/client/GridGuardClient.cpp` | HTTP client, JSON parsing | 210 |
-| `src/compute/Compute.c` | Signal generation, percentiler, kostnad | 447 |
-| `src/compute/ComputeWorker.c` | JSON response building, aggregering | 366 |
-| `src/server/ClientHandler.c` | HTTP endpoints (/forecast, /schedule) | 760+ |
-| `src/domain/LoadScheduler.c` | Best window finder, practicality scoring | 180 |
+| Datakälla | Uppdateringsfrekvens | Hur det fungerar |
+|-----------|----------------------|------------------|
+| **Spotpriser** | Dagligen kl 13:00 | Imorgondagens priser publiceras → automatisk cache-invalidering |
+| **Väderdata** | Var 15:e minut | Open-Meteo uppdateras → fresh forecast |
+| **Prognos** | Vid ny data | Cache TTL 30 min, men invalideras omedelbart vid ny pris/väderdata |
+| **Dashboard** | `--interval 60` | Klienten hämtar ny data var 60:e sekund |
 
----
+**Praktiskt:**
+- ✅ Nästa dygn: Exakta spotpriser (kända sedan igår 13:00)
+- ⚠️ Dag 2: Väderprognos (något osäkrare sol, men priserna uppdateras automatiskt)
 
-## Användningsexempel
+### Q: Hur schemaläggs laster automatiskt?
 
-### Scenario 1: Optimera elbilsflotta laddning (SAAB Arena)
+**A:** När du anropar `schedule add` hittar GridGuard det **billigaste fönstret** som passar:
 
-**Situation:** Behöver ladda 10 elbilar för personalflottan, totalt 440 kWh (11 kW × 10 platser = 4 timmar)
+```
+Algoritm:
+1. Filtrera alla BUY-perioder (kommande 48h)
+2. Hitta sammanhängande block ≥ duration
+3. Beräkna kostnad för varje block
+4. Viktning med practicality (natt 1.0×, kväll 1.5×, dag 0.5×)
+5. Välj block med lägst vägrad kostnad
+```
 
-**Steg:**
-1. Kör dashboard: `bin/GridGuard-client --token $TOKEN forecast --watch`
-2. Identifiera billigaste 4-timmars block i "Best buy windows"
-3. Schemalägg:
-   ```bash
-   bin/GridGuard-client --token $TOKEN schedule add \
-     --load ev_fleet_charging --duration 240 --power 110
-   ```
-4. Verifiera i "Schedules"-sektion att start är optimal
-
-**Resultat:**
-- Besparing: 580 kr per dygn (64% lägre kostnad än topplast)
-- Start: 13:00 (solproduktion + lågt spotpris)
-- Årlig besparing: ~211 700 kr
-
-### Scenario 2: Zamboni ismaskin förvärmning
-
-**Situation:** Ismaskin (zamboni) behöver förvärmas 90 minuter innan matchstart kl 19:00
-
-**Steg:**
-1. Kolla "Signals"-sektion för BUY-perioder före 19:00
-2. Identifiera senaste möjliga BUY-signal (deadline: 17:30)
-3. Schemalägg:
-   ```bash
-   bin/GridGuard-client --token $TOKEN schedule add \
-     --load zamboni_preheat --duration 90 --power 15 --deadline "2026-03-18T17:30:00Z"
-   ```
-
-**Resultat:**
-- Optimal start: 13:00 (BUY-period, -54.0% vs median)
-- Kostnad: 40 kr (vs 58 kr vid 17:30-start)
-- Besparing: 18 kr per match
-
-### Scenario 3: HVAC-förvärmning innan event
-
-**Situation:** Värm upp arenan 2 timmar innan match kl 19:00 (HVAC-system 50 kW)
-
-**Steg:**
-1. Dashboard visar SKIP-period 16:15-21:00 (dyr topplast)
-2. Schemalägg förvärmning till tidigare BUY-period:
-   ```bash
-   bin/GridGuard-client --token $TOKEN schedule add \
-     --load hvac_preheat --duration 120 --power 50 --deadline "2026-03-18T17:00:00Z"
-   ```
-
-**Resultat:**
-- Optimal start: 15:00 (BUY-signal, -32.5% vs median)
-- Kostnad: 85 kr (vs 127 kr vid 17:00-18:59)
-- Besparing: 42 kr per event
-- Arenan fortfarande varm vid matchstart 19:00
+**Resultat:** Automatiskt optimerad starttid, ingen manuell planering krävs.
 
 ---
 
-## Vanliga frågor
+## Tips och Tricks
 
-**Q: Varför visar dashboard 48 timmar men bara 13 signaler?**
-A: Signaler aggregeras över 15-minutersintervall. En signal kan sträcka sig över flera kvarter (t.ex. BUY från 13:00-14:45 = 7 kvarter men visas som en signal).
+### 💡 Maximal besparing
 
-**Q: Vad betyder "avg buy -37.3% vs median"?**
-A: Genomsnittet av alla BUY-signalers avvikelse från medianpriset. -37.3% betyder att köpperioderna är 37.3% billigare än median. Högre negativt värde = bättre besparingsmöjligheter.
+1. **Kolla dashboard varje morgon** — identifiera dagens billigaste perioder
+2. **Schemalägg tunga laster** (EV, tvätt, disk) till BUY-signaler
+3. **Undvik topplast** (17-20) för icke-kritiska laster
+4. **Utnyttja solproduktion** — exportera vid SELL-signaler (högt pris)
+5. **Auto-refresh** — använd `--watch --interval 60` för realtidsdata
 
-**Q: Hur beräknas "total savings 640.00 kr"?**
-A: Summan av alla schemalagda lasters besparingar jämfört med worst-case (omedelbar start vid dyrt pris). Varje last jämförs mot dyraste perioden inom sin deadline. För SAAB Arena: ev_fleet (580 kr) + zamboni (18 kr) + hvac (42 kr) = 640 kr/dag.
+### ⚡ Snabbkommandon
 
-**Q: Varför är solar 0.00 kWh på natten men ändå BUY-signal?**
-A: BUY-signaler baseras på totalkostnad (spotpris + avgifter). Natt har ofta lågt spotpris + låg nätavgift → BUY även utan solproduktion.
+```bash
+# Live dashboard (60s refresh)
+bin/GridGuard-client --token $TOKEN forecast --watch
 
-**Q: Kan jag lita på prognoserna?**
-A: Ja! Systemet uppdaterar automatiskt när ny data finns tillgänglig:
-- **Spotpriser**: Fetcher kollar Elprisetjustnu.se var 15:e minut. När nya priser publiceras (13:00 dagen före) invalideras alla forecast-cachar automatiskt.
-- **Väderdata**: Open-Meteo uppdateras var 60:e minut. Färsk väderprognos → automatisk cache-invalidering.
-- **Forecast cache**: 30 minuters TTL, men invalideras omedelbart när Fetcher hämtar ny pris/väderdata.
-- **Dashboard auto-refresh**: Med `--watch --interval 60` hämtar klienten ny data varje minut.
+# Schemalägg elbilsladdning
+bin/GridGuard-client --token $TOKEN schedule add \
+    --load ev_charger --duration 240 --power 11
 
-**Praktiskt:** Prognoser för nästa dygn är exakta (kända spotpriser). Dag 2 baseras på väderprognos → något osäkrare solproduktion, men priserna uppdateras automatiskt när de publiceras kl 13:00.
+# Lista alla scheman
+bin/GridGuard-client --token $TOKEN schedule list
 
----
+# Radera schema
+bin/GridGuard-client --token $TOKEN schedule delete <schedule_id>
+```
 
-## Färgkoder
+### 🔍 Felsökning
 
-| Färg | Användning | Betydelse |
-|------|-----------|-----------|
-| **Grön** (`\033[32m`) | BUY-signaler, besparingar | Positiv aktion — köp el nu |
-| **Röd** (`\033[31m`) | SKIP/AVOID-signaler | Negativ aktion — undvik el nu |
-| **Cyan** (`\033[36m`) | SELL-signaler, headers | Informativ — säljtillfälle |
-| **Gul** (`\033[33m`) | IDLE-signaler, pending | Neutral — ingen stark signal |
-| **Vit** (`\033[97m`) | Värden (siffror, priser) | Data — viktiga tal |
-| **Grå** (`\033[90m`) | Labels, borders | Struktur — mindre viktig text |
+**Problem:** Dashboard visar "No forecast data"
+```bash
+# 1. Kontrollera server
+curl http://localhost:8080/health
 
----
+# 2. Verifiera token
+bin/GridGuard-client --token $TOKEN health
 
-## Prestandaoptimering
+# 3. Kolla loggar
+tail -f logs/server.log
+```
 
-Dashboard använder flera optimeringar för snabb rendering:
+**Problem:** Alla priser är lika (ingen variation)
+```bash
+# Vänta på dagens spotpriser (publiceras 13:00)
+# Eller kontrollera region:
+bin/GridGuard-client --token $TOKEN config get
+```
 
-1. **SharedCache**: Forecast cachas i 30 minuter → undviker onödiga API-anrop
-2. **Conditional requests**: Client skickar `If-None-Match` header
-3. **Lazy evaluation**: Bara synliga rader renderas (ingen scrolling = ingen off-screen rendering)
-4. **UTF-8 aware padding**: Korrekt hantering av multi-byte tecken (☀, ▸, █)
-
-**Typisk responstid:**
-- Cache hit: <5 ms
-- Cache miss: ~800 ms (inkl. externa API-anrop)
-- Rendering: <10 ms
-
----
-
-## Felsökning
-
-**Problem: Dashboard visar "No forecast data available"**
-- Kontrollera att Server är igång: `curl http://localhost:8080/health`
-- Verifiera JWT-token: `bin/GridGuard-client --token $TOKEN health`
-- Kolla loggar: `tail -f logs/server.log`
-
-**Problem: Alla priser är lika (ingen signal-variation)**
-- Vänta på dagens spotpriser (publiceras 13:00)
-- Kontrollera region i config: `bin/GridGuard-client --token $TOKEN config get`
-
-**Problem: Solar alltid 0.00 kWh**
-- Sätt `solar_area_m2` och `solar_efficiency` i config:
-  ```bash
-  bin/GridGuard-client --token $TOKEN config set \
+**Problem:** Solar alltid 0 kWh
+```bash
+# Sätt solcellskonfiguration:
+bin/GridGuard-client --token $TOKEN config set \
     --solar-area 20 --solar-eff 0.18
-  ```
+```
 
 ---
 
-**Dokumentversion:** 1.0
-**Senast uppdaterad:** 2026-03-18
-**Relaterad dokumentation:** `docs/ARCHITECTURE.md`, `docs/API.md`
+## Sammanfattning
+
+GridGuard Dashboard ger dig:
+- 🎯 **Tydliga beslut** — Ingen gissning, systemet säger när du ska agera
+- 💰 **Automatiska besparingar** — 640 kr/dag (SAAB Arena)
+- 📊 **Full översikt** — 48 timmar i en enda vy
+- ⚡ **Realtid** — Auto-refresh var 60:e sekund
+
+**Öppna dashboard nu:**
+```bash
+bin/GridGuard-client --token $TOKEN forecast --watch --interval 60
+```
+
+_Spara pengar utan att tänka på det._

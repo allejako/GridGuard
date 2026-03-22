@@ -1,0 +1,87 @@
+[Unit]
+Description=GridGuard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=gridguard
+Group=gridguard
+WorkingDirectory=/opt/gridguard
+
+# Main process (watchdog supervises server, fetcher, parser)
+ExecStart=/opt/gridguard/bin/GridGuard-watchdog \
+    /opt/gridguard/bin/GridGuard-fetcher \
+    /opt/gridguard/bin/GridGuard-parser \
+
+    /opt/gridguard/bin/GridGuard-server
+ExecStop=/bin/kill -TERM $MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
+
+# PID file written by watchdog daemon mode
+PIDFile=/var/run/gridguard/watchdog.pid
+
+# Timeouts
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+RestartSec=10s
+
+# Restart policy
+Restart=on-failure
+RestartPreventExitStatus=127
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gridguard/logs /opt/gridguard/gridguard.db /opt/gridguard/platform.db /var/run/gridguard /tmp /dev/shm
+
+# Additional security restrictions
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+# Capability restrictions
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=
+
+# System call filtering
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug @mount @swap @reboot @module @raw-io @cpu-emulation
+
+# Filesystem restrictions
+PrivateDevices=true
+DevicePolicy=closed
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+MemoryMax=2G
+CPUQuota=200%
+
+# Environment
+Environment="GRIDGUARD_LOG_LEVEL=INFO"
+Environment="GRIDGUARD_CONFIG=/opt/gridguard/gridguard.conf"
+EnvironmentFile=-/etc/default/gridguard
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gridguard
+
+[Install]
+WantedBy=multi-user.target

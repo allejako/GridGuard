@@ -6,6 +6,7 @@
 #include "sys/Logger.h"
 #include "domain/Config.h"
 #include "config/RuntimeConfig.h"
+#include "ipc/IPCPaths.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -45,11 +46,6 @@ static int OpenFifoWrite(const char *path, int timeoutSec)
     return -1;
 }
 
-// IPC paths - defined here to be accessible everywhere
-static const char *FIFO_PATH = "/tmp/gridguard_fetch_to_parse.fifo";
-static const char *SOCKET_PATH = "/tmp/gridguard_parse_to_compute.sock";
-static const char *NOTIFY_PATH = "/tmp/gridguard_parse_to_compute.fifo";
-
 int GridGuard_Initiate(GridGuard *app)
 {
     if (!app)
@@ -59,8 +55,8 @@ int GridGuard_Initiate(GridGuard *app)
     app->requestPipeFd = -1;
     app->computeWorker = NULL;
 
-    strncpy(app->fifoPath, FIFO_PATH, sizeof(app->fifoPath) - 1);
-    strncpy(app->socketPath, SOCKET_PATH, sizeof(app->socketPath) - 1);
+    strncpy(app->fifoPath, FETCH_TO_PARSE_FIFO_PATH, sizeof(app->fifoPath) - 1);
+    strncpy(app->socketPath, PARSE_TO_COMPUTE_SOCK_PATH, sizeof(app->socketPath) - 1);
 
     LOG_INFO("Initializing GR1DGU4RD application core...");
 
@@ -175,7 +171,7 @@ int GridGuard_Initiate(GridGuard *app)
         return -1;
     }
 
-    if (ComputeWorker_Initiate(computeWorker, app->socketPath, NOTIFY_PATH, &app->compute) != 0)
+    if (ComputeWorker_Initiate(computeWorker, app->socketPath, PARSE_TO_COMPUTE_NOTIFY_PATH, &app->compute) != 0)
     {
         LOG_ERROR("Failed to initiate ComputeWorker");
         free(computeWorker);
