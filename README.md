@@ -229,15 +229,17 @@ src/
     └── benchmarks/   Prestandamätningar — compute, cache, kö
 
 docs/
+├── SYSTEM_DOCUMENT.md
 ├── ARCHITECTURE.md
 ├── API.md
-├── Old/        Arkiverade dokument
+├── profiling/
 └── Changelog/
 ```
 
 ## Dokumentation
 
-- `docs/ARCHITECTURE.md` — Arkitektur, IPC, watchdog och designbeslut
+- `docs/SYSTEM_DOCUMENT.md` — Systemöversikt, processer, IPC, profilering och förbättringsanalys
+- `docs/ARCHITECTURE.md` — Detaljerad arkitektur, IPC och designbeslut
 - `docs/API.md` — Komplett API-referens med request/response-exempel
-- `docs/Old/PERFORMANCE_REPORT.md` — Profileringsresultat och optimeringar
-- `docs/Changelog/` — Detaljerade ändringsloggar per vecka
+- `docs/profiling/PROFILING_REPORT.md` — Profileringsresultat och optimeringar
+- `docs/Changelog/` — Detaljerade ändringsloggar per dag

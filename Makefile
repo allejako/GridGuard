@@ -609,6 +609,7 @@ dev: server watchdog platform-objects $(MAIN_BIN)
 	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
 	echo "seeding gridguard.db..."; \
+	python3 scripts/seed_user_config.py "$(CURDIR)/gridguard.db"; \
 	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
 	echo "starting gridguard..."; \
 	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
@@ -638,13 +639,12 @@ dev: server watchdog platform-objects $(MAIN_BIN)
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo ""; \
-	echo "testing /forecast:"; \
-	curl -s -X GET "http://localhost:8080/forecast" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed"; \
-	echo ""; \
-	echo "testing /schedule:"; \
-	curl -s -X GET "http://localhost:8080/schedule" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed";
+	STATUS=$$(curl -s -o /dev/null -w "%{http_code}" -X GET "http://localhost:8080/forecast" \
+	    -H "Authorization: Bearer $$DEV_TOKEN"); \
+	[ "$$STATUS" = "200" ] && echo "  /forecast    200 OK" || echo "  /forecast    $$STATUS (failed)"; \
+	STATUS=$$(curl -s -o /dev/null -w "%{http_code}" -X GET "http://localhost:8080/schedule" \
+	    -H "Authorization: Bearer $$DEV_TOKEN"); \
+	[ "$$STATUS" = "200" ] && echo "  /schedule    200 OK" || echo "  /schedule    $$STATUS (failed)";
 
 stop:
 	@echo "stopping gridguard..."

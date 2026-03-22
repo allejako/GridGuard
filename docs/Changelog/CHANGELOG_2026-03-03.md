@@ -100,3 +100,63 @@ Seedningen är idempotent — INSERT OR REPLACE används så att `make dev` kan 
 ## Status
 
 Platform-lagret är klart för demo. JWT-tokens genereras från platform.db, servern validerar dem, och all energy-data lever i gridguard.db lokalt. Demo-scriptet visar separationen tydligt.
+
+---
+
+## Watchdog.c delad upp i fyra moduler
+
+`Watchdog.c` var 441 rader och innehöll fyra logiskt separata ansvarsområden blandade i en enda fil: signalhantering, heartbeat-pipe, restart-logik och huvudloopen. Filen har nu delats upp i tre nya moduler med egna `.c`/`.h`-filer, och `Watchdog.c` är halverad till 220 rader.
+
+---
+
+## Problemet: en fil med för många ansvar
+
+Den gamla strukturen:
+
+```
+Watchdog.c (441 LOC)
+├── Signal handling        (58 LOC)
+├── Heartbeat pipe         (67 LOC)
+├── Status FIFO            (43 LOC)
+├── Daemon spawning        (40 LOC)
+├── Restart tracking       (45 LOC)
+└── Main watchdog loop    (128 LOC)
+```
+
+Allt var sammankopplat via globala variabler: `heartbeat_pipe[2]`, `status_fd`, `watchdog_running`, `daemon_pid`. Att förstå `Watchdog_Run()` krävde att man hoppade upp och ner i filen.
+
+---
+
+## Lösningen: tre fristående moduler
+
+```
+src/infrastructure/processes/watchdog/
+├── Watchdog.c          (220 LOC)
+├── WatchdogSignals.c   ( 38 LOC)
+├── Heartbeat.c         ( 89 LOC)
+└── RestartPolicy.c     ( 78 LOC)
+```
+
+**Heartbeat** — pipe-fd:arna är nu privata fält i en heap-allokerad struct med opak pekare. `Heartbeat_Create()` kör `pipe()` och returnerar en pekare. Löste också en subtil fork-bugg: child-processen måste stänga read-fd:n innan exec, nu ett explicit `Heartbeat_CloseReadFd()`-anrop.
+
+**RestartPolicy** — tar konfigurationen som argument till `_Create()`. Möjliggör isolerade enhetstester med kortare fönster utan att ändra produktionskoden.
+
+**WatchdogSignals** — samlar all signalregistrering på ett ställe. Signal handlers måste sätta `volatile sig_atomic_t` globals — dessa är definierade i `Watchdog.c` och deklarerade som `extern` i headern.
+
+---
+
+## Vad som inte ändrades
+
+Goto-statements i `Watchdog_Run()` är kvar. De är korrekt använda för att hoppa ut ur nästlade kontrollflöden — ett klassiskt goto-användningsfall som Linux kernel-koden godkänner.
+
+---
+
+## Verifiering
+
+```
+make clean && make all   → OK
+make test                → 12/12 PASS
+GET /forecast            → 200, 96 entries, BUY/IDLE-signaler
+```
+
+Identiska resultat före och efter refaktorering. Inget beteende ändrat.
