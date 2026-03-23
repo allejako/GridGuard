@@ -112,6 +112,7 @@ con.execute(CREATE_USER_CONFIGS)
 con.execute(CREATE_SCHEDULES)
 
 now = int(time.time())
+con.execute(INSERT_CONFIG, (now,))
 
 # Try to get real forecast periods (cheapest times)
 periods = fetch_forecast_signals(jwt_token)
