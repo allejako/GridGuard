@@ -258,14 +258,14 @@ Exempel:
 #### ⚡ Steg 3: Energiproduktion
 
 ```
-För SAAB Arena (500 m², verkningsgrad 20%):
+För SAAB Arena (1 500 m², verkningsgrad 20%):
 
-Produktion = (800 W/m² / 1000) × 500 m² × 0.20 × 0.75 × 0.84 × 0.25h
-           = 12.6 kWh per 15 min
-           = 50.4 kWh per timme
+Produktion = (800 W/m² / 1000) × 1 500 m² × 0.20 × 0.75 × 0.84 × 0.25h
+           = 37.8 kWh per 15 min
+           = 151.2 kWh per timme
 
-Med basförbrukning 50 kWh/15min:
-→ Nettobehov: 37.4 kWh (solar täcker ~25%)
+Med basförbrukning 11.25 kWh/15min (45 kWh/h):
+→ Överskott: +26.5 kWh (solar täcker ~336%, överskott säljs)
 ```
 
 **Kvalitetsparametrar:**

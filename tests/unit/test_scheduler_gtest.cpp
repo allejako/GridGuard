@@ -283,6 +283,61 @@ TEST_F(LoadSchedulerTest, PrefersEarlierWhenPricesEqual) {
     EXPECT_EQ(result.scheduledStart, baseTime + (1 * 900));
 }
 
+// Test that the practicality score causes a slightly more expensive evening window
+// to be preferred over a cheaper daytime window.
+//
+// Timestamps are placed at 12:00 UTC (day, factor 0.5) and 17:00 UTC (evening,
+// factor 1.5). This holds for UTC and CET/CEST (UTC+1/+2) — the CI runner and
+// Swedish development environments.
+//
+// Day window     (12:00 UTC): cost = 1.00 SEK, factor 0.5, weighted = 2.00
+// Evening window (17:00 UTC): cost = 1.20 SEK, factor 1.5, weighted = 0.80
+//
+// Without practicality: day wins (1.00 < 1.20)
+// With practicality:    evening wins (0.80 < 2.00)
+TEST_F(LoadSchedulerTest, PracticalityScorePrefersEveningOverCheaperDay) {
+    std::vector<SchedulerEntry> entries;
+
+    // Day block: 12:00–12:45 UTC, price 1.0 kr/kWh
+    time_t dayStart = baseTime + 12 * 3600;
+    for (int i = 0; i < 4; i++) {
+        SchedulerEntry e = {};
+        e.timestamp       = dayStart + i * 900;
+        e.totalCostPerKwh = 1.0;
+        e.productionKwh   = 0.0;
+        entries.push_back(e);
+    }
+
+    // Evening block: 17:00–17:45 UTC, price 1.2 kr/kWh
+    time_t eveningStart = baseTime + 17 * 3600;
+    for (int i = 0; i < 4; i++) {
+        SchedulerEntry e = {};
+        e.timestamp       = eveningStart + i * 900;
+        e.totalCostPerKwh = 1.2;
+        e.productionKwh   = 0.0;
+        entries.push_back(e);
+    }
+
+    ScheduleWindow result;
+    int status = LoadScheduler_FindWindow(
+        entries.data(), (int)entries.size(),
+        60,       // 60 min = 4 quarters
+        1.0,      // 1 kW load
+        0,        // no deadline
+        baseTime, // nowTime before all entries
+        &result
+    );
+
+    ASSERT_EQ(status, 0);
+
+    // Evening window should win due to practicality (weighted 0.80 < 2.00).
+    EXPECT_EQ(result.scheduledStart, eveningStart);
+
+    // estimatedCostSek must reflect actual cost, not weighted cost.
+    // 4 quarters × 1.2 kr/kWh × 1.0 kW × 0.25 h = 1.20 SEK
+    EXPECT_NEAR(result.estimatedCostSek, 1.20, 0.01);
+}
+
 // Test washing machine scenario: 90-minute cycle during cheap hours
 TEST_F(LoadSchedulerTest, WashingMachine90MinuteCycle) {
     auto entries = CreatePriceSlots({3.5, 3.0, 2.0, 1.5, 1.2, 2.5, 3.0});

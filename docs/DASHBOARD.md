@@ -87,7 +87,7 @@ Total daglig besparing: 640 kr
 - **Stad:** `Linköping` (konfigurerad via `/user/config`)
 - **Temperatur:** `13.1°C` (nuvarande väder från Open-Meteo)
 - **Sol-ikon:** `☀` (visas endast om du har solceller)
-- **Total solproduktion:** `90.57 kW` (summerad över hela 48h-prognosen)
+- **Aktuell solproduktion:** `90.57 kW` (momentant effektuttag just nu)
 
 **Vad betyder det:**
 Se direkt om din location är korrekt konfigurerad och hur mycket solenergi du kan förvänta dig idag.
@@ -227,11 +227,11 @@ Se direkt om din location är korrekt konfigurerad och hur mycket solenergi du k
 
 **Beräkning:**
 ```
-För SAAB Arena (basförbrukning 50 kWh/15min):
+För SAAB Arena (basförbrukning 11.25 kWh/15min = 45 kWh/h):
 - 48 timmar = 192 kvartar × 15 min
-- Förbrukning: 192 × 50 kWh = 9600 kWh
-- Solproduktion: 90.57 kWh (2% av behov)
-- Import: 9600 - 90.57 ≈ 1612 kWh (netto efter sol)
+- Förbrukning: 192 × 11.25 kWh = 2 160 kWh
+- Solproduktion: ~548 kWh (ca 25% av behov)
+- Import: 2 160 − 548 ≈ 1 612 kWh (netto efter sol)
 - Kostnad: Summan av (import × pris) för varje kvart
 ```
 
@@ -492,23 +492,6 @@ Genomsnitt: (-74 -68 -37 ...) / 7 = -37.3%
 - `-37.3%` = BUY-perioder är i genomsnitt **37.3% billigare**
 - Högre negativt värde = Bättre besparingsmöjligheter
 - Nära 0% = Platt priskurva (svårt att optimera)
-
-### Q: Hur beräknas "total savings 640 kr"?
-
-**A:** Summan av alla schemalagda lasters besparingar vs **omedelbar start**.
-
-**Exempel (Elbilsflotta):**
-```
-Omedelbar start (16:00, topplast):
-- 440 kWh × 1.84 kr/kWh = 810 kr
-
-Optimal start (02:00, natt):
-- 440 kWh × 0.58 kr/kWh = 255 kr
-
-Besparing: 810 - 255 = 555 kr
-```
-
-Varje last jämförs mot "värsta scenariot" (dyraste perioden inom deadline).
 
 ### Q: Varför är solar 0 kWh på natten men ändå BUY-signal?
 
