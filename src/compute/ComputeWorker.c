@@ -163,7 +163,7 @@ static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
 
             char startIso[32], endIso[32];
             FormatIso8601Utc(windowStart, startIso, sizeof(startIso));
-            FormatIso8601Utc(windowEntry->timestamp + (windowQuarters - 1) * 15 * 60, endIso, sizeof(endIso));
+            FormatIso8601Utc(windowEntry->timestamp + (time_t)(windowQuarters * 15 * 60), endIso, sizeof(endIso));
 
             cJSON *signal = cJSON_CreateObject();
             cJSON_AddStringToObject(signal, "signal", EnergyAction_ToString(prevAction));

@@ -141,6 +141,8 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         return -1;
 
     int numQuarters = forecast->count;  // Should be 192 (15-min intervals, 48h)
+    if (numQuarters > MAX_QUARTERS)
+        numQuarters = MAX_QUARTERS;
     if (numQuarters <= 0)
     {
         LOG_ERROR("Compute: No forecast data to work with (count=%d). Check if Fetcher and Parser are working.", numQuarters);
@@ -230,7 +232,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
     LOG_INFO("Compute: 48-HOUR FORECAST ANALYSIS");
     LOG_INFO("Compute: ═══════════════════════════════════════════════════════");
     LOG_INFO("Compute: Quarters analyzed: %d (%.1f hours)", validQuarters, validQuarters / 4.0);
-    LOG_INFO("Compute: Price range: %.3f - %.3f kr/kWh (spread: %.0f%%)", sortedCosts[0], sortedCosts[validQuarters-1], (sortedCosts[validQuarters-1] - sortedCosts[0]) / sortedCosts[0] * 100.0);
+    LOG_INFO("Compute: Price range: %.3f - %.3f kr/kWh (spread: %.0f%%)", sortedCosts[0], sortedCosts[validQuarters-1], sortedCosts[0] != 0.0 ? (sortedCosts[validQuarters-1] - sortedCosts[0]) / sortedCosts[0] * 100.0 : 0.0);
     LOG_INFO("Compute: Decision thresholds:");
     LOG_INFO("Compute:   → BUY window:   ≤ %.3f kr/kWh (cheapest %d quarters ≈ %.1fh)", cheapThreshold, numBuy, numBuy / 4.0);
     LOG_INFO("Compute:   → MEDIAN price:   %.3f kr/kWh", medianPrice);
@@ -408,7 +410,7 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                 {
                     bestScore = practicalScore;
                     plan->bestBuyWindow.start = plan->entries[windowStart].timestamp;
-                    plan->bestBuyWindow.end = plan->entries[windowEnd].timestamp;
+                    plan->bestBuyWindow.end = plan->entries[windowEnd].timestamp + 15 * 60;
                     plan->bestBuyWindow.durationMinutes = windowQuarters * 15;
                     plan->bestBuyWindow.avgCostSek = windowCost / windowQuarters;
                     plan->bestBuyWindow.savingsSek = windowSavings;
