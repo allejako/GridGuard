@@ -388,7 +388,7 @@ $(TEST_PIPELINE_BIN): $(SRC)/tests/integration/test_pipeline.c \
     $(SRC)/config/RuntimeConfig.c $(SRC)/config/ConfigParser.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-.PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline
+.PHONY: test test-jwt test-http-request test-http-response test-logger test-api test-weather test-pipeline test-client
 test: test-jwt test-http-request test-http-response test-logger test-api test-weather
 	@echo "======================================"
 	@echo "All tests passed!"
@@ -414,6 +414,9 @@ test-weather: directories $(TEST_WEATHER_BIN)
 
 test-pipeline: directories $(TEST_PIPELINE_BIN)
 	@$(TEST_PIPELINE_BIN)
+
+test-client: client
+	@bash scripts/test_client.sh
 
 # ── Google Test (CMake-based) ──────────────────────────────────────────
 CMAKE_BUILD_DIR = build
