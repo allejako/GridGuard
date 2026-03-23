@@ -5,7 +5,7 @@ Kurs 3 — Systemutvecklare C/C++, Chas Academy
 
 ---
 
-## 1. Vad vi försökte åstadkomma
+## 1. Varför byggde vi detta?
 
 - Lokal energioptimerings-plattform för fastigheter med solceller
 - Analyserar väderprognos och spotprisdata i realtid
@@ -15,7 +15,7 @@ Kurs 3 — Systemutvecklare C/C++, Chas Academy
 **Demokund: SAAB Arena, Linköping**
 
 - 1 500 m² solpaneler på taket
-- 45 kWh basförbrukning per kvart (180 kW konstant drift)
+- 45 kWh/h basförbrukning (45 kW konstant drift)
 - Flexibla laster: elbilsflotta (50 kW, 4h), HVAC-förvärmning (30 kW, 2h)
 
 **Resultat med GridGuard:**
@@ -83,15 +83,32 @@ Import: 1612 kWh   Kostnad: 3568 kr   Bästa köp: 02:00
 
 ---
 
-## 3. Processarkitektur
+## 3. Vilka processer finns och vad gör de?
 
-```
-GridGuard (launcher)
-└── GridGuard-watchdog      ← processövervakare, rotprocess
-    ├── GridGuard-fetcher   ← hämtar extern data via HTTPS
-    ├── GridGuard-parser    ← validerar och strukturerar rådata
-    └── GridGuard-server    ← HTTP-server + JWT-auth + SQLite
-            └── [tråd] ComputeWorker  ← energiberäkning
+```mermaid
+flowchart TD
+    Owner[👤 Fastighetsägare] --> Client
+
+    subgraph GridGuard
+        Launcher["GridGuard\n(launcher)"] -->|execv| Watchdog
+        Watchdog["GridGuard-watchdog\nSupervisor + heartbeat"] -->|fork+exec| Fetcher
+        Watchdog -->|fork+exec| Parser
+        Watchdog -->|fork+exec| Server
+
+        Server["GridGuard-server\nHTTP :8080 · JWT · SQLite"] -->|"WorkRequest\n(named FIFO)"| Fetcher
+        Fetcher["GridGuard-fetcher\nHTTPS · mbedTLS"] -->|"FetchResult\n(named FIFO)"| Parser
+        Parser["GridGuard-parser\nJSON · cJSON"] -->|"ParseResult\n(Unix socket)"| ComputeWorker["ComputeWorker\n(tråd i server)"]
+
+        Fetcher <-->|"shm_open\nmmap"| SHM[("SharedCache\nPOSIX shm\npthread_rwlock")]
+        ComputeWorker -->|skriv forecast| SHM
+        Server -->|läs forecast| SHM
+
+        Client["GridGuard-client\nC++17 · RAII · STL"]
+    end
+
+    Client -->|"GET /forecast\nHTTP + JWT"| Server
+    Fetcher -->|"HTTPS"| APIs["Open-Meteo\nElpriset"]
+    Owner --> Client
 ```
 
 **GridGuard-watchdog:**
@@ -101,6 +118,29 @@ GridGuard (launcher)
 - Startar om hela gruppen vid krasj: exponentiell backoff 2s → 4s → 8s → 16s → 32s
 - Max 5 omstarter per 300s — annars avbrott
 - Skriver PID, uptime och senaste heartbeat per process till shared memory → exponeras live via `GET /metrics`
+
+**Watchdog-loop:**
+
+```mermaid
+flowchart TD
+    Init[Skapa IPC-resurser\nFIFOs · socket · shm] --> Spawn
+    Spawn[Starta processer\nparser → fetcher → server] --> Poll
+
+    Poll["poll() heartbeat-pipes\nvar 2:a sekund"] --> HB{Heartbeat\nmottagen?}
+    HB -->|Ja| Poll
+    HB -->|">15s utan svar"| Frozen[Processen fryst\neller kraschad]
+
+    Frozen --> Kill["SIGTERM → alla processer\nwaitpid()"]
+    Kill --> Limit{"> 5 omstarter\ni 300s?"}
+    Limit -->|Ja| Exit([Avbrott — ger upp])
+    Limit -->|Nej| Backoff["Vänta backoff\n2 → 4 → 8 → 16 → 32s"]
+    Backoff --> Spawn
+```
+
+**Signalhantering:**
+- `SIGTERM` / `SIGINT` — watchdog fångar signalen, vidarebefordrar `SIGTERM` till alla child-processer och avslutar städat
+- `SIGHUP` — watchdog vidarebefordrar till alla processer → varje process laddar om sin konfiguration utan omstart
+- `SIGSEGV` / krasch — watchdog detekterar via `waitpid()`, loggar vilket signal som orsakade kraschen, startar om hela gruppen
 
 **GridGuard-fetcher:**
 - Tar emot `WorkRequest` via anonym pipe
@@ -123,19 +163,29 @@ GridGuard (launcher)
 
 ---
 
-## 4. IPC — Kommunikation mellan processer
+## 4. Hur kommunicerar processerna mellan varandra?
 
 ```
-Server      ──[anonym pipe]──►  Fetcher        WorkRequest   (~200 B)
+Server      ──[named FIFO]──►   Fetcher        WorkRequest   (~200 B)
 Fetcher     ──[named FIFO]──►   Parser         FetchResult   (~64 kB)
 Parser      ──[Unix socket]──►  ComputeWorker  ParseResult   (~12 kB)
 Alla        ◄──►  SharedCache   POSIX shm      väder, pris, prognos
 Watchdog    ──►   SharedCache   WatchdogMetrics processstatistik
 ```
 
+**Vad strukturerna innehåller:**
+
+| Struct | Innehåll |
+|--------|----------|
+| `WorkRequest` | userId, position (lat/lon/region), solarea, verkningsgrad, förbrukning, nätavgifter |
+| `FetchResult` | WorkRequest-fält + `openMeteoJson` (32 kB rådata) + `priceJson` (32 kB rådata) |
+| `ParseResult` | WorkRequest-fält + `ForecastData` (192 parsade kvartar med pris, väder, produktion) |
+
+Varje struct bär med sig användarens konfiguration hela vägen — ingen process behöver slå upp något i databasen.
+
 | Kanal | Teknik | Varför |
 |-------|--------|--------|
-| Server → Fetcher | Anonym pipe | Liten struct; server är parent — fd ärvs via fork |
+| Server → Fetcher | Named FIFO | Server startas via exec och ärver inte fd:er — FIFO i filsystemet löser det |
 | Fetcher → Parser | Named FIFO | Processer körs via exec och ärver inte fd:er — FIFO i filsystemet löser det |
 | Parser → ComputeWorker | Unix domain socket | Tråd, inte process; socket ger meddelandegränser för stora structs |
 | Cache | POSIX shared memory | Tre processer läser samma data — eliminerar kopiering |
@@ -143,9 +193,49 @@ Watchdog    ──►   SharedCache   WatchdogMetrics processstatistik
 - Cache-synkronisering: `pthread_rwlock` — många läsare, en skrivare
 - Hela gruppen startas om vid krasj: named FIFOs hänger i öppet läge tills båda sidor stängs — partial restart kräver mer komplexitet än det är värt
 
+**Sekvens — end-to-end pipeline (cache miss):**
+
+```mermaid
+sequenceDiagram
+    participant CLI as GridGuard-client
+    participant CH as ClientHandler
+    participant FC as SharedCache forecast
+    participant FE as GridGuard-fetcher
+    participant SC as SharedCache weather/price
+    participant API as Open-Meteo / Elpriset
+    participant PA as GridGuard-parser
+    participant CW as ComputeWorker
+
+    CLI->>CH: GET /forecast (Bearer JWT)
+    CH->>CH: JWT validering (HS256)
+    CH->>FC: Lookup(userId)
+    FC-->>CH: MISS
+    CH->>FE: WorkRequest [named FIFO]
+    Note over CH: pthread_cond_timedwait 30s
+
+    FE->>SC: Lookup(weather/price)
+    alt Cache HIT
+        SC-->>FE: cachad data
+    else Cache MISS
+        FE->>API: HTTPS GET
+        API-->>FE: JSON-svar
+        FE->>SC: Store(weather/price)
+    end
+
+    FE->>PA: FetchResult [named FIFO]
+    PA->>PA: Validerar + matchar per 15-min slot
+    PA->>CW: ParseResult [Unix socket]
+    CW->>CW: Compute_GenerateEnergyPlan()
+    CW->>FC: Store(forecast JSON)
+    CW-->>CH: pthread_cond_signal
+    CH->>FC: Lookup(userId)
+    FC-->>CH: HIT — 48h energiplan
+    CH-->>CLI: HTTP 200 JSON
+```
+
 ---
 
-## 5. Arkitektoniska design-beslut
+## 5. Varför designade vi systemet så här?
 
 **Privacy-by-design:**
 
@@ -172,7 +262,7 @@ Watchdog    ──►   SharedCache   WatchdogMetrics processstatistik
 
 ---
 
-## 6. Energialgoritmen
+## 6. Hur fungerar energialgoritmen?
 
 **Solcellsmodell (IEC-baserad):**
 - Paneltemperatur: NOCT-modell (IEC 61215) med vindkylning
@@ -182,11 +272,30 @@ Watchdog    ──►   SharedCache   WatchdogMetrics processstatistik
 
 **Beslutlogik (P33/P70-percentiler):**
 
+```mermaid
+flowchart TD
+    Start([Varje 15-min kvart]) --> Data{Prisdata\nsaknas?}
+    Data -->|Ja| Idle[IDLE]
+    Data -->|Nej| Neg{Negativt\nspotpris?}
+    Neg -->|Ja| Buy[BUY]
+    Neg -->|Nej| Cheap{kostnad\n≤ P33?}
+    Cheap -->|Ja| Buy
+    Cheap -->|Nej| Surplus{"Solöverskott\n> 0.5 kWh\noch pris ≥ 0.01 kr?"}
+    Surplus -->|Ja| SellPrice{"kostnad\n≥ P70?"}
+    SellPrice -->|Ja| SellOpt["SELL (optimal)"]
+    SellPrice -->|Nej| SellMed{"kostnad\n≥ median?"}
+    SellMed -->|Ja| SellSurp["SELL (surplus)"]
+    SellMed -->|Nej| Expensive
+    Surplus -->|Nej| Expensive{kostnad\n≥ P70?}
+    Expensive -->|Ja| Avoid[AVOID]
+    Expensive -->|Nej| Idle
+```
+
 | Signal | Villkor |
 |--------|---------|
-| **BUY** | Totalkostnad ≤ P33 |
+| **BUY** | Totalkostnad ≤ P33, eller negativt spotpris |
+| **SELL** | Solöverskott > 0.5 kWh, spotpris ≥ 0.01 kr, kostnad ≥ median (P70 = optimal, ≥ median = surplus) |
 | **AVOID** | Totalkostnad ≥ P70 |
-| **SELL** | Solöverskott > 0.5 kWh och spotpris ≥ 0.01 kr/kWh |
 | **IDLE** | Allt annat |
 
 **LoadScheduler (`POST /schedule`):**
@@ -207,13 +316,13 @@ Detta är ekonomiskt korrekt — kunden bryr sig om totalkostnaden för hela lad
 
 ---
 
-## 7. Profileringsresultat
+## 7. Vad säger profileringsresultaten?
 
 Profilering: `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer), `gprof`, `valgrind --leak-check=full`
 
 - `gprof`: 100% av compute-CPU-tid i `Compute_GenerateEnergyPlan()` — övriga funktioner negligibla
 
-**Benchmark: -O0 vs -O2 (96h prognos, 10 000 körningar):**
+**Benchmark: -O0 vs -O2 (48h prognos / 192 kvartar, 10 000 körningar):**
 
 | Scenario | avg -O0 | avg -O2 | Förbättring | p99 -O0 | p99 -O2 | Förbättring |
 |----------|---------|---------|-------------|---------|---------|-------------|
@@ -229,10 +338,11 @@ Profilering: `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer), `gprof`, `va
 
 ---
 
-## 8. Förbättringar och vad vi skulle gjort med mer tid
+## 8. Vad skulle vi förbättra och vad hade vi gjort med mer tid?
 
 **Implementerade förbättringar under projektet:**
 - Watchdog-monoliten (441 rader) delades upp i fyra testbara moduler
+- Enhetstester för Watchdog-moduler — `test_restart_policy_gtest.cpp` och `test_heartbeat_gtest.cpp` finns och verifierar backoff-sekvensen isolerat
 - `-MMD -MP` dependency tracking i Makefile — förhindrar stale `.o`-filer efter headerändringar
 - `isatty()`-kontroll i logger — ANSI-färger bara i terminal, inte i loggfil
 - `scheduleId` inkluderar nu `loadId` — förhindrar PRIMARY KEY-kollision vid snabb schemaläggning
@@ -244,7 +354,7 @@ Profilering: `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer), `gprof`, `va
 
 **Med mer tid:**
 1. **Batterimodell** — lagra billig el, sälj vid höga priser (mest värdehöjande tillägget)
-2. **Enhetstester för Watchdog-moduler** — `RestartPolicy` och `Heartbeat` är testbara isolerat men saknar tester
+2. **Fler integrationstester** — pipeline-testerna täcker happy path men saknar chaos-scenarion för nätverksfel och ogiltiga API-svar
 3. **Historisk förbrukningsdata** — schedules-tabellen samlar data, enkel modell kan förutsäga typisk förbrukning per tid/veckodag
 4. **Systemd-integration** — `WatchdogMetrics` skriver redan statistik; koppla till `systemd-notify` för produktionsdrift
 
