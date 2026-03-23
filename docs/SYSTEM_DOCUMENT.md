@@ -7,18 +7,16 @@ Kurs 3 — Systemutvecklare C/C++, Chas Academy
 
 ## 1. Vad vi försökte åstadkomma
 
-GridGuard är en lokal energioptimerings-plattform för fastigheter med solceller. Målet var att bygga ett system som i realtid analyserar väderprognos och spotprisdata och ger konkreta rekommendationer per 15-minutersslot: **köp** el nu, **sälj** solöverskott, **undvik** förbrukning, eller **avvakta**.
+- Lokal energioptimerings-plattform för fastigheter med solceller
+- Analyserar väderprognos och spotprisdata i realtid
+- Ger rekommendationer per 15-minutersslot: **BUY / SELL / AVOID / IDLE**
+- Schemaläggning av flexibla laster till billigaste tillgängliga fönster
 
-**Demokund: SAAB Arena Linköping**
+**Demokund: SAAB Arena, Linköping**
 
-SAAB Arena är vår referenskund — en multiarena med:
-- 500 m² solpaneler på taket
-- 50 kWh basförbrukning per 15 min (200 kW konstant drift)
-- Elbilsflotta: 10 platser × 11 kW laddning
-- Zamboni (ismaskin): 15 kW, måste köras innan match
-- HVAC: 50 kW förvärmning inför event
-
-**Problemet:** Utan optimering laddas bilarna när de anländer (toppbelastningstider), solenergi exporteras oavsett pris, och tunga laster körs utan hänsyn till spotpriser. GridGuard löser detta med automatisk schemaläggning.
+- 1 500 m² solpaneler på taket
+- 45 kWh basförbrukning per kvart (180 kW konstant drift)
+- Flexibla laster: elbilsflotta (50 kW, 4h), HVAC-förvärmning (30 kW, 2h)
 
 **Resultat med GridGuard:**
 
@@ -28,181 +26,128 @@ SAAB Arena är vår referenskund — en multiarena med:
 | Elbilsladdning | 900 kr | 320 kr | **-64%** |
 | Solenergi-intäkt | 0 kr | ~450 kr/mån | **+450 kr** |
 
-ROI för arenainstallationen: **~1.2 månader**
-
 ---
 
 ## 2. Input och Output
 
 **Input:**
-- Väderprognos (solinstrålning, temperatur, vind, molnighet) från Open-Meteo API — uppdateras vid cache-miss, TTL 15 min
-- Spotpriser per 15-minutersslot för SE1–SE4 från Elprisetjustnu — publiceras dagligen kl 13:00
-- Användarkonfiguration: solpanelsstorlek (m²), verkningsgrad, geografisk position, elområde, förbrukningsprofil, nätavgifter
+- Väderprognos (solinstrålning, temperatur, vind) — Open-Meteo API, TTL 15 min
+- Spotpriser per 15-minutersslot (SE1–SE4) — Elprisetjustnu
+- Användarkonfiguration: solarea, verkningsgrad, position, elområde, nätavgifter
+
+*SAAB Arena-konfiguration:*
+```
+Position:        58.4109°N, 15.6216°E  (Linköping, SE3)
+Solpaneler:      1 500 m²,  verkningsgrad 20%
+Basförbrukning:  45 kWh/h
+Nätavgift:       0.25 / 0.35 / 0.45 kr/kWh  (låg/normal/hög)
+Flexibla laster: ev_fleet_charger  50 kW  4h
+                 hvac_precool       30 kW  2h
+```
 
 **Output:**
-- 48-timmars energiplan uppdelad i 192 kvartar (var 15:e minut) med signal BUY/SELL/AVOID/IDLE per slot
-- Aggregerade actionfönster (sammanhängande block) med genomsnittspris, solproduktion, duration
-- Bästa köpfönster (billigaste sammanhängande block för flexibla laster)
-- HTTP JSON-API på port 8080: `/forecast`, `/user/config`, `/schedule`, `/health`, `/metrics`
-- Terminalbaserat dashboard via C++-klient med färgkodade signaler, prisgrafer och schemaläggning
+- 48-timmars energiplan med 192 kvartar — signal + pris + solproduktion per slot
+- Sammanhängande actionfönster (aggregerade block)
+- Bästa köpfönster för flexibla laster
+- HTTP JSON-API port 8080: `/forecast`, `/schedule`, `/user/config`, `/health`, `/metrics`
+- `/forecast`: returnerar cachat svar om data är färsk — vid cache-miss körs hela Fetch→Parse→Compute synkront (upp till 30s vid första anrop)
+- `PUT /user/config`: ogiltigförklarar automatiskt hela cachen så att nästa prognos baseras på ny konfiguration
 
-**Exempel-output (SAAB Arena, solig dag):**
+**Exempel (SAAB Arena, solig dag):**
 ```
 BUY   02:00–05:45  0.32 kr/kWh  (-54%)   →  Ladda elbilsflottan nu
 SELL  12:00–13:45  1.85 kr/kWh  (+45%)   →  Exportera solöverskott
-BUY   13:00–14:15  0.39 kr/kWh  (-32%)   →  Kör zamboni-förvärmning
 AVOID 17:00–20:00  2.15 kr/kWh  (+63%)   →  Skjut upp icke-kritiska laster
-
-Total daglig besparing: 640 kr (schemalagda laster)
 ```
+
+**C++-klient (terminalbaserat dashboard):**
+```
+GridGuard                          13.1°C  Sol: 90.57 kW
+SAAB_ARENA  SE3  Linköping
+
+▸ 03-21 02:00  BUY   0.32 kr  ░░░░░░░░░░   90 kWh   -54%
+▸ 03-21 12:00  SELL  1.85 kr  █████████░   55 kWh   +45%
+▸ 03-21 17:00  AVOID 2.15 kr  ██████████    4 kWh   +63%
+
+Bästa köpfönster:
+  🥇 02:00  0.32 kr/kWh  (-54%)
+  🥈 13:00  0.39 kr/kWh  (-32%)
+
+Import: 1612 kWh   Kostnad: 3568 kr   Bästa köp: 02:00
+```
+**C++17-klient — kurskrav:**
+- **RAII:** `SocketGuard` wrapprar POSIX file descriptors med Rule of Five (destruktor, move-konstruktor, move-tilldelning, deleted copy) — resurser frigörs garanterat även vid exception
+- **STL:** `std::vector`, `std::string`, `std::unique_ptr`, `std::sort`, `std::accumulate`
+- **Exception handling:** egna exceptions (`ConnectionError`, `NetworkError`) med `try/catch`-hierarki
+- **Namespaces:** all klientkod under `namespace gridguard`
 
 ---
 
 ## 3. Processarkitektur
-
-Systemet körs som fyra separata processer under en processövervakare:
 
 ```
 GridGuard (launcher)
 └── GridGuard-watchdog      ← processövervakare, rotprocess
     ├── GridGuard-fetcher   ← hämtar extern data via HTTPS
     ├── GridGuard-parser    ← validerar och strukturerar rådata
-    └── GridGuard-server    ← HTTP-server + JWT-auth + DB
+    └── GridGuard-server    ← HTTP-server + JWT-auth + SQLite
             └── [tråd] ComputeWorker  ← energiberäkning
 ```
 
-### GridGuard-watchdog
+**GridGuard-watchdog:**
+- Skapar alla IPC-resurser (FIFOs, socket, shared memory) innan child-processer startas
+- Startar processer i rätt ordning: parser → fetcher → server
+- Pollar heartbeat-pipes var 2:a sekund med `poll()`
+- Startar om hela gruppen vid krasj: exponentiell backoff 2s → 4s → 8s → 16s → 32s
+- Max 5 omstarter per 300s — annars avbrott
+- Skriver PID, uptime och senaste heartbeat per process till shared memory → exponeras live via `GET /metrics`
 
-Watchdog är systemets rotprocess. Den:
+**GridGuard-fetcher:**
+- Tar emot `WorkRequest` via anonym pipe
+- Gör HTTPS-anrop mot Open-Meteo och Elprisetjustnu (mbedTLS)
+- Kontrollerar POSIX shared memory-cache innan anrop (TTL-baserad)
+- Skickar rådata som `FetchResult` via named FIFO
 
-1. Skapar alla IPC-resurser (FIFOs, Unix domain socket, shared memory) **innan** child-processerna startas
-2. Startar processerna i rätt ordning: parser → fetcher → server
-3. Övervakar varje process via **heartbeat-pipes** (anonyma pipes ärvda vid fork)
-4. Startar om hela processgruppen vid krasj med **exponentiell backoff**: 2s → 4s → 8s → 16s → 32s
-5. Skriver processtatistik till POSIX shared memory som servern exponerar via `/metrics`
+**GridGuard-parser:**
+- Tar emot `FetchResult` via named FIFO
+- Validerar och parsar JSON med cJSON
+- Matchar väder- och prisdata per 15-minutersslot
+- Skickar `ParseResult` till ComputeWorker via Unix domain socket
 
-**Heartbeat-mekanism:** Varje child-process skriver periodiskt `"hb"` till sin heartbeat-pipe. Watchdog pollar med `poll()` var 2:a sekund. Om ingen heartbeat kommit inom 15 sekunder klassas processen som fryst och hela gruppen startas om.
-
-**Restart policy:** Max 5 omstarter per 300-sekunders fönster. Hela gruppen startas alltid om — inte bara den kraschade processen — eftersom ett krasj i Fetcher ger ett hängt tillstånd i Parser ändå (FIFOn hänger utan producer).
-
-**Watchdog-moduler** (uppdelade från ursprunglig monolitisk fil på 441 rader):
-- `WatchdogSignals.c` — sigaction, signal_handler (async-signal-safe isolation)
-- `Heartbeat.c` — heartbeat-pipe management med opak pekare
-- `RestartPolicy.c` — restart tracking och backoff (konfigurationsbar, testbar isolerat)
-- `Watchdog.c` — spawn, status FIFO, main loop (220 rader)
-
-### GridGuard-fetcher
-
-Tar emot en `WorkRequest` via anonym pipe, gör HTTPS-anrop mot Open-Meteo och Elprisetjustnu med mbedTLS, och skickar rådata vidare som `FetchResult` via named FIFO. Kontrollerar POSIX shared memory-cache innan API-anrop (TTL-baserad).
-
-### GridGuard-parser
-
-Tar emot `FetchResult` via named FIFO, validerar JSON-svaren med cJSON, konverterar tidsstämplar till Unix-tid, matchar väder- och prisdata per 15-minutersslot och skickar strukturerad `ParseResult` till ComputeWorker via Unix domain socket. Skapar notify-FIFO för att väcka ComputeWorker asynkront.
-
-### GridGuard-server + ComputeWorker
-
-Servern hanterar inkommande HTTP-anslutningar med en trådpool. JWT-validering sker med mbedTLS (HS256). ComputeWorker är en dedikerad tråd som tar emot `ParseResult` via Unix domain socket, kör optimeringsalgoritmen och skriver resultatet till shared memory-cachen. HTTP-tråden läser cachen och returnerar JSON till klienten.
+**GridGuard-server + ComputeWorker:**
+- Trådpool hanterar inkommande HTTP-anslutningar — en tråd per anslutning skalar dåligt och slösar resurser, poolen begränsar antalet samtidiga trådar och återanvänder dem
+- JWT-validering med mbedTLS (HS256, 24h TTL)
+- ComputeWorker tar emot `ParseResult`, kör algoritmen, skriver till shared memory-cache
+- HTTP-trådar läser cachen och returnerar JSON
+- **Persistent lagring (SQLite):** `user_configs`-tabellen sparar konfiguration per användare; `schedules`-tabellen sparar schemalagda laster med kostnad och besparingsvärde
 
 ---
 
 ## 4. IPC — Kommunikation mellan processer
 
 ```
-Server  ──[anonym pipe]──►  Fetcher      WorkRequest   (struct, binär, ~200 B)
-Fetcher ──[named FIFO]──►   Parser       FetchResult   (struct, binär, ~120 kB)
-Parser  ──[Unix socket]──►  ComputeWorker ParseResult  (struct, binär, ~85 kB)
-Alla    ◄──► SharedCache    POSIX shared memory        (väder, pris, prognos)
-Watchdog ──► SharedCache    WatchdogMetrics            (processstatistik)
+Server      ──[anonym pipe]──►  Fetcher        WorkRequest   (~200 B)
+Fetcher     ──[named FIFO]──►   Parser         FetchResult   (~64 kB)
+Parser      ──[Unix socket]──►  ComputeWorker  ParseResult   (~12 kB)
+Alla        ◄──►  SharedCache   POSIX shm      väder, pris, prognos
+Watchdog    ──►   SharedCache   WatchdogMetrics processstatistik
 ```
 
 | Kanal | Teknik | Varför |
 |-------|--------|--------|
-| Server → Fetcher | Anonym pipe | Liten WorkRequest-struct; server är parent till fetcher |
-| Fetcher → Parser | Named FIFO | Processerna kör via exec och ärver inte fd:er — FIFO i filsystemet löser det |
-| Parser → ComputeWorker | Unix domain socket | ComputeWorker är tråd, inte process; socket ger meddelandegränser för stora structs |
-| Cache | POSIX shared memory | Tre processer behöver läsa samma data — shared memory eliminerar kopiering |
+| Server → Fetcher | Anonym pipe | Liten struct; server är parent — fd ärvs via fork |
+| Fetcher → Parser | Named FIFO | Processer körs via exec och ärver inte fd:er — FIFO i filsystemet löser det |
+| Parser → ComputeWorker | Unix domain socket | Tråd, inte process; socket ger meddelandegränser för stora structs |
+| Cache | POSIX shared memory | Tre processer läser samma data — eliminerar kopiering |
 
-**Cache-synkronisering:** `pthread_rwlock` — många läsare (HTTP-trådar), en skrivare (ComputeWorker). Väder- och prisdata delas mellan processer via `shm_open` + `mmap`.
-
-**Varför hela gruppen startas om vid krasj?** Named FIFOs och Unix sockets hänger i öppet läge tills båda sidor stängs. Om Fetcher kraschar blockerar Parser på `read()` för alltid. Att starta om bara Fetcher skulle kräva att Parser detekterar EOF och återansluter — komplexitet som inte är värd det för ett single-node system.
-
----
-
-## 5. Energialgoritmen
-
-### Solcellsmodell (IEC-baserad)
-
-1. **Paneltemperatur** (NOCT-modell, IEC 61215):
-   `panelTemp = luftTemp + (solinstrålning × 0.03125) / (1 + 0.04 × vind)`
-
-2. **Temperaturderating** (IEC 61724):
-   `tempEff = 1.0 + (-0.0045 per °C) × (panelTemp - 25°C)`
-   → Vid 60°C: 16% effektförlust
-
-3. **Energiproduktion per kvart:**
-   `produktion = (W/m² / 1000) × areaM² × verkningsgrad × systemförluster × tempEff × 0.25h`
-
-Systemförluster (kablar, växelriktare) är satta till 25%.
-
-### Beslutlogik
-
-Algoritmen beräknar P33 och P70 (33:e och 70:e percentilen) av spotpriserna för hela prognoshorisonten.
-
-| Signal | Villkor |
-|--------|---------|
-| **BUY** | Totalkostnad ≤ P33 — billigaste tredjedelen |
-| **AVOID** | Totalkostnad ≥ P70 OCH inget solöverskott |
-| **SELL (premium)** | Solöverskott > 0.5 kWh OCH pris ≥ P70 OCH spotpris ≥ MIN_PRICE_TO_SELL |
-| **SELL (surplus)** | Solöverskott > 0.5 kWh OCH spotpris ≥ MIN_PRICE_TO_SELL (mid-range) |
-| **IDLE** | Allt annat |
-
-`MIN_PRICE_TO_SELL_SEK` (0.01 kr/kWh) förhindrar export vid negativa spotpriser — ett bug-fix som adderades efter analys av edge cases.
-
-### Smart schemaläggning (LoadScheduler)
-
-`POST /schedule` tar emot `load_id`, `duration_minutes` och `power_kw`. LoadScheduler söker igenom alla BUY-signaler kommande 48 timmar, hittar sammanhängande block som ryms inom durationen, viktar med "practicality score" (natt 1.0×, dag 0.5×, kväll 1.5×) och väljer fönstret med lägst viktad kostnad.
+- Cache-synkronisering: `pthread_rwlock` — många läsare, en skrivare
+- Hela gruppen startas om vid krasj: named FIFOs hänger i öppet läge tills båda sidor stängs — partial restart kräver mer komplexitet än det är värt
 
 ---
 
-## 6. C++-klienten
+## 5. Arkitektoniska design-beslut
 
-Klienten är skriven i C++17 och demonstrerar kursmomentens C++-krav:
-
-- **RAII:** `SocketGuard` — wrapprar POSIX file descriptors med Rule of Five (destruktor, move-konstruktor, move-tilldelning, deleted copy)
-- **STL:** `std::vector`, `std::string`, `std::unique_ptr`, `std::sort`, `std::accumulate`
-- **Exception handling:** Custom exceptions (`ConnectionError`, `NetworkError`) med `try/catch`-hierarki
-- **Namespaces:** All klientkod under `namespace gridguard`
-
-**Kommandon:**
-```bash
-bin/GridGuard-client --token $TOKEN health
-bin/GridGuard-client --token $TOKEN forecast [--watch --interval 60]
-bin/GridGuard-client --token $TOKEN config set --solar-area 500 --solar-eff 0.20
-bin/GridGuard-client --token $TOKEN schedule add --load ev_fleet --duration 240 --power 110
-```
-
-**Dashboard-output (terminal):**
-```
-GridGuard                          13.1°C  Sol: 90.57 kW
-SAAB_ARENA  SE3  Linköping
-
-▸ 03-21 02:00  BUY   0.32 kr  ░░░░░░░░░░   90 kWh   -54%
-▸ 03-21 12:00  SELL  1.85 kr  █████████░   12 kWh   +45%
-▸ 03-21 17:00  AVOID 2.15 kr  ██████████    4 kWh   +63%
-
-🥇 02:00  0.32 kr/kWh  (-54%)
-🥈 13:00  0.39 kr/kWh  (-32%)
-
-Import: 1612 kWh   Kostnad: 3568 kr   Bästa köp: 02:00
-```
-
----
-
-## 7. Autentisering och Privacy
-
-**JWT (HS256, 24h TTL)** — stateless autentisering utan att servern behöver kontakta plattformen vid varje request. Platform-servern utfärdar tokens från `platform.db`; servern validerar signaturen med mbedTLS.
-
-**Privacy-by-architecture:** Känslig data lämnar aldrig enheten.
+**Privacy-by-design:**
 
 | Data | Plattform (moln) | GridGuard (enhet) |
 |------|-----------------|-------------------|
@@ -211,17 +156,64 @@ Import: 1612 kWh   Kostnad: 3568 kr   Bästa köp: 02:00
 | Solpanelsstorlek | ❌ | ✅ |
 | Förbrukningsprofil | ❌ | ✅ |
 
-En kompromiss av platform.db exponerar **inga** energimönster.
+- Känslig energidata lämnar aldrig enheten — ett medvetet val, inte en brist
+- JWT (HS256, 24h TTL) ger stateless autentisering: servern behöver aldrig kontakta plattformen per request
+
+**Konfiguration (RuntimeConfig):**
+- Fallback-kedja: `gridguard.conf` → miljövariabel → hårdkodad default
+- Omladdning vid `SIGHUP` utan omstart — watchdog skickar signalen vid konfigurationsändring
+
+**SharedCache-design:**
+- 16 poster, 64 KB/post, LRU-eviction vid fullt cache
+- `PTHREAD_PROCESS_SHARED` rwlock — låset lever i shared memory, inte i en process
+- Inga pekare i shared region — varje process mappar `mmap()` till olika virtuell adress
+- Magic-nummer `0xCA5EC0DE` validerar att segmentet är korrekt initierat innan läsning
+- `SharedCache_Cleanup` anropas **bara av Watchdog** efter att alla processer avslutats
 
 ---
 
-## 8. Profileringsresultat
+## 6. Energialgoritmen
 
-Profilering utfördes med `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer), `gprof` och `valgrind --leak-check=full`.
+**Solcellsmodell (IEC-baserad):**
+- Paneltemperatur: NOCT-modell (IEC 61215) med vindkylning
+- Temperaturderating: −0.45%/°C över 25°C (IEC 61724) — 16% förlust vid 60°C
+- Energi per kvart: `(W/m² / 1000) × area × verkningsgrad × 0.75 × tempEff × 0.25h`
+- *SAAB Arena vid full sol (1 000 W/m²):* `1.0 × 1500 × 0.20 × 0.75 × ~0.98 × 0.25 ≈ 55 kWh/kvart`
 
-**gprof:** 100% av compute-CPU-tid ligger i `Compute_GenerateEnergyPlan()`. Övriga funktioner (Logger, init) är negligibla.
+**Beslutlogik (P33/P70-percentiler):**
 
-### Benchmark: -O0 vs -O2 (Compute_GenerateEnergyPlan, 96h prognos)
+| Signal | Villkor |
+|--------|---------|
+| **BUY** | Totalkostnad ≤ P33 |
+| **AVOID** | Totalkostnad ≥ P70 |
+| **SELL** | Solöverskott > 0.5 kWh och spotpris ≥ 0.01 kr/kWh |
+| **IDLE** | Allt annat |
+
+**LoadScheduler (`POST /schedule`):**
+- Söker BUY-signaler kommande 48h
+- Hittar sammanhängande block som ryms inom angiven duration
+- Viktar med "practicality score" (natt 1.0×, dag 0.5×, kväll 1.5×)
+- Väljer fönstret med lägst viktad kostnad
+
+**Varför scheman inte matchar "Best BUY windows":**
+
+Best BUY windows visar billigaste *enskilda* 15-minutersslots. LoadScheduler löser ett annat problem — billigaste *kontinuerliga* fönstret för hela lastens duration:
+
+- `ev_fleet_charger` behöver 16 kvarter i följd (240 min)
+- Startar vid billigaste enskilda slot kl 09:15 → måste köra till 13:15, in i dyrare eftermiddagstider
+- Startar istället kl 06:45 → kör 06:45–10:45, lägre totalkostnad trots att startpriset är högre
+
+Detta är ekonomiskt korrekt — kunden bryr sig om totalkostnaden för hela laddningen, inte priset vid starttidpunkten.
+
+---
+
+## 7. Profileringsresultat
+
+Profilering: `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer), `gprof`, `valgrind --leak-check=full`
+
+- `gprof`: 100% av compute-CPU-tid i `Compute_GenerateEnergyPlan()` — övriga funktioner negligibla
+
+**Benchmark: -O0 vs -O2 (96h prognos, 10 000 körningar):**
 
 | Scenario | avg -O0 | avg -O2 | Förbättring | p99 -O0 | p99 -O2 | Förbättring |
 |----------|---------|---------|-------------|---------|---------|-------------|
@@ -229,62 +221,51 @@ Profilering utfördes med `clock_gettime(CLOCK_MONOTONIC)` (10 000 iterationer),
 | Worst-case | 2.27 µs | 1.56 µs | **1.45×** | 23.87 µs | 3.89 µs | **6.14×** |
 | Stor solpanel | 2.40 µs | 1.57 µs | **1.53×** | 6.95 µs | 4.69 µs | **1.48×** |
 
-**Genomströmning med -O2:** ~477 000 planer/sekund. Systemet beräknar en ny plan var 15:e minut — marginalen är på ordningen **7 000 000×**.
-
-**Minnesanalys (Valgrind):** Inga heap-läckor. En oinitialiserad stackvariabel hittades i benchmark-koden (inte produktionskoden) och dokumenterades.
-
-**Analys:** Compute-steget är inte en flaskhals. p99-spikarna (8 µs vs p50 1.6 µs) beror på OS-schemaläggningsavbrott — inte kod. Detta är inte åtgärdbart utan en realtidskärna.
-
----
-
-## 9. Förbättringsmöjligheter
-
-### Kodkvalitet (baserat på profilering)
-
-| Prioritet | Komponent | Problem | Åtgärd |
-|-----------|-----------|---------|--------|
-| Låg | Compute | `qsort` för hela prisarrayen vid köpfönsterberäkning | `nth_element`-ekvivalent — O(N) vs O(N log N) |
-| Låg | SharedCache | Linjär sökning O(N) vid lookup (N=16) | Hash-tabell om N skalas upp |
-| Låg | Queue | Mutex-contention vid 4 producenter/1 konsument | Batch-dequeue för lägre lock-frekvens |
-
-Alla förbättringar är mikrooptimeringar — systemet är redan tillräckligt effektivt.
-
-### Arkitektur och features
-
-| Område | Förbättring |
-|--------|-------------|
-| **Batterimodell** | Systemet saknar simulering av laddningscykler och degradering. En riktig batterimodell ger mer precisa köp/sälj-beslut (exkluderades medvetet från MVP) |
-| **Historikbaserad prognos** | Planen baseras enbart på aktuell prognos. Med historisk förbrukningsdata och ML skulle förutsägelserna bli mer precisa |
-| **Makefile -MMD** | Utan dependency tracking kan stale `.o`-filer efter headerändringar ge svårspårade fel. Vi brände oss på det och förlitade oss på `make clean` |
-| **Konfigurationsfil** | INI-parsern är implementerad men ingen standardkonfigurationsfil medföljer — deployment kräver manuell setup av miljövariabler |
-| **Systemd service** | Systemet startas via `make start`/`make stop`. En systemd unit-fil saknas för produktionsdrift |
-
-### Om vi hade haft mer tid
-
-1. **Batterimodell** — Det mest värdehöjande tillägget. Med batteri kan systemet lagra billig el och sälja/använda den vid höga priser, inte bara reagera på solöverskott.
-2. **Enhetstester för Watchdog-moduler** — `RestartPolicy` och `Heartbeat` är nu testbara isolerat men saknar tester. En `RestartPolicy_Create(3, 5, 1)` i test kan verifiera backoff-sekvensen (1→2→4s) utan att vänta på timeout i produktion.
-3. **Historisk förbrukningsdata** — GridGuard lagrar varje energiplan i `schedules`-tabellen. Med tillräcklig historik kan en enkel modell förutsäga typisk förbrukning per tid på dygnet och veckodag.
-4. **Systemd-integration** — `WatchdogMetrics` skriver redan processstatistik till shared memory. Att koppla det till `systemd-notify` och `sd_watchdog_enabled()` vore ett litet men produktionsrelevant steg.
+**Analys:**
+- Genomströmning med -O2: ~477 000 planer/sekund
+- Systemet genererar en plan var 15:e minut — marginalen är **7 000 000×**
+- p99-spikarna beror på OS-schemaläggningsavbrott, inte koden — inte åtgärdbart utan realtidskärna
+- Valgrind: inga heap-läckor i produktionskod
 
 ---
 
-## 10. Bygga och köra
+## 8. Förbättringar och vad vi skulle gjort med mer tid
+
+**Implementerade förbättringar under projektet:**
+- Watchdog-monoliten (441 rader) delades upp i fyra testbara moduler
+- `-MMD -MP` dependency tracking i Makefile — förhindrar stale `.o`-filer efter headerändringar
+- `isatty()`-kontroll i logger — ANSI-färger bara i terminal, inte i loggfil
+- `scheduleId` inkluderar nu `loadId` — förhindrar PRIMARY KEY-kollision vid snabb schemaläggning
+
+**Kodkvalitet (baserat på profilering):**
+- `qsort` för hela prisarrayen — kan ersättas med `nth_element`-ekvivalent (O(N) vs O(N log N))
+- SharedCache: linjär sökning O(N) — hash-tabell om N skalas upp
+- Mikrooptimeringar — systemet är redan tillräckligt effektivt
+
+**Med mer tid:**
+1. **Batterimodell** — lagra billig el, sälj vid höga priser (mest värdehöjande tillägget)
+2. **Enhetstester för Watchdog-moduler** — `RestartPolicy` och `Heartbeat` är testbara isolerat men saknar tester
+3. **Historisk förbrukningsdata** — schedules-tabellen samlar data, enkel modell kan förutsäga typisk förbrukning per tid/veckodag
+4. **Systemd-integration** — `WatchdogMetrics` skriver redan statistik; koppla till `systemd-notify` för produktionsdrift
+
+---
+
+## 9. Bygga och köra
 
 ```bash
 # Installera beroenden (Ubuntu/Debian)
 sudo apt-get install libmbedtls-dev libsqlite3-dev libssl-dev
 
-# Bygg allt och starta med demo-data
-make dev        # Seedar databaser, genererar JWT-token, startar watchdog
+# Bygg och starta med demo-data
+make dev        # Seedar databaser, genererar JWT, startar watchdog, visar prognos
 
-# Kör tester
-make test       # Alla enhetstester
-make test-client # Integrationstest för C++-klienten
+# Tester
+make test
+make test-client
 
 # Produktion
 make clean && make release
-make start      # Startar watchdog (hanterar alla processer)
-make stop       # Stoppar systemet
+make start / make stop
 ```
 
-Binärer: `bin/GridGuard-server`, `bin/GridGuard-fetcher`, `bin/GridGuard-parser`, `bin/GridGuard-watchdog`, `bin/GridGuard-client`
+Binärer: `bin/GridGuard-watchdog`, `bin/GridGuard-fetcher`, `bin/GridGuard-parser`, `bin/GridGuard-server`, `bin/GridGuard-client`
