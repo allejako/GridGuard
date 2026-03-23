@@ -135,6 +135,9 @@ static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
     int windowQuarters = 0;
     double windowProduction = 0.0;
     double windowConsumption = 0.0;
+    double windowSpotPrice = 0.0;
+    double windowTotalCost = 0.0;
+    double windowPriceVsAvg = 0.0;
 
     for (int i = 0; i <= plan->count; i++)
     {
@@ -170,9 +173,9 @@ static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
             cJSON_AddStringToObject(signal, "start", startIso);
             cJSON_AddStringToObject(signal, "end", endIso);
             cJSON_AddNumberToObject(signal, "duration_minutes", windowQuarters * 15);
-            cJSON_AddNumberToObject(signal, "price_sek_kwh", windowEntry->spotPrice);
-            cJSON_AddNumberToObject(signal, "total_cost_sek_kwh", windowEntry->totalCostSek);
-            cJSON_AddNumberToObject(signal, "price_vs_avg_pct", windowEntry->priceVsAvgPct);
+            cJSON_AddNumberToObject(signal, "price_sek_kwh", windowSpotPrice / windowQuarters);
+            cJSON_AddNumberToObject(signal, "total_cost_sek_kwh", windowTotalCost / windowQuarters);
+            cJSON_AddNumberToObject(signal, "price_vs_avg_pct", windowPriceVsAvg / windowQuarters);
             cJSON_AddNumberToObject(signal, "solar_kwh", windowProduction);
             cJSON_AddNumberToObject(signal, "consumption_kwh", windowConsumption);
             cJSON_AddItemToArray(daySignals, signal);
@@ -181,6 +184,9 @@ static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
             windowQuarters = 0;
             windowProduction = 0.0;
             windowConsumption = 0.0;
+            windowSpotPrice = 0.0;
+            windowTotalCost = 0.0;
+            windowPriceVsAvg = 0.0;
         }
 
         if (e && e->valid && currentAction != ACTION_IDLE)
@@ -193,6 +199,9 @@ static char *BuildResponseJson(const EnergyData *plan, const ParseResult *req)
             windowQuarters++;
             windowProduction += e->productionKwh;
             windowConsumption += e->consumptionKwh;
+            windowSpotPrice += e->spotPrice;
+            windowTotalCost += e->totalCostSek;
+            windowPriceVsAvg += e->priceVsAvgPct;
         }
 
         prevAction = currentAction;

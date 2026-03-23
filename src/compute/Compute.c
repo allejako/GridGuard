@@ -306,16 +306,31 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
                 buyLogged++;
             }
         }
-        else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH && quarterCost >= effectiveSellThreshold)
+        else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH &&
+                 quarterData->spotPriceSek >= MIN_PRICE_TO_SELL_SEK &&
+                 quarterCost >= effectiveSellThreshold)
         {
+            // Optimal sell: high price AND surplus
             recommendation = ACTION_SELL_TO_GRID;
             totalExport += netEnergy;
             if (sellLogged < 3)
             {
                 if (quarterData->cloudCover > CLOUD_COVER_SELL_THRESHOLD)
-                    LOG_INFO("Compute: [%02d:%02d] SELL → %.1f kWh surplus @ %.3f kr/kWh (cloudy %.0f%% — raised threshold %.3f)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover, effectiveSellThreshold);
+                    LOG_INFO("Compute: [%02d:%02d] SELL (optimal) → %.1f kWh surplus @ %.3f kr/kWh (cloudy %.0f%% — raised threshold %.3f)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover, effectiveSellThreshold);
                 else
-                    LOG_INFO("Compute: [%02d:%02d] SELL → %.1f kWh surplus @ %.3f kr/kWh (clear sky %.0f%%)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover);
+                    LOG_INFO("Compute: [%02d:%02d] SELL (optimal) → %.1f kWh surplus @ %.3f kr/kWh (clear sky %.0f%%)", hourOfDay, minuteOfHour, netEnergy, quarterCost, quarterData->cloudCover);
+                sellLogged++;
+            }
+        }
+        else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH &&
+                 quarterData->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
+        {
+            // Surplus sell: solar produces more than consumed, positive price — always better to sell than waste
+            recommendation = ACTION_SELL_TO_GRID;
+            totalExport += netEnergy;
+            if (sellLogged < 3)
+            {
+                LOG_INFO("Compute: [%02d:%02d] SELL (surplus) → %.1f kWh @ %.3f kr/kWh (mid-range price %.0f%% of median)", hourOfDay, minuteOfHour, netEnergy, quarterCost, (quarterCost / medianPrice) * 100.0);
                 sellLogged++;
             }
         }
