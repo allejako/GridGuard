@@ -5,6 +5,7 @@
 #include <time.h>
 #include <string.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 static FILE *logFile = NULL;
 static LogLevel currentLevel = LOG_LEVEL_INFO;
@@ -81,12 +82,19 @@ void Logger_Log(LogLevel level, const char *file, int line, const char *fmt, ...
     // Format the message
     va_list args;
     
-    // Print to stdout with colors
+    // Print to stdout — with colors only if connected to a terminal
     va_start(args, fmt);
-    printf("%s[%s] %s%-5s%s %s:%d: ", 
-           colorReset, timestamp, 
-           levelColors[level], levelStrings[level], colorReset,
-           filename, line);
+    if (isatty(fileno(stdout)))
+    {
+        printf("%s[%s] %s%-5s%s %s:%d: ",
+               colorReset, timestamp,
+               levelColors[level], levelStrings[level], colorReset,
+               filename, line);
+    }
+    else
+    {
+        printf("[%s] %-5s %s:%d: ", timestamp, levelStrings[level], filename, line);
+    }
     vprintf(fmt, args);
     printf("\n");
     fflush(stdout);
