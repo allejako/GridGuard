@@ -23,10 +23,6 @@
 #define EXPENSIVE_QUARTERS_PERCENTILE 0.70 // Top third of price distribution
 #define MINIMUM_SAVINGS_THRESHOLD 0.08     // Require 8% deviation from median for signal quality
 
-// Demo mode: artificial price variation for flat-price scenarios
-#define DEMO_MODE_ENABLED 0
-#define DEMO_PRICE_BOOST 0.25
-
 // Solar export policy: balance between maximizing revenue and grid stability
 #define MIN_SURPLUS_TO_SELL_KWH 0.5  // Minimum net surplus per 15-min quarter to trigger export (~2 kWh/h)
 #define MIN_PRICE_TO_SELL_SEK 0.01   // Avoid exporting at negative prices
@@ -323,14 +319,16 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
             }
         }
         else if (netEnergy > MIN_SURPLUS_TO_SELL_KWH &&
-                 quarterData->spotPriceSek >= MIN_PRICE_TO_SELL_SEK)
+                 quarterData->spotPriceSek >= MIN_PRICE_TO_SELL_SEK &&
+                 quarterCost >= medianPrice)
         {
-            // Surplus sell: solar produces more than consumed, positive price — always better to sell than waste
+            // Surplus sell: solar produces more than consumed, price at or above median.
+            // Below-median periods stay IDLE — not worth actively recommending export at a discount.
             recommendation = ACTION_SELL_TO_GRID;
             totalExport += netEnergy;
             if (sellLogged < 3)
             {
-                LOG_INFO("Compute: [%02d:%02d] SELL (surplus) → %.1f kWh @ %.3f kr/kWh (mid-range price %.0f%% of median)", hourOfDay, minuteOfHour, netEnergy, quarterCost, (quarterCost / medianPrice) * 100.0);
+                LOG_INFO("Compute: [%02d:%02d] SELL (surplus) → %.1f kWh @ %.3f kr/kWh (+%.0f%% vs median)", hourOfDay, minuteOfHour, netEnergy, quarterCost, (quarterCost - medianPrice) / medianPrice * 100.0);
                 sellLogged++;
             }
         }

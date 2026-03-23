@@ -191,8 +191,58 @@ static void HandleMetrics(int fd)
     }
 }
 
+// Extract an integer query parameter from a URL path.
+// e.g. ParseQueryInt("/forecast?hours=24", "hours", 48) → 24
+static int ParseQueryInt(const char *path, const char *key, int defaultVal)
+{
+    const char *q = strchr(path, '?');
+    if (!q) return defaultVal;
+
+    char needle[64];
+    snprintf(needle, sizeof(needle), "%s=", key);
+    const char *p = strstr(q, needle);
+    if (!p) return defaultVal;
+
+    int val = atoi(p + strlen(needle));
+    return (val > 0) ? val : defaultVal;
+}
+
+// Truncate a forecast JSON string's "quarters" array to maxQuarters entries
+// and update the summary counts. Caller must free() the result.
+// Returns NULL on parse error (caller should fall back to original).
+static char *FilterForecastQuarters(const char *json, int maxQuarters)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return NULL;
+
+    cJSON *quarters = cJSON_GetObjectItemCaseSensitive(root, "quarters");
+    if (!quarters || !cJSON_IsArray(quarters))
+    {
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    int count = cJSON_GetArraySize(quarters);
+    for (int i = count - 1; i >= maxQuarters; i--)
+        cJSON_DeleteItemFromArray(quarters, i);
+
+    cJSON *summary = cJSON_GetObjectItemCaseSensitive(root, "summary");
+    if (summary)
+    {
+        int actual = cJSON_GetArraySize(quarters);
+        cJSON_DeleteItemFromObject(summary, "forecast_quarters");
+        cJSON_AddNumberToObject(summary, "forecast_quarters", actual);
+        cJSON_DeleteItemFromObject(summary, "forecast_hours");
+        cJSON_AddNumberToObject(summary, "forecast_hours", actual / 4.0);
+    }
+
+    char *result = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return result;
+}
+
 // GET /forecast - returns 96h energy forecast with pricing and recommendations.
-static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claims)
+static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claims, int maxHours)
 {
     UserConfig cfg;
     int found = UserConfigDB_Get(&app->db, claims->subject, &cfg);
@@ -214,7 +264,11 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     gmtime_r(&now, &nowTm);
 
     char cacheKey[SHARED_CACHE_KEY_MAX];
-    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.2f,%.2f:%s:%.1f", nowTm.tm_year + 1900, nowTm.tm_mon + 1, nowTm.tm_mday, cfg.latitude, cfg.longitude, cfg.region, cfg.solarAreaM2);
+    snprintf(cacheKey, sizeof(cacheKey), "%04d%02d%02d:%.4f,%.4f:%s:%.1f:%.2f:%.2f:%.2f:%.2f:%.2f",
+             nowTm.tm_year + 1900, nowTm.tm_mon + 1, nowTm.tm_mday,
+             cfg.latitude, cfg.longitude, cfg.region,
+             cfg.solarAreaM2, cfg.solarEfficiency, cfg.consumptionKwh,
+             cfg.gridFeeLow, cfg.gridFeeNormal, cfg.gridFeeHigh);
 
     // Smart cache invalidation: Check if input data (weather/prices) has been updated.
     // If yes, invalidate ALL forecast caches (not just this user's) to prevent race conditions.
@@ -235,7 +289,14 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     if (SharedCache_Lookup(&app->forecastCache, cacheKey, cachedJson, sizeof(cachedJson)) == 0)
     {
         LOG_INFO("ClientHandler: Cache HIT for user=%s key=%s (skipping Fetch+Parse)", claims->subject, cacheKey);
-        HTTPResponse_SendJson(fd, cachedJson);
+        if (maxHours < 48)
+        {
+            char *filtered = FilterForecastQuarters(cachedJson, maxHours * 4);
+            HTTPResponse_SendJson(fd, filtered ? filtered : cachedJson);
+            free(filtered);
+        }
+        else
+            HTTPResponse_SendJson(fd, cachedJson);
         return;
     }
 
@@ -250,6 +311,7 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     }
 
     WorkRequest req;
+    memset(&req, 0, sizeof(req));
     snprintf(req.lat, sizeof(req.lat), "%.4f", cfg.latitude);
     snprintf(req.lon, sizeof(req.lon), "%.4f", cfg.longitude);
     strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
@@ -274,7 +336,14 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     if (WorkCompletion_Wait(&wc) == 0)
     {
         SharedCache_Store(&app->forecastCache, cacheKey, wc.json);
-        HTTPResponse_SendJson(fd, wc.json);
+        if (maxHours < 48)
+        {
+            char *filtered = FilterForecastQuarters(wc.json, maxHours * 4);
+            HTTPResponse_SendJson(fd, filtered ? filtered : wc.json);
+            free(filtered);
+        }
+        else
+            HTTPResponse_SendJson(fd, wc.json);
     }
     else
     {
@@ -576,7 +645,7 @@ static void HandlePostSchedule(int fd, struct GridGuard *app, const JWTClaims *c
     // Save schedule to database.
     ScheduleEntry sched; 
     memset(&sched, 0, sizeof(sched));
-    snprintf(sched.scheduleId, sizeof(sched.scheduleId), "%.127s_%ld", claims->subject, (long)nowTime);
+    snprintf(sched.scheduleId, sizeof(sched.scheduleId), "%.63s_%.63s_%ld", claims->subject, loadId, (long)nowTime);
     strncpy(sched.userId,  claims->subject, sizeof(sched.userId)  - 1);
     strncpy(sched.loadId,  loadId,          sizeof(sched.loadId)  - 1);
     sched.scheduledStart   = window.scheduledStart;
@@ -726,9 +795,12 @@ void Client_HandleRequest(int fd, struct GridGuard *app)
         return;
     }
 
-    if (strcmp(request.path, "/forecast") == 0)
+    if (strncmp(request.path, "/forecast", 9) == 0 &&
+        (request.path[9] == '\0' || request.path[9] == '?'))
     {
-        HandleForecast(fd, app, &claims);
+        int hours = ParseQueryInt(request.path, "hours", 48);
+        if (hours > 48) hours = 48;
+        HandleForecast(fd, app, &claims, hours);
     }
     else if (strcmp(request.path, "/user/config") == 0)
     {

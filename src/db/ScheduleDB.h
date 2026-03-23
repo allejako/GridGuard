@@ -8,7 +8,7 @@
 
 typedef struct
 {
-    char   scheduleId[160];  // userId (up to 127) + "_" + timestamp (up to 20) + NUL
+    char   scheduleId[160];  // userId (up to 63) + "_" + loadId (up to 63) + "_" + timestamp (up to 20) + NUL
     char   userId[64];
     char   loadId[64];
     time_t scheduledStart;

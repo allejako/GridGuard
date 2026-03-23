@@ -2,8 +2,8 @@
 
 CC      = gcc
 CXX     = g++
-CFLAGS  = -Wall -Wextra -Werror -std=c11 -pthread -g -I src
-CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g -I src
+CFLAGS  = -Wall -Wextra -Werror -std=c11 -pthread -g -I src -MMD -MP
+CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g -I src -MMD -MP
 LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lssl -lcrypto -lrt
 
 # Kontrollera beroenden
@@ -200,7 +200,7 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	echo "seeding user config..."; \
 	python3 scripts/seed_user_config.py "$(CURDIR)/gridguard.db"; \
 	echo "starting gridguard (schedules will be created after forecast ready)..."; \
-	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >logs/gridguard.log 2>&1 & \
 	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
 	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
@@ -544,7 +544,7 @@ start: server
 	@rm -f /tmp/gridguard* 2>/dev/null || true
 	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-gridguard-test-secret}; \
-	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >logs/gridguard.log 2>&1 & \
 	sleep 0.2; \
 	WATCHDOG_PID=$$(cat /tmp/gridguard.pid 2>/dev/null); \
 	echo "gridguard started (pid $$WATCHDOG_PID)"; \
@@ -596,7 +596,7 @@ daemon: server watchdog
 	echo "daemon running (pid $$WATCHDOG_PID)"; \
 	echo "http://localhost:8080"
 
-dev: server watchdog platform-objects
+dev: server watchdog platform-objects $(MAIN_BIN)
 	@if [ -f /tmp/gridguard.pid ]; then \
 	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
 	@pkill -9 GridGuard 2>/dev/null || true
@@ -610,10 +610,10 @@ dev: server watchdog platform-objects
 	echo "generating jwt token..."; \
 	DEV_TOKEN=$$(GRIDGUARD_JWT_SECRET="$$SECRET" python3 scripts/generate_jwt.py "$(CURDIR)/platform.db" SAAB_ARENA 2>/dev/null); \
 	if [ -z "$$DEV_TOKEN" ]; then echo "token generation failed"; exit 1; fi; \
-	echo "seeding gridguard.db..."; \
-	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db"; \
+	echo "seeding user config..."; \
+	python3 scripts/seed_user_config.py "$(CURDIR)/gridguard.db"; \
 	echo "starting gridguard..."; \
-	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >/dev/null 2>&1 & \
+	setsid env GRIDGUARD_JWT_SECRET="$$SECRET" GRIDGUARD_DB_PATH="$(CURDIR)/gridguard.db" $(MAIN_BIN) >logs/gridguard.log 2>&1 & \
 	MAIN_PID=$$!; echo $$MAIN_PID > /tmp/gridguard.pid; \
 	printf "waiting for server"; \
 	for i in $$(seq 1 20); do \
@@ -639,13 +639,36 @@ dev: server watchdog platform-objects
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo ""; \
+	printf "waiting for forecast data (fetching APIs)"; \
+	FORECAST_OK=0; \
+	for i in $$(seq 1 60); do \
+	    STATUS=$$(curl -s -o /dev/null -w "%{http_code}" \
+	        -H "Authorization: Bearer $$DEV_TOKEN" \
+	        http://localhost:8080/forecast 2>/dev/null); \
+	    if [ "$$STATUS" = "200" ]; then FORECAST_OK=1; break; fi; \
+	    printf "."; sleep 1; done; \
+	if [ "$$FORECAST_OK" = "1" ]; then echo " ready"; \
+	else echo " TIMED OUT"; \
+	    echo ""; \
+	    echo "Server log (last 20 lines):"; \
+	    tail -20 logs/gridguard.log 2>/dev/null || echo "(no log)"; \
+	    exit 1; fi; \
+	echo ""; \
+	echo "seeding client DB with real forecast signals..."; \
+	python3 scripts/seed_client.py "$(CURDIR)/gridguard.db" "$$DEV_TOKEN"; \
+	echo ""; \
 	echo "testing /forecast:"; \
 	curl -s -X GET "http://localhost:8080/forecast" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed"; \
+	    -H "Authorization: Bearer $$DEV_TOKEN" \
+	    | python3 -m json.tool --no-ensure-ascii 2>/dev/null > /tmp/gridguard_forecast.json || echo "failed"; \
+	head -60 /tmp/gridguard_forecast.json; \
+	echo "  ... (full forecast saved to /tmp/gridguard_forecast.json)"; \
 	echo ""; \
 	echo "testing /schedule:"; \
 	curl -s -X GET "http://localhost:8080/schedule" \
-	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool 2>/dev/null || echo "failed";
+	    -H "Authorization: Bearer $$DEV_TOKEN" | python3 -m json.tool --no-ensure-ascii 2>/dev/null || echo "failed"; \
+	echo ""; \
+	echo "Server log: logs/gridguard.log";
 
 stop:
 	@echo "stopping gridguard..."
@@ -827,6 +850,10 @@ soak-test: server
 soak-test-short: server
 	@echo "Starting 1-hour soak test (quick validation)..."
 	SOAK_TEST_HOURS=1 ./scripts/soak_test.sh
+
+ALL_DEPS = $(SERVER_OBJS:.o=.d) $(FETCHER_OBJS:.o=.d) $(PARSER_OBJS:.o=.d) \
+           $(WATCHDOG_OBJS:.o=.d) $(PLATFORM_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
+-include $(ALL_DEPS)
 
 .PHONY: all server client watchdog platform-objects directories
 .PHONY: debug release profile coverage

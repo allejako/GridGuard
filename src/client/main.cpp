@@ -168,7 +168,11 @@ static void forecastRow(const gridguard::ForecastEntry& e,
     else                           solar = ff(e.solarKwh, 2, "kWh");
 
     double dev = e.savingsVsMedian;
-    const char* devColor = dev < -5.0 ? GN : (dev > 10.0 ? RD : G);
+    const char* devColor;
+    if      (e.signal == "SELL" && dev >= 0.0) devColor = C;   // selling at or above median — cyan
+    else if (dev < -5.0)                        devColor = GN;  // cheap — green
+    else if (dev > 10.0)                        devColor = RD;  // expensive — red
+    else                                         devColor = G;   // neutral — gray
     std::string devStr = (dev < 0 ? "" : "+") + ff(dev, 1) + "%";
 
     std::vector<std::string> cells = {
@@ -264,7 +268,7 @@ static void showForecast(const std::vector<gridguard::ForecastEntry>& entries,
         blank();
         std::string hdr = std::string(B) + "Best buy windows" + R;
         if (buyCount > MAX_BUY)
-            hdr += c(G, "  " + std::to_string(buyCount) + " total");
+            hdr += c(G, "  showing " + std::to_string(MAX_BUY) + " of " + std::to_string(buyCount));
         row(c(W, hdr));
         blank();
         for (const auto* e : buyList)
