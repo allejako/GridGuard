@@ -188,7 +188,7 @@ client: server watchdog platform-objects directories $(MAIN_BIN) $(CLIENT_BIN)
 	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
 	@pkill -9 GridGuard 2>/dev/null || true
 	@fuser -k -9 8080/tcp 2>/dev/null || true
-	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@rm -f /tmp/gridguard* /dev/shmg/ridguard_* 2>/dev/null || true
 	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
 	echo "seeding platform.db..."; \
@@ -601,7 +601,7 @@ dev: server watchdog platform-objects $(MAIN_BIN)
 	    kill -9 $$(cat /tmp/gridguard.pid) 2>/dev/null; rm -f /tmp/gridguard.pid; fi
 	@pkill -9 GridGuard 2>/dev/null || true
 	@fuser -k -9 8080/tcp 2>/dev/null || true
-	@rm -f /tmp/gridguard* 2>/dev/null || true
+	@rm -f /tmp/gridguard* /dev/shm/gridguard_* 2>/dev/null || true
 	@sleep 0.5
 	@SECRET=$${GRIDGUARD_JWT_SECRET:-demo_secret_key_change_in_production_2024}; \
 	echo "seeding platform.db..."; \

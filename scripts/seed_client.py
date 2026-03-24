@@ -102,7 +102,8 @@ def seed_via_api(con, token, now):
         "grid_fee_high":    0.45,
     }, token)
     if ok is None:
-        return False
+        print("  ✗ Failed to push user config")
+        return 0
     print("  ✓ User config pushed via API")
 
     deadline = now + 86400  # look within the next 24 hours
@@ -114,17 +115,19 @@ def seed_via_api(con, token, now):
         {"load_id": "hvac_precool",     "duration_minutes": 120, "power_kw": 30.0},
     ]
 
+    success_count = 0
     for load in pending:
         resp = api_post("/schedule", {**load, "deadline": deadline}, token)
         if resp is None:
-            print(f"  ✗ Failed to schedule {load['load_id']} — aborting API seed")
-            return False
-        print(f"  ✓ {load['load_id']:20s}  "
-              f"start={resp.get('scheduled_start', '?')}  "
-              f"cost={resp.get('estimated_cost_sek', 0):.2f} kr  "
-              f"savings={resp.get('savings_sek', 0):.2f} kr")
+            print(f"  ✗ Failed to schedule {load['load_id']}")
+        else:
+            success_count += 1
+            print(f"  ✓ {load['load_id']:20s}  "
+                  f"start={resp.get('scheduled_start', '?')}  "
+                  f"cost={resp.get('estimated_cost_sek', 0):.2f} kr  "
+                  f"savings={resp.get('savings_sek', 0):.2f} kr")
 
-    return True
+    return success_count
 
 
 # ── Fallback: direct DB insert ────────────────────────────────────────────────
@@ -160,16 +163,27 @@ con = sqlite3.connect(db_path, timeout=10)
 con.execute(CREATE_USER_CONFIGS)
 con.execute(CREATE_SCHEDULES)
 
-# Clear existing schedules so re-seeding is idempotent.
+now = int(time.time())
+
+# Always clear existing schedules for idempotent re-seeding
+print("Clearing existing schedules...")
 con.execute("DELETE FROM schedules")
 con.commit()
 
-now = int(time.time())
-
 if jwt_token:
     print("Seeding via live API (real LoadScheduler savings)...")
-    if not seed_via_api(con, jwt_token, now):
-        print("  ⚠  API seed failed — falling back to static demo data (savings=0).")
+    success_count = seed_via_api(con, jwt_token, now)
+
+    if success_count == 2:
+        # All API calls succeeded - schedules are in DB with real savings
+        print(f"  ✓ API seed successful — {success_count} schedules created with real savings")
+    elif success_count > 0:
+        # Some API calls succeeded, some failed
+        print(f"  ⚠  Partial success — {success_count}/2 schedules created via API")
+        print(f"     Inspect logs for failures. No fallback used to avoid duplicates.")
+    else:
+        # All API calls failed - use fallback demo data
+        print("  ✗ API seed failed completely — falling back to static demo data (savings=0).")
         seed_via_db(con, now)
 else:
     print("  ⚠  No JWT token — inserting static demo data (savings=0).")
