@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 // Forecast window: 48-hour lookahead with 15-minute resolution
 #define MAX_QUARTERS 192
@@ -102,6 +103,128 @@ static double GetConsumptionPatternQuarter(int hour, int minute)
     return hourlyBase * minuteFactor;
 }
 
+// ========== SOLAR POSITION & POA IRRADIANCE ==========
+//
+// Calculates Plane-of-Array (POA) irradiance for a tilted solar panel using
+// the Hay & Davies transposition model (IEC 61853-1 recommended).
+//
+// Inputs:
+//   ghi       — Global Horizontal Irradiance (W/m²) from Open-Meteo shortwave_radiation
+//   dni       — Direct Normal Irradiance (W/m²) from Open-Meteo direct_normal_irradiance
+//   dhi       — Diffuse Horizontal Irradiance (W/m²) from Open-Meteo diffuse_radiation
+//   latDeg    — Site latitude in decimal degrees (negative = southern hemisphere)
+//   lonDeg    — Site longitude in decimal degrees (negative = west)
+//   tiltDeg   — Panel tilt: 0=horizontal, 90=vertical
+//   azimuthDeg— Panel compass bearing: 0=north, 90=east, 180=south, 270=west
+//   t         — UTC Unix timestamp for this 15-minute quarter
+//
+// Returns POA irradiance in W/m² (≥ 0).
+//
+// Algorithm:
+//   1. Solar declination + equation of time (Spencer 1971)
+//   2. Solar hour angle from UTC longitude
+//   3. Solar zenith and azimuth angles
+//   4. Angle of incidence on tilted panel
+//   5. Hay & Davies: POA = DNI×cos(AOI) + DHI×(f×Rb + (1-f)×sky) + GHI×ground
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+static double CalculatePOA(double ghi, double dni, double dhi,
+                            double latDeg, double lonDeg,
+                            double tiltDeg, double azimuthDeg,
+                            time_t t)
+{
+    // Nothing to compute at night
+    if (ghi <= 0.0 && dni <= 0.0 && dhi <= 0.0)
+        return 0.0;
+
+    // Convert angles to radians
+    double phi  = latDeg  * M_PI / 180.0;  // latitude
+    double beta = tiltDeg * M_PI / 180.0;  // panel tilt
+
+    // Panel azimuth: user gives compass bearing (180=south).
+    // Solar engineering convention: 0=south, +90=west, -90=east.
+    double gamma_panel = (azimuthDeg - 180.0) * M_PI / 180.0;
+
+    // --- Solar position ---
+    struct tm utc;
+    gmtime_r(&t, &utc);
+
+    // Day of year (1-based)
+    int doy = utc.tm_yday + 1;
+
+    // Day angle (radians)
+    double B = 2.0 * M_PI * (doy - 1) / 365.0;
+
+    // Solar declination (Spencer 1971)
+    double delta = 0.006918
+                 - 0.399912 * cos(B)    + 0.070257 * sin(B)
+                 - 0.006758 * cos(2*B)  + 0.000907 * sin(2*B)
+                 - 0.002697 * cos(3*B)  + 0.00148  * sin(3*B);
+
+    // Equation of time (minutes, Spencer 1971)
+    double EoT = 229.18 * (0.000075
+               + 0.001868 * cos(B)   - 0.032077 * sin(B)
+               - 0.014615 * cos(2*B) - 0.04089  * sin(2*B));
+
+    // Solar time (hours) from UTC: add longitude correction and EoT
+    double utcHours = utc.tm_hour + utc.tm_min / 60.0 + utc.tm_sec / 3600.0;
+    double solarTime = utcHours + lonDeg / 15.0 + EoT / 60.0;
+
+    // Hour angle (radians): negative in morning, positive in afternoon
+    double omega = (solarTime - 12.0) * M_PI / 12.0;
+
+    // Solar zenith angle
+    double cos_zenith = sin(phi)*sin(delta) + cos(phi)*cos(delta)*cos(omega);
+    cos_zenith = fmax(-1.0, fmin(1.0, cos_zenith));
+
+    if (cos_zenith <= 0.001)
+    {
+        // Sun below horizon — only diffuse sky contribution remains
+        double sky_diffuse = dhi * (1.0 + cos(beta)) / 2.0;
+        return fmax(0.0, sky_diffuse);
+    }
+
+    double sin_zenith = sqrt(fmax(0.0, 1.0 - cos_zenith * cos_zenith));
+
+    // Solar azimuth from south (positive = west), radians
+    double cos_azimuth_sol = (sin(delta)*cos(phi) - cos(delta)*sin(phi)*cos(omega))
+                             / fmax(sin_zenith, 0.001);
+    cos_azimuth_sol = fmax(-1.0, fmin(1.0, cos_azimuth_sol));
+    double gamma_s = acos(cos_azimuth_sol);
+    if (omega < 0.0)
+        gamma_s = -gamma_s;  // morning: sun is east of south (negative)
+
+    // Angle of incidence on tilted panel surface
+    double cos_aoi = cos_zenith * cos(beta)
+                   + sin_zenith * sin(beta) * cos(gamma_s - gamma_panel);
+    cos_aoi = fmax(0.0, cos_aoi);  // negative AOI means sun behind panel
+
+    // --- Hay & Davies transposition model ---
+    // Beam component
+    double poa_beam = dni * cos_aoi;
+
+    // Anisotropy index: fraction of diffuse that behaves like direct beam (circumsolar)
+    double ghi_safe = fmax(ghi, dni * cos_zenith + dhi);  // GHI >= DNI*cos(θz)+DHI
+    double f_hay = (ghi_safe > 0.01) ? fmin(dni / ghi_safe, 1.0) : 0.0;
+
+    // Rb: ratio of beam on tilted plane to beam on horizontal
+    double Rb = cos_aoi / fmax(cos_zenith, 0.001);
+    Rb = fmin(Rb, 10.0);  // cap to avoid numerical explosion at near-horizon
+
+    // Diffuse component (Hay & Davies: circumsolar + isotropic sky)
+    double sky_factor   = (1.0 + cos(beta)) / 2.0;
+    double poa_diffuse  = dhi * (f_hay * Rb + (1.0 - f_hay) * sky_factor);
+
+    // Ground-reflected component (albedo = 0.2, typical for grass/gravel)
+    double ground_factor = (1.0 - cos(beta)) / 2.0;
+    double poa_ground    = ghi * 0.2 * ground_factor;
+
+    return fmax(0.0, poa_beam + poa_diffuse + poa_ground);
+}
+
 // Standard comparison function for qsort()
 static int CompareDoubles(const void *a, const void *b)
 {
@@ -123,7 +246,7 @@ int Compute_Initiate(Compute *compute)
     return 0;
 }
 
-int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh, double gridFeeLow, double gridFeeNormal, double gridFeeHigh, EnergyData *plan)
+int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, double solarAreaM2, double solarEfficiency, double consumptionKwh, double gridFeeLow, double gridFeeNormal, double gridFeeHigh, double panelTiltDeg, double panelAzimuthDeg, double latitude, double longitude, EnergyData *plan)
 {
     if (!compute || !forecast || !plan)
         return -1;
@@ -253,17 +376,27 @@ int Compute_GenerateEnergyPlan(Compute *compute, const ForecastData *forecast, d
         int minuteOfHour = timeInfo ? timeInfo->tm_min : 0;
 
         double quarterCost = actualCosts[i];
-        double irradiance = quarterData->solarIrradiance;
+        double ghi         = quarterData->solarIrradiance;
+        double dni         = quarterData->directNormalIrradiance;
+        double dhi         = quarterData->diffuseRadiation;
         double temperature = quarterData->temperature;
-        double windSpeed = quarterData->windSpeed;
+        double windSpeed   = quarterData->windSpeed;
 
-        // Solar production model with temperature derating
-        double panelTemp = CalculatePanelTemperature(temperature, irradiance, windSpeed);
+        // Plane-of-Array irradiance via Hay & Davies transposition model.
+        // Uses DNI + DHI + GHI, panel tilt/azimuth, and solar position from lat/lon.
+        // Falls back gracefully to GHI-based estimate if DNI/DHI are zero (data gap).
+        double poa = CalculatePOA(ghi, dni, dhi,
+                                  latitude, longitude,
+                                  panelTiltDeg, panelAzimuthDeg,
+                                  quarterData->timestamp);
+
+        // Solar production model with temperature derating (IEC 61215 NOCT)
+        double panelTemp = CalculatePanelTemperature(temperature, poa, windSpeed);
         double tempEfficiency = 1.0 + PANEL_TEMP_COEFFICIENT * (panelTemp - PANEL_TEMP_AT_STANDARD_TEST);
         if (tempEfficiency < 0.70) tempEfficiency = 0.70;
         if (tempEfficiency > 1.10) tempEfficiency = 1.10;
 
-        double quarterProduction = (irradiance / 1000.0) * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * tempEfficiency * 0.25;
+        double quarterProduction = (poa / 1000.0) * solarAreaM2 * solarEfficiency * SOLAR_REAL_WORLD_EFFICIENCY * tempEfficiency * 0.25;
 
         // Load profile application
         double quarterConsumption = (consumptionKwh * GetConsumptionPatternQuarter(hourOfDay, minuteOfHour)) * 0.25;

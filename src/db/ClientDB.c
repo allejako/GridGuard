@@ -26,10 +26,12 @@ static const char *CREATE_TABLE_SQL =
     "  solar_area_m2    REAL NOT NULL,"
     "  solar_efficiency REAL NOT NULL,"
     "  consumption_kwh  REAL NOT NULL DEFAULT 0.5,"
-    "  grid_fee_low     REAL NOT NULL DEFAULT 0.25,"
-    "  grid_fee_normal  REAL NOT NULL DEFAULT 0.35,"
-    "  grid_fee_high    REAL NOT NULL DEFAULT 0.45,"
-    "  updated_at       INTEGER NOT NULL"
+    "  grid_fee_low      REAL NOT NULL DEFAULT 0.25,"
+    "  grid_fee_normal   REAL NOT NULL DEFAULT 0.35,"
+    "  grid_fee_high     REAL NOT NULL DEFAULT 0.45,"
+    "  panel_tilt_deg    REAL NOT NULL DEFAULT 30.0,"
+    "  panel_azimuth_deg REAL NOT NULL DEFAULT 180.0,"
+    "  updated_at        INTEGER NOT NULL"
     ");";
 
 int ClientDB_Initiate(ClientDB *db, const char *path)
@@ -71,9 +73,11 @@ int ClientDB_Initiate(ClientDB *db, const char *path)
     // ALTER TABLE ADD COLUMN returns an error if the column already exists —
     // that is expected and safe to ignore.
     static const char *MIGRATE_SQL[] = {
-        "ALTER TABLE user_configs ADD COLUMN grid_fee_low    REAL NOT NULL DEFAULT 0.25;",
-        "ALTER TABLE user_configs ADD COLUMN grid_fee_normal REAL NOT NULL DEFAULT 0.35;",
-        "ALTER TABLE user_configs ADD COLUMN grid_fee_high   REAL NOT NULL DEFAULT 0.45;",
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_low      REAL NOT NULL DEFAULT 0.25;",
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_normal   REAL NOT NULL DEFAULT 0.35;",
+        "ALTER TABLE user_configs ADD COLUMN grid_fee_high     REAL NOT NULL DEFAULT 0.45;",
+        "ALTER TABLE user_configs ADD COLUMN panel_tilt_deg    REAL NOT NULL DEFAULT 30.0;",
+        "ALTER TABLE user_configs ADD COLUMN panel_azimuth_deg REAL NOT NULL DEFAULT 180.0;",
         NULL
     };
     for (int i = 0; MIGRATE_SQL[i]; i++)

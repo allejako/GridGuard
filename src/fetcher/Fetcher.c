@@ -449,9 +449,13 @@ int FetcherProcess_Run(FetcherProcess *proc)
         result.solarAreaM2 = request.solarAreaM2;
         result.solarEfficiency = request.solarEfficiency;
         result.consumptionKwh = request.consumptionKwh;
-        result.gridFeeLow    = request.gridFeeLow;
-        result.gridFeeNormal = request.gridFeeNormal;
-        result.gridFeeHigh   = request.gridFeeHigh;
+        result.gridFeeLow      = request.gridFeeLow;
+        result.gridFeeNormal   = request.gridFeeNormal;
+        result.gridFeeHigh     = request.gridFeeHigh;
+        result.panelTiltDeg    = request.panelTiltDeg;
+        result.panelAzimuthDeg = request.panelAzimuthDeg;
+        result.latitudeDbl     = request.latitudeDbl;
+        result.longitudeDbl    = request.longitudeDbl;
 
         time_t now; // For circuit breaker timing
 

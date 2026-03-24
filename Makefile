@@ -4,7 +4,7 @@ CC      = gcc
 CXX     = g++
 CFLAGS  = -Wall -Wextra -Werror -std=c11 -pthread -g -I src -MMD -MP
 CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -pthread -g -I src -MMD -MP
-LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lssl -lcrypto -lrt
+LDFLAGS = -pthread -lmbedtls -lmbedx509 -lmbedcrypto -lsqlite3 -lssl -lcrypto -lrt -lm
 
 # Kontrollera beroenden
 ifeq ($(wildcard /usr/include/mbedtls/ssl.h),)

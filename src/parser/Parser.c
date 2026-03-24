@@ -95,7 +95,9 @@ static void BuildForecastData(const OpenMeteoResponse *om, const ElprisetRespons
         entry->humidity = src->humidity2m;
         entry->cloudCover = src->cloudCover;
         entry->windSpeed = src->windSpeed10m;
-        entry->solarIrradiance = src->shortwaveRadiation;
+        entry->solarIrradiance         = src->shortwaveRadiation;
+        entry->directNormalIrradiance  = src->directNormalIrradiance;
+        entry->diffuseRadiation        = src->diffuseRadiation;
 
         // Match electricity price to weather quarter
         // Both APIs provide 15-minute data. After parsing with timezone context,
@@ -408,9 +410,13 @@ int ParserProcess_Run(ParserProcess *proc)
             pendingResult->solarAreaM2 = fetchResult.solarAreaM2;
             pendingResult->solarEfficiency = fetchResult.solarEfficiency;
             pendingResult->consumptionKwh = fetchResult.consumptionKwh;
-            pendingResult->gridFeeLow = fetchResult.gridFeeLow;
-            pendingResult->gridFeeNormal = fetchResult.gridFeeNormal;
-            pendingResult->gridFeeHigh = fetchResult.gridFeeHigh;
+            pendingResult->gridFeeLow      = fetchResult.gridFeeLow;
+            pendingResult->gridFeeNormal   = fetchResult.gridFeeNormal;
+            pendingResult->gridFeeHigh     = fetchResult.gridFeeHigh;
+            pendingResult->panelTiltDeg    = fetchResult.panelTiltDeg;
+            pendingResult->panelAzimuthDeg = fetchResult.panelAzimuthDeg;
+            pendingResult->latitudeDbl     = fetchResult.latitudeDbl;
+            pendingResult->longitudeDbl    = fetchResult.longitudeDbl;
 
             if (pricesParsed)
             {

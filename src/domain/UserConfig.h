@@ -17,6 +17,10 @@ typedef struct
     double gridFeeNormal;   // 07:00-16:59 (day rate)
     double gridFeeHigh;     // 17:00-23:59 (peak rate)
 
+    // Solar panel orientation — needed for accurate POA irradiance calculation
+    double panelTiltDeg;    // 0=horizontal, 90=vertical (typical Swedish roof: 30-40°)
+    double panelAzimuthDeg; // compass bearing: 0=north, 90=east, 180=south, 270=west
+
     long updatedAt;
 } UserConfig;
 

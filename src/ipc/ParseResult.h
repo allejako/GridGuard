@@ -15,6 +15,10 @@ typedef struct
     double gridFeeLow;
     double gridFeeNormal;
     double gridFeeHigh;
+    double panelTiltDeg;
+    double panelAzimuthDeg;
+    double latitudeDbl;
+    double longitudeDbl;
     ForecastData forecastData;
 } ParseResult;
 

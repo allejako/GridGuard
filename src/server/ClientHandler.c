@@ -317,14 +317,18 @@ static void HandleForecast(int fd, struct GridGuard *app, const JWTClaims *claim
     strncpy(req.region, cfg.region,      sizeof(req.region) - 1);
     strncpy(req.userId, claims->subject, sizeof(req.userId) - 1);
     strncpy(req.location, cfg.location,  sizeof(req.location) - 1);
-    req.solarAreaM2     = cfg.solarAreaM2;
-    req.solarEfficiency = cfg.solarEfficiency;
-    req.consumptionKwh  = cfg.consumptionKwh;
-    req.gridFeeLow    = cfg.gridFeeLow;
-    req.gridFeeNormal = cfg.gridFeeNormal;
-    req.gridFeeHigh   = cfg.gridFeeHigh;
+    req.solarAreaM2      = cfg.solarAreaM2;
+    req.solarEfficiency  = cfg.solarEfficiency;
+    req.consumptionKwh   = cfg.consumptionKwh;
+    req.gridFeeLow       = cfg.gridFeeLow;
+    req.gridFeeNormal    = cfg.gridFeeNormal;
+    req.gridFeeHigh      = cfg.gridFeeHigh;
+    req.panelTiltDeg     = cfg.panelTiltDeg;
+    req.panelAzimuthDeg  = cfg.panelAzimuthDeg;
+    req.latitudeDbl      = cfg.latitude;
+    req.longitudeDbl     = cfg.longitude;
 
-    LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h", claims->subject, req.lat, req.lon, req.region, req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh);
+    LOG_INFO("ClientHandler: Forecast for user=%s lat=%s lon=%s region=%s solar=%.1fm²/%.0f%% load=%.2fkWh/h tilt=%.0f° az=%.0f°", claims->subject, req.lat, req.lon, req.region, req.solarAreaM2, req.solarEfficiency * 100.0, req.consumptionKwh, req.panelTiltDeg, req.panelAzimuthDeg);
 
     if (GridGuard_SubmitRequest(app, &req, &wc) != 0)
     {
@@ -374,10 +378,12 @@ static void HandleGetUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cJSON_AddNumberToObject(json, "latitude", cfg.latitude);
     cJSON_AddNumberToObject(json, "longitude", cfg.longitude);
     cJSON_AddStringToObject(json, "region", cfg.region);
-    cJSON_AddNumberToObject(json, "solar_area_m2", cfg.solarAreaM2);
-    cJSON_AddNumberToObject(json, "solar_efficiency", cfg.solarEfficiency);
-    cJSON_AddNumberToObject(json, "consumption_kwh", cfg.consumptionKwh);
-    cJSON_AddNumberToObject(json, "updated_at", cfg.updatedAt);
+    cJSON_AddNumberToObject(json, "solar_area_m2",     cfg.solarAreaM2);
+    cJSON_AddNumberToObject(json, "solar_efficiency",  cfg.solarEfficiency);
+    cJSON_AddNumberToObject(json, "consumption_kwh",   cfg.consumptionKwh);
+    cJSON_AddNumberToObject(json, "panel_tilt_deg",    cfg.panelTiltDeg);
+    cJSON_AddNumberToObject(json, "panel_azimuth_deg", cfg.panelAzimuthDeg);
+    cJSON_AddNumberToObject(json, "updated_at",        cfg.updatedAt);
 
     char *jsonStr = cJSON_PrintUnformatted(json);
     HTTPResponse_SendJson(fd, jsonStr);
@@ -402,9 +408,11 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cJSON *jArea        = cJSON_GetObjectItemCaseSensitive(json, "solar_area_m2");
     cJSON *jEff         = cJSON_GetObjectItemCaseSensitive(json, "solar_efficiency");
     cJSON *jConsumption = cJSON_GetObjectItemCaseSensitive(json, "consumption_kwh");
-    cJSON *jGridFeeLow  = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_low");
-    cJSON *jGridFeeNormal = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_normal");
-    cJSON *jGridFeeHigh = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_high");
+    cJSON *jGridFeeLow   = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_low");
+    cJSON *jGridFeeNormal= cJSON_GetObjectItemCaseSensitive(json, "grid_fee_normal");
+    cJSON *jGridFeeHigh  = cJSON_GetObjectItemCaseSensitive(json, "grid_fee_high");
+    cJSON *jPanelTilt    = cJSON_GetObjectItemCaseSensitive(json, "panel_tilt_deg");
+    cJSON *jPanelAzimuth = cJSON_GetObjectItemCaseSensitive(json, "panel_azimuth_deg");
 
     if (!cJSON_IsNumber(jLat) || !cJSON_IsNumber(jLon) || !cJSON_IsString(jRegion))
     {
@@ -425,9 +433,11 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     double area = cJSON_IsNumber(jArea) ? jArea->valuedouble : 0.0;
     double eff  = cJSON_IsNumber(jEff)  ? jEff->valuedouble  : 0.0;
     double load = cJSON_IsNumber(jConsumption) ? jConsumption->valuedouble : 0.5;
-    double gridFeeLow = cJSON_IsNumber(jGridFeeLow) ? jGridFeeLow->valuedouble : 0.25;
+    double gridFeeLow    = cJSON_IsNumber(jGridFeeLow)    ? jGridFeeLow->valuedouble    : 0.25;
     double gridFeeNormal = cJSON_IsNumber(jGridFeeNormal) ? jGridFeeNormal->valuedouble : 0.35;
-    double gridFeeHigh = cJSON_IsNumber(jGridFeeHigh) ? jGridFeeHigh->valuedouble : 0.45;
+    double gridFeeHigh   = cJSON_IsNumber(jGridFeeHigh)   ? jGridFeeHigh->valuedouble   : 0.45;
+    double panelTilt     = cJSON_IsNumber(jPanelTilt)     ? jPanelTilt->valuedouble     : 30.0;
+    double panelAzimuth  = cJSON_IsNumber(jPanelAzimuth)  ? jPanelAzimuth->valuedouble  : 180.0;
 
     if (area < 0.0 || area > 10000.0)
     {
@@ -453,6 +463,18 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
         cJSON_Delete(json);
         return;
     }
+    if (panelTilt < 0.0 || panelTilt > 90.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid panel_tilt_deg: must be 0..90");
+        cJSON_Delete(json);
+        return;
+    }
+    if (panelAzimuth < 0.0 || panelAzimuth >= 360.0)
+    {
+        HTTPResponse_SendError(fd, HTTP_STATUS_400_BAD_REQUEST, "Invalid panel_azimuth_deg: must be 0..359");
+        cJSON_Delete(json);
+        return;
+    }
 
     UserConfig cfg;  
     memset(&cfg, 0, sizeof(cfg));
@@ -465,9 +487,11 @@ static void HandlePutUserConfig(int fd, struct GridGuard *app, const JWTClaims *
     cfg.solarAreaM2     = area;
     cfg.solarEfficiency = eff;
     cfg.consumptionKwh  = load;
-    cfg.gridFeeLow    = gridFeeLow;
-    cfg.gridFeeNormal = gridFeeNormal;
-    cfg.gridFeeHigh   = gridFeeHigh;
+    cfg.gridFeeLow      = gridFeeLow;
+    cfg.gridFeeNormal   = gridFeeNormal;
+    cfg.gridFeeHigh     = gridFeeHigh;
+    cfg.panelTiltDeg    = panelTilt;
+    cfg.panelAzimuthDeg = panelAzimuth;
 
     cJSON_Delete(json);
 
