@@ -11,7 +11,7 @@
 
 ```
 📍 Linköping, Elområde SE3
-🏢 500 m² solpaneler på taket
+🏢 1 500 m² solpaneler på taket (flatt arentak, 5° lutning, söderazimut 180°)
 ⚡ 50 kWh basförbrukning per 15 min (200 kW konstant)
 🚗 Elbilsflotta: 10 platser × 11 kW laddning
 🧊 Ismaskin (zamboni): 15 kW, måste köras innan match
@@ -225,21 +225,31 @@ flowchart TB
     S5 --> O3
 ```
 
-### Solcellsmodell (IEC-certifierad)
+### Solcellsmodell
 
-GridGuard använder internationella standarder för exakta beräkningar:
+GridGuard använder internationella standarder och Hay & Davies POA-transpositionsmodellen för exakta beräkningar:
+
+#### ☀️ Steg 0: POA-bestrålning (Hay & Davies-modellen)
+
+```
+Open-Meteo levererar GHI, DNI och DHI. CalculatePOA() omvandlar dessa till
+faktisk bestrålning mot panelens lutade yta (Plane of Array):
+
+SAAB Arena (tilt 5°, söder) vid GHI = 800 W/m²:
+→ POA ≈ 800 W/m²  (flatt tak — POA ≈ GHI vid låg lutning)
+```
 
 #### ☀️ Steg 1: Paneltemperatur (NOCT-modell, IEC 61215)
 
 ```
-Paneler blir varmare i solsken:
+Paneler blir varmare i solsken (använder POA som indata):
 
-panelTemp = luftTemp + (solinstrålning × 0.03125) / (1 + 0.04 × vindhastighet)
+panelTemp = luftTemp + (POA × 0.03125) / (1 + 0.04 × vindhastighet)
 
-Exempel (solig dag):
+Exempel (solig dag, SAAB Arena):
 - Lufttemperatur: 20°C
-- Solinstrålning: 800 W/m²
-- Vindhastiget: 3 m/s
+- POA: 800 W/m²
+- Vindhastighet: 3 m/s
 → Paneltemperatur: 41.2°C
 ```
 
@@ -260,7 +270,8 @@ Exempel:
 ```
 För SAAB Arena (1 500 m², verkningsgrad 20%):
 
-Produktion = (800 W/m² / 1000) × 1 500 m² × 0.20 × 0.75 × 0.84 × 0.25h
+Produktion = (POA / 1000) × 1 500 m² × 0.20 × 0.75 × 0.84 × 0.25h
+           = (800 / 1000) × 1 500 × 0.20 × 0.75 × 0.84 × 0.25
            = 37.8 kWh per 15 min
            = 151.2 kWh per timme
 
@@ -269,10 +280,11 @@ Med basförbrukning 11.25 kWh/15min (45 kWh/h):
 ```
 
 **Kvalitetsparametrar:**
+- ✅ Hay & Davies POA-transpositionsmodell (GHI+DNI+DHI → panelyta)
 - ✅ Kabel- och växelriktarförluster: 25%
 - ✅ Temperaturderating: IEC 61724-standard
-- ✅ NOCT-kalibrerad vindkylning: IEC 61215
-- ✅ Realtidsdata från Open-Meteo
+- ✅ NOCT-kalibrerad vindkylning: IEC 61215 (använder POA)
+- ✅ Realtidsdata från Open-Meteo (GHI, DNI, DHI)
 
 ### Prestanda
 
