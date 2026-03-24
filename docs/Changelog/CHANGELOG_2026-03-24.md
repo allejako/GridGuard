@@ -72,3 +72,18 @@ Följande fält lades till i hela pipeline:
 **Seeding och bygge**
 - `scripts/seed_user_config.py` — `panel_tilt_deg` och `panel_azimuth_deg` i CREATE och INSERT; SAAB Arena seedas med `tilt=5.0°` (flatt arentak) och `azimuth=180.0°` (söder)
 - `Makefile` — Lade till `-lm` i `LDFLAGS` för att länka libm (`acos`, `sin`, `cos`, `sqrt`, `fmax`, `fmin`)
+
+### Buggfix: GHI-fallback när DNI/DHI saknas
+
+`CalculatePOA()` returnerade nästan 0 W/m² om Open-Meteo svarar med `null` för DNI/DHI-fälten (parsern sätter dem då till 0.0) men GHI är giltig. Utan fallback reducerades solproduktionen till enbart markreflektion (~1 % av GHI) — en allvarlig regression mot det gamla beteendet.
+
+**Fix:** Om `DNI ≤ 0` och `DHI ≤ 0` men `GHI > 0` behandlas all strålning som isotrop himmeldiffus (`DHI_eff = GHI`). Vid `tilt = 0°` ger detta exakt GHI — identiskt med gamla beteendet. Vid `tilt = 5°` (SAAB Arena) ger det 499 W/m² mot inkommande GHI = 500 W/m².
+
+- `src/compute/Compute.c` — GHI-fallback inlagd direkt efter natt-checken
+
+### Tester uppdaterade
+
+- `tests/unit/test_compute_gtest.cpp` — Alla 9 anrop till `Compute_GenerateEnergyPlan` uppdaterade med de fyra nya parametrarna (`panelTiltDeg=0.0, panelAzimuthDeg=180.0, lat=0.0, lon=0.0`); tilt=0° gör POA = GHI och håller testerna deterministiska
+- `tests/unit/test_user_config_db_gtest.cpp` — `SolarParamsPersist` utökad med round-trip-verifiering av `panelTiltDeg=35°` och `panelAzimuthDeg=195°`
+
+Resultat: 9/9 compute-tester och 7/7 user_config_db-tester gröna.

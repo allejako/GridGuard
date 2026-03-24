@@ -140,6 +140,18 @@ static double CalculatePOA(double ghi, double dni, double dhi,
     if (ghi <= 0.0 && dni <= 0.0 && dhi <= 0.0)
         return 0.0;
 
+    // GHI-only fallback: if DNI and DHI are missing (parser set them to 0 due to
+    // null values from API) but GHI is present, treat all radiation as isotropic
+    // diffuse (DHI_eff = GHI). This is physically conservative and prevents a
+    // near-zero production result when real irradiance data exists.
+    if (dni <= 0.0 && dhi <= 0.0 && ghi > 0.0)
+    {
+        double beta_fb = tiltDeg * M_PI / 180.0;
+        double sky_fb    = ghi * (1.0 + cos(beta_fb)) / 2.0;
+        double ground_fb = ghi * 0.2 * (1.0 - cos(beta_fb)) / 2.0;
+        return fmax(0.0, sky_fb + ground_fb);
+    }
+
     // Convert angles to radians
     double phi  = latDeg  * M_PI / 180.0;  // latitude
     double beta = tiltDeg * M_PI / 180.0;  // panel tilt
