@@ -31,14 +31,15 @@ Kurs 3 — Systemutvecklare C/C++, Chas Academy
 ## 2. Input och Output
 
 **Input:**
-- Väderprognos (solinstrålning, temperatur, vind) — Open-Meteo API, TTL 15 min
+- Väderprognos (GHI, DNI, DHI, temperatur, vind, molntäckning) — Open-Meteo API, TTL 15 min
 - Spotpriser per 15-minutersslot (SE1–SE4) — Elprisetjustnu
-- Användarkonfiguration: solarea, verkningsgrad, position, elområde, nätavgifter
+- Användarkonfiguration: solarea, verkningsgrad, panellutning, panelazimut, position, elområde, nätavgifter
 
 *SAAB Arena-konfiguration:*
 ```
 Position:        58.4109°N, 15.6216°E  (Linköping, SE3)
 Solpaneler:      1 500 m²,  verkningsgrad 20%
+Panellutning:    5° (flatt arentak),  azimut 180° (söder)
 Basförbrukning:  45 kWh/h
 Nätavgift:       0.25 / 0.35 / 0.45 kr/kWh  (låg/normal/hög)
 Flexibla laster: ev_fleet_charger  50 kW  4h
@@ -265,10 +266,11 @@ sequenceDiagram
 ## 6. Hur fungerar energialgoritmen?
 
 **Solcellsmodell (IEC-baserad):**
-- Paneltemperatur: NOCT-modell (IEC 61215) med vindkylning
+- **POA-irradians (Hay & Davies):** Open-Meteo levererar GHI, DNI och DHI per kvartal. `CalculatePOA()` beräknar solens position (Spencer 1971) och transponerar strålningen till panelens lutade yta: direktstrålning + circumsolär diffus + isotrop himmeldiffus + markreflektion (albedo 0.2). Vid saknad DNI/DHI används GHI som isotrop diffus (graceful fallback).
+- Paneltemperatur: NOCT-modell (IEC 61215) med vindkylning — använder POA som indata
 - Temperaturderating: −0.45%/°C över 25°C (IEC 61724) — 16% förlust vid 60°C
-- Energi per kvart: `(W/m² / 1000) × area × verkningsgrad × 0.75 × tempEff × 0.25h`
-- *SAAB Arena vid full sol (1 000 W/m²):* `1.0 × 1500 × 0.20 × 0.75 × ~0.98 × 0.25 ≈ 55 kWh/kvart`
+- Energi per kvart: `(POA W/m² / 1000) × area × verkningsgrad × 0.75 × tempEff × 0.25h`
+- *SAAB Arena vid full sol (POA ≈ 500 W/m² vid tilt=5°, söder):* `0.5 × 1500 × 0.20 × 0.75 × ~0.98 × 0.25 ≈ 28 kWh/kvart`
 
 **Beslutlogik (P33/P70-percentiler):**
 

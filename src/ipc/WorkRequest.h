@@ -15,6 +15,10 @@ typedef struct
     double gridFeeLow;
     double gridFeeNormal;
     double gridFeeHigh;
+    double panelTiltDeg;    // 0=horizontal, 90=vertical
+    double panelAzimuthDeg; // compass bearing: 180=south (default)
+    double latitudeDbl;     // precise latitude for solar position calculation
+    double longitudeDbl;    // precise longitude for solar position calculation
 } WorkRequest;
 
 #endif // _WORK_REQUEST_H_

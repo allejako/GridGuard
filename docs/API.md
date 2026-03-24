@@ -88,7 +88,7 @@ Processtatistik från Watchdog via POSIX shared memory. Visar PID, uptime och se
 
 ### GET /forecast
 
-Hämtar en 96-timmars energiprognos med BUY/SELL/AVOID-rekommendationer per 15-minutersintervall. Kräver att `/user/config` är satt.
+Hämtar en 96-timmars energiprognos med BUY/SELL/AVOID/IDLE-rekommendationer per 15-minutersintervall. Kräver att `/user/config` är satt.
 
 Returnerar cachat svar om data är färsk. Vid cache miss körs hela pipeline (Fetch → Parse → Compute) synkront — kan ta upp till 30 sekunder vid första anropet.
 
@@ -120,7 +120,7 @@ Returnerar cachat svar om data är färsk. Vid cache miss körs hela pipeline (F
 | `grid_fee_sek_kwh` | number | Nätavgift (SEK/kWh) |
 | `total_cost_sek_kwh` | number | Totalkostnad inkl. nätavgift |
 | `production_kwh` | number | Förväntad solcellsproduktion (kWh) |
-| `recommendation` | string | `BUY`, `SELL` eller `AVOID` |
+| `recommendation` | string | `BUY`, `SELL`, `AVOID` eller `IDLE` |
 | `cloud_cover` | number | Molntäckning (%) |
 | `temperature` | number | Temperatur (°C) |
 | `solar_irradiance` | number | Solinstrålning (W/m²) |
@@ -129,6 +129,7 @@ Returnerar cachat svar om data är färsk. Vid cache miss körs hela pipeline (F
 - `BUY` — Lågt pris, fördelaktigt att köpa el från nätet
 - `SELL` — Hög solproduktion och högt pris, sälj överskott
 - `AVOID` — Högt pris och låg produktion, minimera förbrukning
+- `IDLE` — Normalt pris, ingen specifik åtgärd rekommenderas (filtreras bort i JSON-output)
 
 **Felfall:**
 
@@ -154,6 +155,8 @@ Hämtar sparad användarkonfiguration.
   "solar_area_m2": 20.0,
   "solar_efficiency": 0.18,
   "consumption_kwh": 1.5,
+  "panel_tilt_deg": 30.0,
+  "panel_azimuth_deg": 180.0,
   "updated_at": 1741900000
 }
 ```
@@ -182,7 +185,9 @@ Sparar eller uppdaterar användarkonfiguration. Alla tidigare lagrade prognoser 
   "consumption_kwh": 1.5,
   "grid_fee_low": 0.25,
   "grid_fee_normal": 0.35,
-  "grid_fee_high": 0.45
+  "grid_fee_high": 0.45,
+  "panel_tilt_deg": 30.0,
+  "panel_azimuth_deg": 180.0
 }
 ```
 
@@ -202,6 +207,8 @@ Sparar eller uppdaterar användarkonfiguration. Alla tidigare lagrade prognoser 
 | `grid_fee_low` | number | Nej | 0 .. 10 | Nätavgift lågtrafik (SEK/kWh) |
 | `grid_fee_normal` | number | Nej | 0 .. 10 | Nätavgift normaltrafik (SEK/kWh) |
 | `grid_fee_high` | number | Nej | 0 .. 10 | Nätavgift högtrafik (SEK/kWh) |
+| `panel_tilt_deg` | number | Nej | 0 .. 90 | Panellutning i grader (0°=horisontell, 90°=vertikal); default 30.0 |
+| `panel_azimuth_deg` | number | Nej | 0 .. 359 | Panelazimut (kompass): 0°=N, 90°=Ö, 180°=S, 270°=V; default 180.0 |
 
 **Svar (200 OK):**
 ```json
@@ -216,6 +223,8 @@ Sparar eller uppdaterar användarkonfiguration. Alla tidigare lagrade prognoser 
 | 400 | `Invalid coordinates: latitude must be -90..90, longitude -180..180` | Ogiltiga koordinater |
 | 400 | `Invalid solar_efficiency: must be 0.0..1.0` | Verkningsgrad utanför intervall |
 | 400 | `Invalid grid fees: must be 0..10 kr/kWh` | Nätavgift utanför intervall |
+| 400 | `Invalid panel_tilt_deg: must be 0..90` | Lutning utanför intervall |
+| 400 | `Invalid panel_azimuth_deg: must be 0..359` | Azimut utanför intervall |
 | 400 | `Invalid JSON` | Malformad request body |
 
 ---

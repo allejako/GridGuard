@@ -60,7 +60,7 @@ public:
 
     // User configuration
     std::string getUserConfig();
-    bool setUserConfig(double lat, double lon, const std::string& region, const std::string& location, double solarAreaM2, double solarEfficiency, double consumptionKwh);
+    bool setUserConfig(double lat, double lon, const std::string& region, const std::string& location, double solarAreaM2, double solarEfficiency, double consumptionKwh, double panelTiltDeg = 30.0, double panelAzimuthDeg = 180.0);
 
     // Schedule management
     std::vector<ScheduleEntry> getSchedules();

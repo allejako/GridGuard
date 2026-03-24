@@ -7,14 +7,16 @@
 typedef struct
 {
     time_t timestamp;
-    double solarIrradiance;   // W/m²
-    double cloudCover;        // 0-100%
-    double temperature;       // °C
-    double windSpeed;         // m/s
-    double humidity;          // 0-100%
-    double spotPriceSek;      // SEK/kWh
+    double solarIrradiance;          // GHI — global horizontal irradiance (W/m²)
+    double directNormalIrradiance;   // DNI — direct beam, normal to sun (W/m²)
+    double diffuseRadiation;         // DHI — diffuse horizontal irradiance (W/m²)
+    double cloudCover;               // 0-100%
+    double temperature;              // °C
+    double windSpeed;                // m/s
+    double humidity;                 // 0-100%
+    double spotPriceSek;             // SEK/kWh
     bool   valid;
-    bool   hasPriceData;      // true if spotPriceSek is actual data (not default 0.0)
+    bool   hasPriceData;             // true if spotPriceSek is actual data (not default 0.0)
 } ForecastEntry;
 
 typedef struct

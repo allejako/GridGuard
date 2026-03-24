@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS user_configs (
     solar_area_m2    REAL NOT NULL,
     solar_efficiency REAL NOT NULL,
     consumption_kwh  REAL NOT NULL DEFAULT 0.5,
-    grid_fee_low     REAL NOT NULL DEFAULT 0.25,
-    grid_fee_normal  REAL NOT NULL DEFAULT 0.35,
-    grid_fee_high    REAL NOT NULL DEFAULT 0.45,
-    updated_at       INTEGER NOT NULL
+    grid_fee_low      REAL NOT NULL DEFAULT 0.25,
+    grid_fee_normal   REAL NOT NULL DEFAULT 0.35,
+    grid_fee_high     REAL NOT NULL DEFAULT 0.45,
+    panel_tilt_deg    REAL NOT NULL DEFAULT 30.0,
+    panel_azimuth_deg REAL NOT NULL DEFAULT 180.0,
+    updated_at        INTEGER NOT NULL
 )
 """
 
@@ -46,11 +48,13 @@ INSERT_CONFIG = """
 INSERT OR REPLACE INTO user_configs
     (user_id, location, latitude, longitude, region,
      solar_area_m2, solar_efficiency, consumption_kwh,
-     grid_fee_low, grid_fee_normal, grid_fee_high, updated_at)
+     grid_fee_low, grid_fee_normal, grid_fee_high,
+     panel_tilt_deg, panel_azimuth_deg, updated_at)
 VALUES
     ('SAAB_ARENA', 'Linköping', 58.4109, 15.6216, 'SE3',
      1500.0, 0.20, 45.0,
-     0.25, 0.35, 0.45, ?)
+     0.25, 0.35, 0.45,
+     5.0, 180.0, ?)
 """
 
 con = sqlite3.connect(db_path)
@@ -64,5 +68,5 @@ con.commit()
 con.close()
 
 print(f"✓ User config seeded: {db_path}")
-print("  User: SAAB_ARENA (Linköping, 1500m² solar roof, SE3, 45 kWh/h base load)")
+print("  User: SAAB_ARENA (Linköping, 1500m² solar roof, SE3, 45 kWh/h base load, tilt=5° az=180°)")
 print("  Schedules will be created after forecast is available...")

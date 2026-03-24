@@ -408,6 +408,7 @@ static void printUsage(const char* prog) {
     row(c(C, "config get"));
     row(c(C, "config set") + c(G, "  --lat LAT  --lon LON  --region SE3"));
     row(c(G, "  [--location NAME]  [--solar-area M2]  [--solar-eff EFF]"));
+    row(c(G, "  [--panel-tilt DEG]  [--panel-azimuth DEG]  (tilt: 0-90, azimuth: 0=N 90=E 180=S 270=W)"));
     blank();
     row(c(C, "schedule list"));
     row(c(C, "schedule add") + c(G, "  --load ID  --duration MIN  --power KW"));
@@ -568,20 +569,22 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            double lat, lon, area, eff, load;
+            double lat, lon, area, eff, load, tilt, azimuth;
             try {
-                lat  = std::stod(latStr);
-                lon  = std::stod(lonStr);
-                area = std::stod(getArg(flags, "--solar-area",  "0.0"));
-                eff  = std::stod(getArg(flags, "--solar-eff",   "0.0"));
-                load = std::stod(getArg(flags, "--consumption", "0.5"));
+                lat     = std::stod(latStr);
+                lon     = std::stod(lonStr);
+                area    = std::stod(getArg(flags, "--solar-area",    "0.0"));
+                eff     = std::stod(getArg(flags, "--solar-eff",     "0.0"));
+                load    = std::stod(getArg(flags, "--consumption",   "0.5"));
+                tilt    = std::stod(getArg(flags, "--panel-tilt",    "30.0"));
+                azimuth = std::stod(getArg(flags, "--panel-azimuth", "180.0"));
             } catch (...) {
                 std::cerr << c(RD, "error: numeric argument is not a valid number") << "\n";
                 return 1;
             }
 
             if (client.setUserConfig(lat, lon,
-                                     region, loc, area, eff, load))
+                                     region, loc, area, eff, load, tilt, azimuth))
                 std::cout << c(GN, "✓ config saved") << "\n";
             else {
                 std::cerr << c(RD, "error: failed to save config") << "\n";

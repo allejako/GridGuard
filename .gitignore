@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 build-tsan/
+build_test/
 bin/
 *.o
 *.d
@@ -12,6 +13,7 @@ logs/
 *.log
 
 # Profiling and coverage
+docs/profiling/
 gmon.out
 *.gcda
 *.gcno

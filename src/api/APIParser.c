@@ -200,6 +200,8 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
     cJSON *clouds   = cJSON_GetObjectItem(minutely, "cloud_cover");
     cJSON *winds    = cJSON_GetObjectItem(minutely, "wind_speed_10m");
     cJSON *solar    = cJSON_GetObjectItem(minutely, "shortwave_radiation");
+    cJSON *dni      = cJSON_GetObjectItem(minutely, "direct_normal_irradiance");
+    cJSON *dhi      = cJSON_GetObjectItem(minutely, "diffuse_radiation");
 
     if (!cJSON_IsArray(times))
     {
@@ -247,6 +249,14 @@ int APIParser_ParseOpenMeteo(APIParser *parser, const char *jsonData, OpenMeteoR
         cJSON *solarVal = cJSON_GetArrayItem(solar, i);
         double sol = cJSON_IsNumber(solarVal) ? solarVal->valuedouble : 0.0;
         data->shortwaveRadiation = ValidateSolarRadiation(sol);
+
+        cJSON *dniVal = cJSON_IsArray(dni) ? cJSON_GetArrayItem(dni, i) : NULL;
+        double dniV = cJSON_IsNumber(dniVal) ? dniVal->valuedouble : 0.0;
+        data->directNormalIrradiance = ValidateSolarRadiation(dniV);
+
+        cJSON *dhiVal = cJSON_IsArray(dhi) ? cJSON_GetArrayItem(dhi, i) : NULL;
+        double dhiV = cJSON_IsNumber(dhiVal) ? dhiVal->valuedouble : 0.0;
+        data->diffuseRadiation = ValidateSolarRadiation(dhiV);
 
         parsedCount++;
     }

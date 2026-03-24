@@ -159,15 +159,19 @@ bool GridGuardClient::setUserConfig(double lat, double lon,
                                      const std::string& location,
                                      double solarAreaM2,
                                      double solarEfficiency,
-                                     double consumptionKwh) {
+                                     double consumptionKwh,
+                                     double panelTiltDeg,
+                                     double panelAzimuthDeg) {
     std::ostringstream body;
-    body << "{\"latitude\":"       << lat
-         << ",\"longitude\":"      << lon
-         << ",\"region\":\""       << region         << "\""
-         << ",\"location\":\""     << location       << "\""
-         << ",\"solar_area_m2\":"  << solarAreaM2
-         << ",\"solar_efficiency\":"<< solarEfficiency
-         << ",\"consumption_kwh\":"  << consumptionKwh
+    body << "{\"latitude\":"          << lat
+         << ",\"longitude\":"         << lon
+         << ",\"region\":\""          << region          << "\""
+         << ",\"location\":\""        << location        << "\""
+         << ",\"solar_area_m2\":"     << solarAreaM2
+         << ",\"solar_efficiency\":"  << solarEfficiency
+         << ",\"consumption_kwh\":"   << consumptionKwh
+         << ",\"panel_tilt_deg\":"    << panelTiltDeg
+         << ",\"panel_azimuth_deg\":" << panelAzimuthDeg
          << "}";
 
     auto resp = http_->put("/user/config", body.str(), token_);

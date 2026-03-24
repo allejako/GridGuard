@@ -75,14 +75,18 @@ TEST_F(UserConfigDBTest, UpsertUpdatesExistingConfig) {
 // Solar panel parameters must persist with full floating-point precision
 TEST_F(UserConfigDBTest, SolarParamsPersist) {
     UserConfig cfg = MakeConfig("user_c");
-    cfg.solarAreaM2    = 15.5;
-    cfg.solarEfficiency= 0.21;
+    cfg.solarAreaM2      = 15.5;
+    cfg.solarEfficiency  = 0.21;
+    cfg.panelTiltDeg     = 35.0;
+    cfg.panelAzimuthDeg  = 195.0;
     ASSERT_EQ(UserConfigDB_Upsert(&db, &cfg), 0);
 
     UserConfig out;
     ASSERT_EQ(UserConfigDB_Get(&db, "user_c", &out), 0);
-    EXPECT_NEAR(out.solarAreaM2,     15.5, 0.001);
-    EXPECT_NEAR(out.solarEfficiency, 0.21, 0.001);
+    EXPECT_NEAR(out.solarAreaM2,     15.5,  0.001);
+    EXPECT_NEAR(out.solarEfficiency, 0.21,  0.001);
+    EXPECT_NEAR(out.panelTiltDeg,    35.0,  0.001);
+    EXPECT_NEAR(out.panelAzimuthDeg, 195.0, 0.001);
 }
 
 // All three time-of-use grid fee bands must persist correctly

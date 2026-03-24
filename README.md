@@ -187,7 +187,7 @@ GET  /metrics Processtatistik (watchdog, heartbeats, uptime)
 ### Autentiserade endpoints (JWT krävs)
 
 ```
-GET    /forecast          96-timmars energiprognos med BUY/SELL/AVOID-signaler
+GET    /forecast          96-timmars energiprognos med BUY/SELL/AVOID/IDLE-signaler
 GET    /user/config       Hämta konfiguration
 PUT    /user/config       Spara konfiguration (koordinater, solpaneler, elavgifter)
 GET    /schedule          Lista schemalagda laster
@@ -210,7 +210,9 @@ curl -X PUT http://localhost:8080/user/config \
     "consumption_kwh": 1.5,
     "grid_fee_low": 0.25,
     "grid_fee_normal": 0.35,
-    "grid_fee_high": 0.45
+    "grid_fee_high": 0.45,
+    "panel_tilt_deg": 30.0,
+    "panel_azimuth_deg": 180.0
   }'
 ```
 
@@ -234,7 +236,8 @@ bin/GridGuard-client --token $TOKEN forecast
 # Konfiguration
 bin/GridGuard-client --token $TOKEN config set \
   --lat 59.33 --lon 18.07 --region SE3 --location Stockholm \
-  --solar-area 20 --solar-eff 0.18 --consumption 1.5
+  --solar-area 20 --solar-eff 0.18 --consumption 1.5 \
+  --panel-tilt 30 --panel-azimuth 180
 
 # Schemalägg last
 bin/GridGuard-client --token $TOKEN schedule add \
@@ -272,7 +275,7 @@ src/
 ├── server/     HTTP-server, request-routing, applikationskärna
 ├── fetcher/    Hämtar data från Open-Meteo och Elprisetjustnu
 ├── parser/     Validerar och strukturerar rådata till domänmodeller
-├── compute/    Energiplanberäkningar (BUY/SELL/AVOID, solproduktion)
+├── compute/    Energiplanberäkningar (BUY/SELL/AVOID/IDLE, solproduktion)
 ├── watchdog/   Processövervakning, heartbeats, omstartslogik
 ├── domain/     Domänmodeller och lastschemaläggning
 ├── cache/      Process-delad cache (POSIX shm + rwlock)

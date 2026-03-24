@@ -34,7 +34,7 @@ int BuildOpenMeteoApiUrl(char *buffer, size_t bufferSize, const char *lat, const
     int written = snprintf(buffer, bufferSize,
         "%s?latitude=%s&longitude=%s"
         "&minutely_15=temperature_2m,relative_humidity_2m,cloud_cover,"
-        "wind_speed_10m,shortwave_radiation"
+        "wind_speed_10m,shortwave_radiation,direct_normal_irradiance,diffuse_radiation"
         "&timezone=%s&forecast_minutely_15=192",
         OPENMETEO_API_BASE_URL, lat, lon, WEATHER_TIMEZONE);
 

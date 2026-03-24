@@ -64,7 +64,7 @@ protected:
 TEST_F(ComputeTest, PlanCountMatchesForecastCount) {
     ForecastData f = MakeForecast(0.2, 1.5, 3.5, 0, 0, 0);
     EnergyData plan = {};
-    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, &plan), 0);
+    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), 0);
     EXPECT_EQ(plan.count, 96);
 }
 
@@ -74,7 +74,7 @@ TEST_F(ComputeTest, BuyAndAvoidSignalsWithThreePriceLevels) {
     // 32 cheap / 32 medium / 32 expensive, no solar → no SELL
     ForecastData f = MakeForecast(0.2, 1.5, 3.5, 0, 0, 0);
     EnergyData plan = {};
-    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 0.5, 0, 0, 0, &plan), 0);
+    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 0.5, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), 0);
 
     int buy = 0, idle = 0, avoid = 0, sell = 0;
     for (int i = 0; i < plan.count; i++) {
@@ -99,7 +99,7 @@ TEST_F(ComputeTest, SellSignalsWhenSolarSurplusAndExpensivePrice) {
     ForecastData f = MakeForecast(0.2, 1.5, 3.5, 0, 0, 1000);
     EnergyData plan = {};
     // 50 m² panels at 20% efficiency → ≈1.68 kWh/quarter, consumption ≈0.1 kWh → net >>0.5
-    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 50.0, 0.20, 0.5, 0, 0, 0, &plan), 0);
+    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 50.0, 0.20, 0.5, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), 0);
 
     int sell = 0, avoid = 0;
     for (int i = 64; i < 96; i++) { // expensive band
@@ -126,7 +126,7 @@ TEST_F(ComputeTest, NegativePriceAlwaysBuy) {
     f.lastUpdated = BASE_TIME;
 
     EnergyData plan = {};
-    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 0.5, 0, 0, 0, &plan), 0);
+    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 0.5, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), 0);
 
     for (int i = 0; i < 10; i++) {
         EXPECT_EQ(plan.entries[i].action, ACTION_BUY_FROM_GRID)
@@ -138,7 +138,7 @@ TEST_F(ComputeTest, NegativePriceAlwaysBuy) {
 TEST_F(ComputeTest, TotalCostIsPositive) {
     ForecastData f = MakeForecast(1.0, 1.5, 2.0, 0, 0, 0);
     EnergyData plan = {};
-    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, &plan), 0);
+    ASSERT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), 0);
     EXPECT_GT(plan.totalCostSek, 0.0);
     EXPECT_EQ(plan.count, 96);
 }
@@ -147,9 +147,9 @@ TEST_F(ComputeTest, TotalCostIsPositive) {
 TEST_F(ComputeTest, NullPointerSafety) {
     ForecastData f = MakeForecast(1.0, 1.5, 2.0, 0, 0, 0);
     EnergyData plan = {};
-    EXPECT_EQ(Compute_GenerateEnergyPlan(nullptr,   &f,    0, 0, 1.0, 0, 0, 0, &plan), -1);
-    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute,  nullptr, 0, 0, 1.0, 0, 0, 0, &plan), -1);
-    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute,  &f,    0, 0, 1.0, 0, 0, 0, nullptr), -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(nullptr,  &f,      0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan),   -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, nullptr, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan),   -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, &f,      0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, nullptr), -1);
 }
 
 // Uninitialized Compute struct must fail gracefully
@@ -157,7 +157,7 @@ TEST_F(ComputeTest, UninitializedComputeReturnsError) {
     Compute uninit = {};
     ForecastData f = MakeForecast(1.0, 1.5, 2.0, 0, 0, 0);
     EnergyData plan = {};
-    EXPECT_EQ(Compute_GenerateEnergyPlan(&uninit, &f, 0, 0, 1.0, 0, 0, 0, &plan), -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(&uninit, &f, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), -1);
 }
 
 // A forecast with count=0 has no valid quarters → error
@@ -165,7 +165,7 @@ TEST_F(ComputeTest, EmptyForecastReturnsError) {
     ForecastData f = {};
     f.count = 0;
     EnergyData plan = {};
-    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, &plan), -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), -1);
 }
 
 // Fewer than 4 valid quarters must fail
@@ -183,5 +183,5 @@ TEST_F(ComputeTest, InsufficientValidQuartersReturnsError) {
     f.lastUpdated = BASE_TIME;
 
     EnergyData plan = {};
-    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, &plan), -1);
+    EXPECT_EQ(Compute_GenerateEnergyPlan(&compute, &f, 0, 0, 1.0, 0, 0, 0, 0.0, 180.0, 0.0, 0.0, &plan), -1);
 }

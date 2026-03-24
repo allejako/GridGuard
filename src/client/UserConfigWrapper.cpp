@@ -27,6 +27,10 @@ void UserConfigWrapper::validate(const UserConfig& cfg) {
         throw std::invalid_argument("consumptionKwh must be >= 0");
     if (cfg.solarAreaM2 < 0.0)
         throw std::invalid_argument("solarAreaM2 must be >= 0");
+    if (cfg.panelTiltDeg < 0.0 || cfg.panelTiltDeg > 90.0)
+        throw std::invalid_argument("panelTiltDeg must be in [0, 90]");
+    if (cfg.panelAzimuthDeg < 0.0 || cfg.panelAzimuthDeg >= 360.0)
+        throw std::invalid_argument("panelAzimuthDeg must be in [0, 360)");
 }
 
 // ── constructors ─────────────────────────────────────────────────────────────
@@ -71,7 +75,9 @@ std::map<std::string, std::string> UserConfigWrapper::getAsMap() const {
         { "consumption_kwh",  d(cfg_.consumptionKwh, 3) },
         { "grid_fee_low",     d(cfg_.gridFeeLow,   4)  },
         { "grid_fee_normal",  d(cfg_.gridFeeNormal, 4) },
-        { "grid_fee_high",    d(cfg_.gridFeeHigh,  4)  },
+        { "grid_fee_high",    d(cfg_.gridFeeHigh,   4) },
+        { "panel_tilt_deg",   d(cfg_.panelTiltDeg,  1) },
+        { "panel_azimuth_deg",d(cfg_.panelAzimuthDeg,1)},
     };
 }
 

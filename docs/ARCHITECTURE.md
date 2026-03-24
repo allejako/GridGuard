@@ -546,7 +546,7 @@ flowchart TB
 
     subgraph DEVICE ["GridGuard Enhet (lokal SQLite)"]
         direction LR
-        GDB[("gridguard.db\nuser_id TEXT PRIMARY KEY\nlatitude REAL\nlongitude REAL\nregion TEXT\nsolar_area_m2 REAL\nsolar_efficiency REAL\nconsumption_kwh REAL\nupdated_at INTEGER")]
+        GDB[("gridguard.db\nuser_id TEXT PRIMARY KEY\nlatitude REAL\nlongitude REAL\nregion TEXT\nsolar_area_m2 REAL\nsolar_efficiency REAL\nconsumption_kwh REAL\npanel_tilt_deg REAL\npanel_azimuth_deg REAL\nupdated_at INTEGER")]
         SHM["SharedCache\n(POSIX shm)\nVäder- och prisdata\n(rådata, ej personlig)"]
     end
 
@@ -607,15 +607,15 @@ ClientHandler::HandleForecast()
 flowchart LR
     subgraph SV_PROC ["Server-process"]
         HTTP["HTTP-tråd\nGET /forecast"]
-        WR["WorkRequest\n─────────────\nuserId: char[64]\nlat: double\nlon: double\nregion: char[8]"]
+        WR["WorkRequest\n─────────────\nuserId: char[64]\nlat: double\nlon: double\nregion: char[8]\npanelTiltDeg: double\npanelAzimuthDeg: double\nlatitudeDbl: double\nlongitudeDbl: double"]
     end
 
     subgraph FE_PROC ["Fetcher-process"]
-        FR["FetchResult\n─────────────\nweatherJson: char[]\npriceJson: char[]\nstatus: int"]
+        FR["FetchResult\n─────────────\nweatherJson: char[]\npriceJson: char[]\nstatus: int\npanelTiltDeg: double\npanelAzimuthDeg: double\nlatitudeDbl: double\nlongitudeDbl: double"]
     end
 
     subgraph PA_PROC ["Parser-process"]
-        PR["ParseResult\n─────────────\nOpenMeteoResponse\nElprisetResponse\ncount: int"]
+        PR["ParseResult\n─────────────\nOpenMeteoResponse\nElprisetResponse\ncount: int\npanelTiltDeg: double\npanelAzimuthDeg: double\nlatitudeDbl: double\nlongitudeDbl: double"]
     end
 
     subgraph CW_PROC ["ComputeWorker (tråd)"]
@@ -884,18 +884,42 @@ flowchart LR
 
 **Implementering:** `src/compute/ComputeWorker.c:102–180`
 
-### Solcellsmodell — Temperaturkorrigering (IEC 61724 / IEC 61215)
+### Solcellsmodell — POA-transposition, temperaturkorrigering och energiproduktion
 
-Solcellsproduktionen per 15-minuterskvart beräknas i tre steg: paneltemperatur, temperaturderating, och slutlig energiproduktion.
+Solcellsproduktionen per 15-minuterskvart beräknas i fyra steg: POA-bestrålning mot panelens lutade yta, paneltemperatur, temperaturderating, och slutlig energiproduktion.
+
+#### Steg 0 — POA-bestrålning (Hay & Davies-modellen)
+
+Open-Meteo levererar GHI (Global Horizontal Irradiance), DNI (Direct Normal Irradiance) och DHI (Diffuse Horizontal Irradiance). För lutande paneler beräknar `CalculatePOA()` den faktiska bestrålade effekten mot panelens lutade yta (Plane of Array):
+
+```
+POA = beam + circumsolar + isotropDiffuse + groundReflection
+
+där:
+  beam            = DNI × cos(AOI)                     (direktstrålning på panelen)
+  circumsolar     = DHI × f × cos(AOI) / cos(zenith)   (anisotropisk diffus från solriktning)
+  isotropDiffuse  = DHI × (1 − f) × (1 + cos(β)) / 2  (isotrop himmeldiffus)
+  groundReflection= GHI × albedo × (1 − cos(β)) / 2   (markreflektion, albedo = 0.2)
+  f               = DNI / GHI                          (Hay & Davies anisotropiindex)
+  AOI             = infallsvinkel mot panelens normal
+  β               = panellutning (0° = horisontell, 90° = vertikal)
+```
+
+Solposition (zenitvinkel, azimutvinkel) beräknas via Spencer 1971-formeln för varje kvart baserat på UTC-tidsstämpel och koordinater.
+
+**GHI-fallback:** Om Open-Meteo svarar med null för DNI/DHI (parsern sätter till 0.0) men GHI > 0, behandlas all strålning som isotrop himmeldiffus. Vid β = 0° ger fallbacken exakt GHI — identiskt med gamla beteendet. Vid β = 5° (SAAB Arena) ger den 499 W/m² för GHI = 500 W/m².
+
+**Implementering:** `src/compute/Compute.c` — `CalculatePOA()` använder POA som indata till NOCT-modellen.
 
 #### Steg 1 — Paneltemperatur (NOCT-modell, IEC 61215)
 
 Paneler i direkt solsken blir varmare än lufttemperaturen. NOCT (*Nominal Operating Cell Temperature*) är standardiserat till 45 °C vid 800 W/m² och 20 °C lufttemperatur. Vind kyler panelen via konvektiv kylning.
 
 ```
-panelTemp = airTemp + (tempRise × irradiance) / (1 + WIND_COOLING_FACTOR × windSpeed)
+panelTemp = airTemp + (tempRise × poa) / (1 + WIND_COOLING_FACTOR × windSpeed)
 
 där:
+  poa               = POA-bestrålning mot panelens yta (W/m²), beräknad i steg 0
   tempRise          = (45 - 20) / 800 = 0.03125 °C per W/m²   (NOCT-kalibrerat)
   WIND_COOLING_FACTOR = 0.04                                    (konvektiv kylkoefficient)
 ```
@@ -903,9 +927,9 @@ där:
 ```mermaid
 flowchart LR
     AIR["Lufttemperatur\n(°C)"]
-    IRR["Solinstrålning\n(W/m²)"]
+    IRR["POA W/m²\n(steg 0)"]
     WIND["Vindhastighet\n(m/s)"]
-    NOCT["NOCT-beräkning\npanelTemp = airTemp +\ntempRise × irr / (1 + 0.04 × wind)"]
+    NOCT["NOCT-beräkning\npanelTemp = airTemp +\ntempRise × poa / (1 + 0.04 × wind)"]
     PT["Paneltemperatur\n(°C)"]
 
     AIR --> NOCT
@@ -934,11 +958,12 @@ Klämd till intervallet [0.70, 1.10]
 #### Steg 3 — Energiproduktion per kvart (kWh)
 
 ```
-quarterProduction = (irradiance / 1000) × solarAreaM2 × solarEfficiency
+quarterProduction = (poa / 1000) × solarAreaM2 × solarEfficiency
                     × SOLAR_REAL_WORLD_EFFICIENCY × tempEfficiency × 0.25
 
 där:
-  irradiance / 1000           = normalisering mot STC (1 000 W/m² referens)
+  poa / 1000                  = normalisering mot STC (1 000 W/m² referens)
+  poa                         = POA-bestrålning beräknad i steg 0 (Hay & Davies)
   solarAreaM2                 = panelyta från användarkonfiguration (m²)
   solarEfficiency             = verkningsgrad från användarkonfiguration (typisk: 0.18–0.22)
   SOLAR_REAL_WORLD_EFFICIENCY = 0.75   (kabel-, växelriktare- och smuts-förluster)
@@ -949,13 +974,13 @@ där:
 ```mermaid
 flowchart TB
     subgraph INPUTS ["Indata"]
-        IRR2["Solinstrålning W/m²\n(Open-Meteo: shortwave_radiation)"]
+        IRR2["POA W/m²\n(Hay & Davies, steg 0)"]
         AREA["solarAreaM2\n(användarkonfig)"]
         EFF["solarEfficiency\n(användarkonfig, ex. 0.20)"]
         TEFF["tempEfficiency\n(steg 2, ex. 0.84)"]
     end
 
-    NORM["Normalisering mot STC\nirradiance / 1 000"]
+    NORM["Normalisering mot STC\npoa / 1 000"]
     PROD["× solarAreaM2 × solarEfficiency"]
     RW["× 0.75\n(real-world förluster)"]
     TE["× tempEfficiency\n(temperaturderating)"]
@@ -979,7 +1004,7 @@ flowchart TB
 | NOCT-referens | 45 °C vid 800 W/m², 20 °C luft | IEC 61215 |
 | `tempEfficiency` klämning | [0.70, 1.10] | Undviker modellextrapolering |
 
-**Implementering:** `src/compute/Compute.c` — `CalculatePanelTemperature()` (rad 47–54) och `Compute_GenerateEnergyPlan()` (rad 252–262)
+**Implementering:** `src/compute/Compute.c` — `CalculatePOA()` (steg 0), `CalculatePanelTemperature()` (steg 1) och `Compute_GenerateEnergyPlan()` (steg 2–3)
 
 ---
 

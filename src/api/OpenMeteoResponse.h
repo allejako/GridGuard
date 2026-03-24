@@ -8,7 +8,9 @@ typedef struct
     double humidity2m;
     double cloudCover;
     double windSpeed10m;
-    double shortwaveRadiation;
+    double shortwaveRadiation;       // GHI — global horizontal irradiance (W/m²)
+    double directNormalIrradiance;   // DNI — direct beam, normal to sun (W/m²)
+    double diffuseRadiation;         // DHI — diffuse horizontal irradiance (W/m²)
 } OpenMeteoEntry;
 
 typedef struct

@@ -13,7 +13,11 @@ typedef struct
     double gridFeeLow;
     double gridFeeNormal;
     double gridFeeHigh;
-    char   openMeteoJson[32768];  // 48h weather data (~8KB for 192 quarters)
+    double panelTiltDeg;
+    double panelAzimuthDeg;
+    double latitudeDbl;
+    double longitudeDbl;
+    char   openMeteoJson[32768];  // 48h weather data (~11KB with DNI+DHI for 192 quarters)
     char   priceJson[32768];      // 48h price data (today + tomorrow, ~26KB for 192 quarters)
 } FetchResult;
 
