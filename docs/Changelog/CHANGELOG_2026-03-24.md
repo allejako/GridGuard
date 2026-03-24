@@ -87,3 +87,10 @@ Följande fält lades till i hela pipeline:
 - `tests/unit/test_user_config_db_gtest.cpp` — `SolarParamsPersist` utökad med round-trip-verifiering av `panelTiltDeg=35°` och `panelAzimuthDeg=195°`
 
 Resultat: 9/9 compute-tester och 7/7 user_config_db-tester gröna.
+
+### `.gitignore` utökad
+
+Två kataloger saknades i `.gitignore` och dök upp som pending changes i source control:
+
+- `build_test/` — CMake-testbyggkatalogen som skapas av `cmake -B build_test`. Läggs till bredvid befintliga `build/` och `build-tsan/`.
+- `docs/profiling/` — Benchmark- och gprof-resultfiler (`bench_*.txt`, `gprof_*.txt`). Regeln gäller alla branches så att profilkörningar aldrig råkar committas.
